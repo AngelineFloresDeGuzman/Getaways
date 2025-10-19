@@ -10,8 +10,10 @@
 @layer base {
   :root {
     /* Warm Hospitality Color Palette */
-    --background: 33 40% 98%; /* Light cream #FFFDF9 */
-    --foreground: 210 47% 15%; /* Deep navy #1C2A39 */
+    --background: 33 40% 98%;
+    /* Light cream #FFFDF9 */
+    --foreground: 210 47% 15%;
+    /* Deep navy #1C2A39 */
 
     --card: 33 40% 98%;
     --card-foreground: 210 47% 15%;
@@ -20,25 +22,32 @@
     --popover-foreground: 210 47% 15%;
 
     /* Primary - Warm Golden Tan */
-    --primary: 25 47% 63%; /* #D4A373 */
+    --primary: 25 47% 63%;
+    /* #D4A373 */
     --primary-foreground: 210 47% 15%;
-    --primary-hover: 25 47% 55%; /* Darker golden shade */
+    --primary-hover: 25 47% 55%;
+    /* Darker golden shade */
 
     /* Secondary - Soft Pastel Blue */
-    --secondary: 194 35% 75%; /* #AECBD6 */
+    --secondary: 194 35% 75%;
+    /* #AECBD6 */
     --secondary-foreground: 0 0% 100%;
 
     /* Warm Beige Background */
-    --muted: 33 35% 89%; /* #F5E9DA */
+    --muted: 33 35% 89%;
+    /* #F5E9DA */
     --muted-foreground: 210 25% 45%;
 
     /* Accent - Warm Beige */
-    --accent: 33 35% 89%; /* #F5E9DA */
+    --accent: 33 35% 89%;
+    /* #F5E9DA */
     --accent-foreground: 210 47% 15%;
 
     /* Success & Error with hospitality touch */
-    --success: 120 44% 55%; /* #4CAF50 */
-    --destructive: 4 68% 67%; /* #E57373 soft coral */
+    --success: 120 44% 55%;
+    /* #4CAF50 */
+    --destructive: 4 68% 67%;
+    /* #E57373 soft coral */
     --destructive-foreground: 0 0% 100%;
 
     --border: 33 25% 85%;
@@ -82,8 +91,10 @@
 
   .dark {
     /* Dark mode with warm hospitality theme */
-    --background: 210 47% 8%; /* Dark navy */
-    --foreground: 33 40% 95%; /* Light cream */
+    --background: 210 47% 8%;
+    /* Dark navy */
+    --foreground: 33 40% 95%;
+    /* Light cream */
 
     --card: 210 47% 10%;
     --card-foreground: 33 40% 95%;
@@ -91,20 +102,25 @@
     --popover: 210 47% 10%;
     --popover-foreground: 33 40% 95%;
 
-    --primary: 25 47% 63%; /* Keep warm golden tan */
+    --primary: 25 47% 63%;
+    /* Keep warm golden tan */
     --primary-foreground: 210 47% 8%;
-    --primary-hover: 25 47% 70%; /* Lighter for dark mode */
+    --primary-hover: 25 47% 70%;
+    /* Lighter for dark mode */
 
-    --secondary: 194 35% 45%; /* Darker blue for dark mode */
+    --secondary: 194 35% 45%;
+    /* Darker blue for dark mode */
     --secondary-foreground: 33 40% 95%;
 
     --muted: 210 47% 15%;
     --muted-foreground: 33 25% 70%;
 
-    --accent: 33 35% 20%; /* Darker beige for dark mode */
+    --accent: 33 35% 20%;
+    /* Darker beige for dark mode */
     --accent-foreground: 33 40% 95%;
 
-    --destructive: 4 68% 60%; /* Slightly darker coral */
+    --destructive: 4 68% 60%;
+    /* Slightly darker coral */
     --destructive-foreground: 33 40% 95%;
 
     --border: 210 47% 20%;
@@ -133,14 +149,19 @@
     font-family: 'Open Sans', system-ui, sans-serif;
   }
 
-  h1, h2, h3, h4, h5, h6 {
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
     font-family: 'Poppins', system-ui, sans-serif;
   }
 }
 
 @layer components {
   /* Havenly Component Styles */
-  
+
   .btn-primary {
     background-color: hsl(var(--primary));
     color: hsl(var(--primary-foreground));
@@ -157,7 +178,7 @@
     box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
     transform: translateY(-2px);
   }
-  
+
   .btn-secondary {
     background-color: hsl(var(--secondary));
     color: hsl(var(--secondary-foreground));
@@ -270,7 +291,7 @@
   .font-heading {
     font-family: 'Poppins', system-ui, sans-serif;
   }
-  
+
   .font-body {
     font-family: 'Open Sans', system-ui, sans-serif;
   }
@@ -299,6 +320,7 @@
       opacity: 0;
       transform: translateY(20px);
     }
+
     to {
       opacity: 1;
       transform: translateY(0);
@@ -310,6 +332,7 @@
       opacity: 0;
       transform: translateY(40px);
     }
+
     to {
       opacity: 1;
       transform: translateY(0);
@@ -321,6 +344,7 @@
       opacity: 0;
       transform: scale(0.95);
     }
+
     to {
       opacity: 1;
       transform: scale(1);
@@ -377,4 +401,48 @@
   .bg-inherit {
     background-color: inherit;
   }
+}
+
+/* global.css */
+@layer utilities {
+
+  /* Dark mode: approximate gray for calendar icon */
+  .dark input::-webkit-calendar-picker-indicator {
+    filter: brightness(0) saturate(100%) opacity(0.5);
+    /* makes it gray */
+  }
+
+  /* Light mode: default gray */
+  input::-webkit-calendar-picker-indicator {
+    filter: brightness(0) saturate(100%) opacity(0.5);
+    /* makes it gray */
+  }
+}
+
+@keyframes jump {
+
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-20%);
+  }
+}
+
+.animate-jump {
+  animation: jump 1s ease-in-out infinite;
+}
+
+.leaflet-container {
+  cursor: pointer !important;
+}
+
+.leaflet-marker-icon {
+  cursor: grab !important;
+}
+
+.leaflet-marker-icon:active {
+  cursor: grabbing !important;
 }

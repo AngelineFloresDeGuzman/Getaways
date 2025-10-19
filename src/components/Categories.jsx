@@ -1,32 +1,48 @@
-import React from "react";
+import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import LogIn from "@/pages/Auth/LogIn";
 
 const Categories = () => {
+    const navigate = useNavigate();
+    const [showLoginModal, setShowLoginModal] = useState(false);
+
     const categories = [
         {
             id: 'accommodations',
             title: 'Accommodations',
             description: 'Cozy homes, luxury hotels, and unique stays for every traveler',
             image: 'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=800&h=600&fit=crop',
-            stats: '10,000+ properties'
+            stats: '10,000+ properties',
+            link: '/accommodations'
         },
         {
             id: 'experiences',
             title: 'Experiences',
             description: 'Local tours, adventure activities, and cultural immersions',
             image: 'https://images.unsplash.com/photo-1506377247377-2a5b3b417ebb?w=800&h=600&fit=crop',
-            stats: '3,000+ experiences'
+            stats: '3,000+ experiences',
+            link: '/experiences'
         },
         {
             id: 'services',
             title: 'Services',
             description: 'Professional spa treatments, personal chefs, and concierge services',
             image: 'https://images.unsplash.com/photo-1540555700478-4be289fbecef?w=800&h=600&fit=crop',
-            stats: '5,000+ services'
+            stats: '5,000+ services',
+            link: '/services'
         }
     ];
 
+    const handleNavigate = (link) => {
+        navigate(link);
+    };
+
+    const handleRequireLogin = () => {
+        setShowLoginModal(true);
+    };
+
     return (
-        <section className="py-20 px-6 bg-muted/30">
+        <section className="py-36 px-6 bg-muted/30">
             <div className="max-w-7xl mx-auto">
                 <div className="text-center mb-16 animate-fade-in">
                     <h2 className="font-heading text-4xl md:text-5xl font-bold text-foreground mb-6">
@@ -64,19 +80,20 @@ const Categories = () => {
                                 <p className="font-body text-muted-foreground mb-6 leading-relaxed">
                                     {category.description}
                                 </p>
-                                <button className="btn-outline w-full group-hover:bg-primary group-hover:text-primary-foreground transition-all duration-300">
+                                <button
+                                    onClick={() => handleNavigate(category.link)}
+                                    className="btn-outline w-full group-hover:bg-primary group-hover:text-primary-foreground transition-all duration-300"
+                                >
                                     Explore {category.title}
                                 </button>
                             </div>
                         </div>
                     ))}
                 </div>
-
-                <div className="text-center mt-16 animate-fade-in">
-                    <p className="font-body text-muted-foreground mb-6">Ready to start your journey?</p>
-                    <button className="btn-primary text-lg px-8 py-4">Start Exploring</button>
-                </div>
             </div>
+
+            {/* Login Modal */}
+            {showLoginModal && <LogIn isModal={true} onClose={() => setShowLoginModal(false)} />}
         </section>
     );
 };

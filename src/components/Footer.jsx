@@ -50,7 +50,7 @@ const Footer = () => {
         { icon: Instagram, href: '#instagram', label: 'Instagram' },
         { icon: Youtube, href: '#youtube', label: 'YouTube' }
     ];
-    return (React.createElement("footer", { className: "bg-gray-300 pt-16 pb-8" },
+    return (React.createElement("footer", { className: "pt-36 pb-8" },
         React.createElement("div", { className: "max-w-7xl mx-auto px-6" },
             React.createElement("div", { className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-8 mb-12" },
                 React.createElement("div", { className: "lg:col-span-2" },

@@ -1,130 +1,414 @@
-import React from "react";
-import Navigation from '@/components/Navigation';
-import Footer from '@/components/Footer';
-import { Sparkles, Clock, MapPin, Star, Heart, Share2 } from 'lucide-react';
+import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import Navigation from "@/components/Navigation";
+import Footer from "@/components/Footer";
+import { Sparkles, Clock, MapPin, Star, Heart, Share2, X } from "lucide-react";
+import { auth } from "@/lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import LogIn from "@/pages/Auth/LogIn";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faXTwitter, faFacebookF, faInstagram, faFacebookMessenger } from "@fortawesome/free-brands-svg-icons";
+import { Link } from "react-router-dom";
+import FavoriteButton from "@/components/FavoriteButton";
+
 const Services = () => {
-    const services = [
-        {
-            id: 1,
-            title: "Luxury Spa Treatment",
-            provider: "Serenity Wellness",
-            location: "Beverly Hills, CA",
-            price: 180,
-            duration: "90 min",
-            rating: 4.9,
-            reviews: 87,
-            image: "https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&w=800&q=80",
-            category: "Wellness & Spa"
-        },
-        {
-            id: 2,
-            title: "Private Chef Service",
-            provider: "Gourmet At Home",
-            location: "Manhattan, NY",
-            price: 320,
-            duration: "3 hours",
-            rating: 4.8,
-            reviews: 156,
-            image: "https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?auto=format&fit=crop&w=800&q=80",
-            category: "Dining & Culinary"
-        },
-        {
-            id: 3,
-            title: "Personal Training Session",
-            provider: "FitLife Trainers",
-            location: "Miami, FL",
-            price: 95,
-            duration: "60 min",
-            rating: 4.7,
-            reviews: 203,
-            image: "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?auto=format&fit=crop&w=800&q=80",
-            category: "Fitness & Health"
-        },
-        {
-            id: 4,
-            title: "Photography Session",
-            provider: "Moment Capture Studio",
-            location: "San Francisco, CA",
-            price: 250,
-            duration: "2 hours",
-            rating: 4.9,
-            reviews: 124,
-            image: "https://images.unsplash.com/photo-1606983340126-99ab4feaa64a?auto=format&fit=crop&w=800&q=80",
-            category: "Photography"
-        }
-    ];
-    const categories = [
-        "All Services",
-        "Wellness & Spa",
-        "Dining & Culinary",
-        "Fitness & Health",
-        "Photography",
-        "Beauty & Grooming",
-        "Transportation",
-        "Concierge"
-    ];
-    return (React.createElement("div", { className: "min-h-screen bg-background" },
-        React.createElement(Navigation, null),
-        React.createElement("section", { className: "pt-24 pb-12 px-6 bg-gradient-to-br from-secondary/20 to-accent/20" },
-            React.createElement("div", { className: "max-w-7xl mx-auto" },
-                React.createElement("div", { className: "flex items-center gap-3 mb-4 animate-fade-in" },
-                    React.createElement(Sparkles, { className: "w-8 h-8 text-accent" }),
-                    React.createElement("h1", { className: "font-heading text-4xl md:text-6xl font-bold text-foreground" }, "Premium Services")),
-                React.createElement("p", { className: "font-body text-xl text-muted-foreground max-w-2xl animate-fade-in" }, "Enhance your stay with personalized services from local professionals"))),
-        React.createElement("section", { className: "py-8 px-6 border-b border-border" },
-            React.createElement("div", { className: "max-w-7xl mx-auto" },
-                React.createElement("div", { className: "flex items-center gap-4 overflow-x-auto pb-2" }, categories.map((category, index) => (React.createElement("button", { key: category, className: `flex-shrink-0 px-6 py-3 rounded-full font-medium transition-all ${index === 0
-                        ? 'bg-accent text-accent-foreground'
-                        : 'bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground'}` }, category)))))),
-        React.createElement("section", { className: "py-12 px-6" },
-            React.createElement("div", { className: "max-w-7xl mx-auto" },
-                React.createElement("div", { className: "flex items-center justify-between mb-8" },
-                    React.createElement("p", { className: "font-body text-muted-foreground" },
-                        services.length,
-                        " services available"),
-                    React.createElement("select", { className: "p-2 border border-border rounded-lg bg-background text-foreground" },
-                        React.createElement("option", null, "Sort by: Recommended"),
-                        React.createElement("option", null, "Price: Low to High"),
-                        React.createElement("option", null, "Price: High to Low"),
-                        React.createElement("option", null, "Rating: High to Low"))),
-                React.createElement("div", { className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-8" }, services.map((service, index) => (React.createElement("div", { key: service.id, className: "card-listing hover-lift cursor-pointer animate-slide-up", style: { animationDelay: `${index * 100}ms` } },
-                    React.createElement("div", { className: "relative overflow-hidden rounded-t-2xl" },
-                        React.createElement("img", { src: service.image, alt: service.title, className: "w-full h-64 object-cover hover:scale-105 transition-transform duration-300" }),
-                        React.createElement("button", { className: "absolute top-4 right-4 p-2 bg-white/90 rounded-full hover:bg-white hover:scale-110 transition-all" },
-                            React.createElement(Heart, { className: "w-5 h-5 text-muted-foreground hover:text-red-500" })),
-                        React.createElement("button", { className: "absolute top-4 left-4 p-2 bg-white/90 rounded-full hover:bg-white hover:scale-110 transition-all" },
-                            React.createElement(Share2, { className: "w-5 h-5 text-muted-foreground" })),
-                        React.createElement("div", { className: "absolute bottom-4 left-4 bg-white/90 rounded-full px-3 py-1" },
-                            React.createElement("span", { className: "text-sm font-medium text-foreground" }, service.category))),
-                    React.createElement("div", { className: "p-6" },
-                        React.createElement("div", { className: "flex items-start justify-between mb-3" },
-                            React.createElement("div", null,
-                                React.createElement("h3", { className: "font-heading text-xl font-semibold text-foreground mb-1" }, service.title),
-                                React.createElement("p", { className: "font-body text-accent font-medium mb-1" },
-                                    "by ",
-                                    service.provider),
-                                React.createElement("p", { className: "font-body text-muted-foreground flex items-center gap-1" },
-                                    React.createElement(MapPin, { className: "w-4 h-4" }),
-                                    service.location)),
-                            React.createElement("div", { className: "flex items-center gap-1" },
-                                React.createElement(Star, { className: "w-4 h-4 fill-yellow-400 text-yellow-400" }),
-                                React.createElement("span", { className: "font-medium text-sm" }, service.rating),
-                                React.createElement("span", { className: "text-muted-foreground text-sm" },
-                                    "(",
-                                    service.reviews,
-                                    ")"))),
-                        React.createElement("div", { className: "flex items-center gap-2 mb-4" },
-                            React.createElement(Clock, { className: "w-4 h-4 text-muted-foreground" }),
-                            React.createElement("span", { className: "text-sm text-muted-foreground" }, service.duration)),
-                        React.createElement("div", { className: "flex items-center justify-between" },
-                            React.createElement("div", null,
-                                React.createElement("span", { className: "font-heading text-2xl font-bold text-foreground" },
-                                    "$",
-                                    service.price),
-                                React.createElement("span", { className: "font-body text-muted-foreground" }, " / session")),
-                            React.createElement("button", { className: "btn-primary" }, "Book Service"))))))),
-                React.createElement("div", { className: "text-center mt-12" },
-                    React.createElement("button", { className: "btn-outline px-8 py-3" }, "Load More Services")))),
-        React.createElement(Footer, null)));
+  const navigate = useNavigate();
+  const [user, setUser] = useState(null);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [showCollectionModal, setShowCollectionModal] = useState(false);
+  const [activeShare, setActiveShare] = useState(null);
+  const [copied, setCopied] = useState(false);
+  const shareUrl = `${window.location.origin}/services/${activeShare}`;
+  const [favoriteItems, setFavoriteItems] = useState([]);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const services = [
+    {
+      id: 1,
+      title: "Luxury Spa Treatment",
+      provider: "Serenity Wellness",
+      location: "Beverly Hills, CA",
+      price: 180,
+      duration: "90 min",
+      rating: 4.9,
+      reviews: 87,
+      image:
+        "https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&w=800&q=80",
+      category: "Wellness & Spa",
+    },
+    {
+      id: 2,
+      title: "Private Chef Service",
+      provider: "Gourmet At Home",
+      location: "Manhattan, NY",
+      price: 320,
+      duration: "3 hours",
+      rating: 4.8,
+      reviews: 156,
+      image:
+        "https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?auto=format&fit=crop&w=800&q=80",
+      category: "Dining & Culinary",
+    },
+    {
+      id: 3,
+      title: "Personal Training Session",
+      provider: "FitLife Trainers",
+      location: "Miami, FL",
+      price: 95,
+      duration: "60 min",
+      rating: 4.7,
+      reviews: 203,
+      image:
+        "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?auto=format&fit=crop&w=800&q=80",
+      category: "Fitness & Health",
+    },
+    {
+      id: 4,
+      title: "Photography Session",
+      provider: "Moment Capture Studio",
+      location: "San Francisco, CA",
+      price: 250,
+      duration: "2 hours",
+      rating: 4.9,
+      reviews: 124,
+      image:
+        "https://images.unsplash.com/photo-1606983340126-99ab4feaa64a?auto=format&fit=crop&w=800&q=80",
+      category: "Photography",
+    },
+  ];
+
+  const categories = [
+    "All Services",
+    "Wellness & Spa",
+    "Dining & Culinary",
+    "Fitness & Health",
+    "Photography",
+    "Beauty & Grooming",
+    "Transportation",
+    "Concierge",
+  ];
+
+  const handleFavoriteClick = (e) => {
+    e.stopPropagation();
+    if (!user) {
+      setShowLoginModal(true);
+      return;
+    }
+    setShowCollectionModal(true);
+  };
+
+  const toggleFavorite = (item, type) => {
+    if (!user) {
+      setShowLoginModal(true);
+      return;
+    }
+
+    const storageKey = `favorites_${user.uid}`;
+    const storedFavorites = JSON.parse(localStorage.getItem(storageKey)) || [];
+    const isAlreadyFavorite = storedFavorites.some(fav => fav.id === item.id && fav.type === type);
+    
+    const updatedFavorites = isAlreadyFavorite
+      ? storedFavorites.filter(fav => !(fav.id === item.id && fav.type === type))
+      : [...storedFavorites, { ...item, type }];
+
+    setFavoriteItems(updatedFavorites);
+    localStorage.setItem(storageKey, JSON.stringify(updatedFavorites));
+    
+    // Dispatch custom event for same-tab synchronization
+    window.dispatchEvent(new CustomEvent('favoritesChanged', {
+        detail: { favorites: updatedFavorites, userId: user.uid }
+    }));
+  };
+
+  useEffect(() => {
+    if (!user) return;
+
+    const loadFavorites = () => {
+      const storageKey = `favorites_${user.uid}`;
+      const storedFavorites = JSON.parse(localStorage.getItem(storageKey)) || [];
+      setFavoriteItems(storedFavorites);
+    };
+
+    loadFavorites();
+
+    const handleStorage = (e) => {
+      if (e.key === `favorites_${user.uid}`) {
+        loadFavorites();
+      }
+    };
+
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, [user]);
+
+  return (
+    <div className="min-h-screen bg-background">
+      <Navigation />
+
+      {/* ✅ Real Login Modal (uses existing LogIn.jsx) */}
+      {showLoginModal && (
+        <LogIn isModal={true} onClose={() => setShowLoginModal(false)} />
+      )}
+
+      <section className="pt-36 pb-12 px-6 bg-gradient-to-br from-secondary/20 to-accent/20">
+        <div className="max-w-7xl mx-auto">
+          <div className="flex items-center gap-3 mb-4 animate-fade-in">
+            <Sparkles className="w-8 h-8 text-accent" />
+            <h1 className="font-heading text-4xl md:text-6xl font-bold text-foreground">
+              Premium Services
+            </h1>
+          </div>
+          <p className="font-body text-xl text-muted-foreground max-w-2xl animate-fade-in">
+            Enhance your stay with personalized services from local professionals
+          </p>
+        </div>
+      </section>
+
+      <section className="py-8 px-6 border-b border-border">
+        <div className="max-w-7xl mx-auto">
+          <div className="flex items-center gap-4 overflow-x-auto pb-2">
+            {categories.map((category, index) => (
+              <button
+                key={category}
+                className={`flex-shrink-0 px-6 py-3 rounded-full font-medium transition-all ${index === 0
+                  ? "bg-accent text-accent-foreground"
+                  : "bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground"
+                  }`}
+              >
+                {category}
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="py-12 px-6">
+        <div className="max-w-7xl mx-auto">
+          <div className="flex items-center justify-between mb-8">
+            <p className="font-body text-muted-foreground">
+              {services.length} services available
+            </p>
+            <select className="p-2 border border-border rounded-lg bg-background text-foreground">
+              <option>Sort by: Recommended</option>
+              <option>Price: Low to High</option>
+              <option>Price: High to Low</option>
+              <option>Rating: High to Low</option>
+            </select>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-8">
+            {services.map((service, index) => (
+              <div
+                key={service.id}
+                className="card-listing hover-lift cursor-pointer animate-slide-up"
+                style={{ animationDelay: `${index * 100}ms` }}
+                onClick={() => navigate(`/services/${service.id}`)} // move navigation here
+              >
+                <div className="relative overflow-hidden rounded-t-2xl">
+                  <img
+                    src={service.image}
+                    alt={service.title}
+                    className="w-full h-64 object-cover hover:scale-105 transition-transform duration-300"
+                  />
+
+                  {/* Favorite and Share buttons */}
+                  <div
+                    className="absolute top-4 right-4 flex gap-2"
+                    onClick={(e) => e.stopPropagation()} // stops card navigation
+                  >
+                    <FavoriteButton
+                      item={{ ...(service || {}), type: "service" }}
+                      user={user}
+                      isFavorite={favoriteItems.some(
+                        fav => service && fav && fav.id === service.id && fav.type === "service"
+                      )}
+                      onRequireLogin={() => setShowLoginModal(true)}
+                      onToggle={() => toggleFavorite(service, "service")}
+                    />
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveShare(service.id);
+                      }}
+                      className="p-2 bg-white/90 rounded-full hover:bg-white hover:scale-110 transition-all"
+                    >
+                      <Share2 className="w-5 h-5 text-muted-foreground" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-6">
+                  <h3 className="font-heading text-xl font-semibold text-foreground mb-1">
+                    {service.title}
+                  </h3>
+                  <p className="font-body text-primary font-medium mb-1">
+                    by {service.provider}
+                  </p>
+                  <p className="font-body text-muted-foreground flex items-center gap-1">
+                    <MapPin className="w-4 h-4" /> {service.location}
+                  </p>
+
+                  <div className="flex items-center gap-1">
+                    <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
+                    <span className="font-medium text-sm">{service.rating}</span>
+                    <span className="text-muted-foreground text-sm">({service.reviews})</span>
+                  </div>
+
+                  <div className="flex items-center gap-2 mt-2">
+                    <Clock className="w-4 h-4 text-muted-foreground" />
+                    <span className="text-sm text-muted-foreground">{service.duration}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between mt-4">
+                    <div>
+                      <span className="font-heading text-2xl font-bold text-foreground">
+                        ${service.price}
+                      </span>
+                      <span className="font-body text-muted-foreground"> / session</span>
+                    </div>
+                    <button className="btn-primary">Book Service</button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="text-center mt-12">
+            <button className="btn-outline px-8 py-3">Load More Services</button>
+          </div>
+        </div>
+      </section>
+
+      {/* 🔗 Share Popup Modal */}
+      {activeShare && (
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
+          onClick={() => setActiveShare(null)}
+        >
+          <div
+            className="bg-white rounded-2xl p-6 shadow-xl w-full max-w-sm text-center relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* ❌ X Button */}
+            <button
+              onClick={() => setActiveShare(null)}
+              className="absolute top-4 right-4 p-1 rounded-full hover:bg-gray-100"
+            >
+              <X className="w-5 h-5 text-gray-500" />
+            </button>
+
+            <h2 className="text-xl font-heading font-bold mb-4">
+              Share this Service
+            </h2>
+            <p className="text-muted-foreground text-sm mb-6">
+              Choose a platform to share on or copy the link below.
+            </p>
+
+            {/* Social Buttons */}
+            <div className="flex justify-center gap-4 mb-6 flex-wrap">
+              {/** All buttons: same size, fully rounded */}
+              <a
+                href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(`${window.location.origin}/services/${activeShare}`)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center w-12 h-12 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition"
+                title="Share on Facebook"
+              >
+                <FontAwesomeIcon icon={faFacebookF} className="w-5 h-5" />
+              </a>
+
+              <a
+                href={`https://twitter.com/intent/tweet?url=${encodeURIComponent(`${window.location.origin}/services/${activeShare}`)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center w-12 h-12 bg-black text-white rounded-full hover:bg-gray-800 transition"
+                title="Share on X"
+              >
+                <FontAwesomeIcon icon={faXTwitter} className="w-5 h-5" />
+              </a>
+
+              <a
+                href={`https://www.instagram.com/`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center w-12 h-12 bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 text-white rounded-full hover:opacity-90 transition"
+                title="Share on Instagram"
+              >
+                <FontAwesomeIcon icon={faInstagram} className="w-5 h-5" />
+              </a>
+
+              <a
+                href={`https://www.messenger.com/t/?link=${encodeURIComponent(`${window.location.origin}/services/${activeShare}`)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center w-12 h-12 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition"
+                title="Share on Messenger"
+              >
+                <FontAwesomeIcon icon={faFacebookMessenger} className="w-5 h-5" />
+              </a>
+
+              <button
+                onClick={async () => {
+                  if (navigator.share) {
+                    try {
+                      await navigator.share({
+                        title: "Check out this service on Havenly!",
+                        text: "Explore this amazing service!",
+                        url: `${window.location.origin}/services/${activeShare}`,
+                      });
+                    } catch (error) {
+                      console.error("Share cancelled or failed:", error);
+                    }
+                  } else {
+                    alert("Sharing via device apps is not supported on this browser.");
+                  }
+                }}
+                className="flex items-center justify-center w-12 h-12 bg-gray-300 text-gray-800 rounded-full hover:bg-gray-400 transition"
+                title="More Options"
+              >
+                ⋮
+              </button>
+            </div>
+
+            {/* Copy Link Section */}
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={shareUrl}
+                  className="border border-border rounded-lg px-3 py-2 w-full text-sm"
+                />
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(shareUrl);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000); // hide after 2 seconds
+                  }}
+                  className="btn-outline px-4 py-2 text-sm"
+                >
+                  Copy
+                </button>
+              </div>
+              {copied && (
+                <p className="text-green-600 text-sm font-medium transition-opacity">
+                  ✅ Link copied!
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <Footer />
+    </div>
+  );
 };
+
 export default Services;
