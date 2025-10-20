@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   Wifi, 
@@ -20,12 +20,71 @@ import {
   AlertTriangle,
   Flame as FireIcon
 } from 'lucide-react';
+import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
+import { useSaveAndExitWithContext } from './hooks/useSaveAndExit';
 
 const Amenities = () => {
   const navigate = useNavigate();
   const location = useLocation();
   
-  const [selectedAmenities, setSelectedAmenities] = useState([]);
+  // Use OnboardingContext for proper draft management
+  let contextData;
+  try {
+    contextData = useOnboarding();
+  } catch (error) {
+    console.error('OnboardingContext error:', error);
+    // Fallback values
+    contextData = {
+      state: { selectedAmenities: [], isLoading: false },
+      actions: { 
+        updateAmenities: () => {},
+        saveAndExit: () => Promise.reject(new Error('Context not available'))
+      }
+    };
+  }
+  
+  const { state, actions } = contextData;
+  const { handleSaveAndExit } = useSaveAndExitWithContext(actions);
+  const actionsRef = useRef(actions);
+  const draftLoaded = useRef(false);
+  actionsRef.current = actions;
+  
+  const [selectedAmenities, setSelectedAmenities] = useState(state.selectedAmenities || []);
+
+  // Load draft data when navigating from "Continue Editing"
+  useEffect(() => {
+    const loadDraftData = async () => {
+      // Only load draft if user is authenticated and we have a draftId
+      if (location.state?.draftId && !draftLoaded.current && actions.loadDraft && state.user) {
+        console.log('Amenities - Loading draft with ID:', location.state.draftId);
+        try {
+          await actions.loadDraft(location.state.draftId);
+          draftLoaded.current = true;
+          console.log('Amenities - Draft loaded successfully');
+        } catch (error) {
+          console.error('Amenities - Error loading draft:', error);
+        }
+      } else if (location.state?.draftId && !state.user && !draftLoaded.current) {
+        console.log('Amenities: Cannot load draft - user not authenticated yet');
+      }
+    };
+
+    loadDraftData();
+  }, [location.state?.draftId, state.user]);
+
+  // Set current step when component mounts
+  useEffect(() => {
+    if (actions.setCurrentStep) {
+      actions.setCurrentStep('amenities');
+    }
+  }, []);
+
+  // Update selectedAmenities when state changes (after loading draft)
+  useEffect(() => {
+    if (state.selectedAmenities && (draftLoaded.current || !location.state?.draftId)) {
+      setSelectedAmenities(state.selectedAmenities);
+    }
+  }, [state.selectedAmenities, draftLoaded.current, location.state?.draftId]);
 
   // Amenity categories and items
   const amenityCategories = [
@@ -75,11 +134,71 @@ const Amenities = () => {
 
   // Toggle amenity selection
   const toggleAmenity = (amenityId) => {
-    setSelectedAmenities(prev => 
-      prev.includes(amenityId)
-        ? prev.filter(id => id !== amenityId)
-        : [...prev, amenityId]
-    );
+    const newAmenities = selectedAmenities.includes(amenityId)
+      ? selectedAmenities.filter(id => id !== amenityId)
+      : [...selectedAmenities, amenityId];
+    
+    setSelectedAmenities(newAmenities);
+    
+    // Update context as well
+    if (actions.updateAmenities) {
+      actions.updateAmenities(newAmenities);
+    }
+  };
+
+  // Save & Exit handler
+  const handleSaveAndExitClick = async () => {
+    console.log('Amenities Save & Exit clicked');
+    console.log('Current selectedAmenities:', selectedAmenities);
+    
+    try {
+      // Set current step before saving so "Continue Editing" returns to this page
+      if (actions.setCurrentStep) {
+        console.log('Amenities: Setting currentStep to amenities');
+        actions.setCurrentStep('amenities');
+      }
+      
+      // Ensure amenities are updated in context
+      if (actions.updateAmenities) {
+        actions.updateAmenities(selectedAmenities);
+      }
+      
+      // Override the saveDraft to ensure currentStep and amenities are saved correctly
+      if (actions.saveDraft) {
+        console.log('Amenities: Calling custom saveDraft with forced currentStep and amenities');
+        
+        // Create modified state data with forced currentStep and amenities
+        const { user, isLoading, ...dataToSave } = state;
+        dataToSave.currentStep = 'amenities'; // Force the currentStep
+        dataToSave.selectedAmenities = selectedAmenities; // Ensure latest amenities
+        
+        console.log('Amenities: Data to save with forced currentStep and amenities:', dataToSave);
+        
+        // Import the draftService directly and save with our custom data
+        const { saveDraft } = await import('@/pages/Host/services/draftService');
+        const draftId = await saveDraft(dataToSave, state.draftId);
+        
+        // Update the draftId in context
+        if (actions.setDraftId) {
+          actions.setDraftId(draftId);
+        }
+        
+        // Navigate to dashboard
+        navigate('/host/hostdashboard', { 
+          state: { 
+            message: 'Draft saved successfully!',
+            draftSaved: true 
+          }
+        });
+      } else {
+        // Fallback to normal save
+        await handleSaveAndExit();
+      }
+      
+    } catch (error) {
+      console.error('Error in Amenities save:', error);
+      alert('Failed to save progress: ' + error.message);
+    }
   };
 
   // Amenity item component
@@ -117,7 +236,13 @@ const Amenities = () => {
           </svg>
           <div className="flex items-center gap-6">
             <button className="font-medium text-sm hover:underline">Questions?</button>
-            <button className="font-medium text-sm hover:underline">Save & exit</button>
+            <button 
+              onClick={handleSaveAndExitClick}
+              disabled={state.isLoading}
+              className="font-medium text-sm hover:underline disabled:opacity-50"
+            >
+              {state.isLoading ? 'Saving...' : 'Save & exit'}
+            </button>
           </div>
         </div>
       </header>

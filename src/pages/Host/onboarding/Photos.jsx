@@ -1,11 +1,18 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Upload, X, Camera } from 'lucide-react';
+import { Upload, X, Camera, Trash2 } from 'lucide-react';
+import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
+import { useSaveAndExitWithContext } from './hooks/useSaveAndExit.js';
 
 const Photos = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  
+  // OnboardingContext integration
+  const { state, actions } = useOnboarding();
+  const { handleSaveAndExit } = useSaveAndExitWithContext(actions);
   const fileInputRef = useRef(null);
+  const draftLoaded = useRef(false);
   
   // Get property type from navigation state, default to 'house'
   const propertyType = location.state?.propertyType?.toLowerCase() || 
@@ -16,11 +23,101 @@ const Photos = () => {
   console.log('Photos - location.state:', location.state);
   console.log('Photos - propertyType:', propertyType);
   
-  const [uploadedPhotos, setUploadedPhotos] = useState([]);
+  const [uploadedPhotos, setUploadedPhotos] = useState(state.photos || []);
   const [isDragging, setIsDragging] = useState(false);
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [pendingPhotos, setPendingPhotos] = useState([]);
+
+  // Load draft data when navigating from "Continue Editing"
+  useEffect(() => {
+    const loadDraftData = async () => {
+      // Only load draft if user is authenticated and we have a draftId
+      if (location.state?.draftId && !draftLoaded.current && actions.loadDraft && state.user) {
+        console.log('Photos - Loading draft with ID:', location.state.draftId);
+        try {
+          await actions.loadDraft(location.state.draftId);
+          draftLoaded.current = true;
+          console.log('Photos - Draft loaded successfully');
+        } catch (error) {
+          console.error('Photos - Error loading draft:', error);
+        }
+      }
+    };
+
+    loadDraftData();
+  }, [location.state?.draftId, state.user]); // Added state.user dependency
+
+  // Set current step when component mounts
+  useEffect(() => {
+    if (actions.setCurrentStep) {
+      actions.setCurrentStep('photos');
+    }
+  }, []);
+
+  // Sync with context photos when navigating back
+  useEffect(() => {
+    if (state.photos && state.photos.length > 0 && uploadedPhotos.length === 0 && !location.state?.draftId) {
+      console.log('Syncing photos from context on navigation back:', state.photos.length);
+      setUploadedPhotos(state.photos);
+    }
+  }, [state.photos, uploadedPhotos.length, location.state?.draftId]);
+
+  // Update uploadedPhotos when state changes (after loading draft)
+  useEffect(() => {
+    if (state.photos && state.photos.length > 0 && (draftLoaded.current || !location.state?.draftId)) {
+      // Convert base64 photos back to display format
+      const displayPhotos = state.photos.map(photo => ({
+        id: photo.id,
+        name: photo.name,
+        url: photo.base64 || photo.url, // Use base64 as URL for display
+        base64: photo.base64 // Keep base64 for saving
+        // Note: No file object when loaded from draft
+      }));
+      console.log('Loading photos from draft:', displayPhotos);
+      setUploadedPhotos(displayPhotos);
+    } else if (state.photoSummary && draftLoaded.current && (!state.photos || state.photos.length === 0)) {
+      // Fallback: If we only have photo summary, show message
+      console.log('Draft loaded with photo summary only:', state.photoSummary);
+      setUploadedPhotos([]);
+    }
+  }, [state.photos, state.photoSummary, draftLoaded.current, location.state?.draftId]);
+
+  // Helper to convert File to base64 for storage
+  const fileToBase64 = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = error => reject(error);
+    });
+  };
+
+  // Helper to update both local state and context
+  const updatePhotos = async (newPhotos) => {
+    setUploadedPhotos(newPhotos);
+    
+    // Convert photos to base64 for context storage
+    if (actions.updatePhotos && newPhotos.length > 0) {
+      try {
+        const photosWithBase64 = await Promise.all(
+          newPhotos.map(async (photo) => ({
+            id: photo.id,
+            name: photo.name,
+            base64: photo.file ? await fileToBase64(photo.file) : photo.base64, // Use existing base64 if available
+            url: photo.url || photo.base64 // Keep URL for display
+          }))
+        );
+        actions.updatePhotos(photosWithBase64);
+      } catch (error) {
+        console.error('Error converting photos to base64:', error);
+      }
+    } else if (actions.updatePhotos && newPhotos.length === 0) {
+      actions.updatePhotos([]);
+    }
+  };
 
   // Handle file selection
-  const handleFileSelect = (files) => {
+  const handleFileSelect = async (files) => {
     const newPhotos = Array.from(files).map((file) => ({
       id: Date.now() + Math.random(),
       file,
@@ -28,7 +125,93 @@ const Photos = () => {
       name: file.name
     }));
     
-    setUploadedPhotos(prev => [...prev, ...newPhotos]);
+    if (showPreviewModal) {
+      // If modal is already open, add to existing pending photos
+      setPendingPhotos(prev => [...prev, ...newPhotos]);
+    } else {
+      // Show preview modal with new photos
+      setPendingPhotos(newPhotos);
+      setShowPreviewModal(true);
+    }
+  };
+
+  // Handle confirming the pending photos
+  const handleConfirmPhotos = async () => {
+    const updatedPhotos = [...uploadedPhotos, ...pendingPhotos];
+    await updatePhotos(updatedPhotos);
+    setShowPreviewModal(false);
+    setPendingPhotos([]);
+    
+    // Update current step to photos-preview since we're navigating there
+    if (actions.setCurrentStep) {
+      await actions.setCurrentStep('photos-preview');
+    }
+    
+    // Auto-navigate to preview page after uploading photos
+    navigate('/pages/photos-preview', {
+      state: {
+        ...location.state,
+        photos: updatedPhotos
+      }
+    });
+  };
+
+  // Handle canceling the pending photos
+  const handleCancelPhotos = () => {
+    // Clean up object URLs to prevent memory leaks
+    pendingPhotos.forEach(photo => URL.revokeObjectURL(photo.url));
+    setPendingPhotos([]);
+    setShowPreviewModal(false);
+  };
+
+  // Save photos and navigate
+  const saveAndNavigate = async (route, additionalState = {}) => {
+    try {
+      // Save current photos to context
+      if (actions.updatePhotos) {
+        await actions.updatePhotos(uploadedPhotos);
+      }
+      
+      // Update current step in context based on route
+      if (actions.setCurrentStep) {
+        if (route === '/pages/photos-preview') {
+          await actions.setCurrentStep('photos-preview');
+        } else {
+          await actions.setCurrentStep('photos');
+        }
+      }
+      
+      console.log('Photos saved successfully:', uploadedPhotos.length);
+      
+      // Navigate to the specified route
+      navigate(route, {
+        state: {
+          ...location.state,
+          photos: uploadedPhotos,
+          ...additionalState
+        }
+      });
+    } catch (error) {
+      console.error('Error saving photos:', error);
+      alert('Error saving progress. Please try again.');
+    }
+  };
+
+  // Remove a photo from pending photos
+  const removePendingPhoto = (photoId) => {
+    const updatedPending = pendingPhotos.filter(photo => {
+      if (photo.id === photoId) {
+        URL.revokeObjectURL(photo.url); // Clean up object URL
+        return false;
+      }
+      return true;
+    });
+    setPendingPhotos(updatedPending);
+    
+    // Close modal if no photos left
+    if (updatedPending.length === 0) {
+      setShowPreviewModal(false);
+    }
   };
 
   // Handle drag and drop
@@ -59,8 +242,9 @@ const Photos = () => {
   };
 
   // Remove photo
-  const removePhoto = (photoId) => {
-    setUploadedPhotos(prev => prev.filter(photo => photo.id !== photoId));
+  const removePhoto = async (photoId) => {
+    const updatedPhotos = uploadedPhotos.filter(photo => photo.id !== photoId);
+    await updatePhotos(updatedPhotos);
   };
 
   // Open file picker
@@ -69,6 +253,85 @@ const Photos = () => {
   };
 
   const canProceed = uploadedPhotos.length >= 5;
+
+  // Save & Exit handler
+  const handleSaveAndExitClick = async () => {
+    console.log('Photos Save & Exit clicked');
+    console.log('Current uploadedPhotos:', uploadedPhotos);
+    
+    try {
+      // Set current step before saving so "Continue Editing" returns to this page
+      if (actions.setCurrentStep) {
+        console.log('Photos: Setting currentStep to photos');
+        actions.setCurrentStep('photos');
+      }
+      
+      // Ensure photos are updated in context
+      if (actions.updatePhotos) {
+        actions.updatePhotos(uploadedPhotos);
+      }
+      
+      // Override the saveDraft to ensure currentStep and photos are saved correctly
+      if (actions.saveDraft) {
+        console.log('Photos: Calling custom saveDraft with forced currentStep and photos');
+        
+        // Convert current photos to base64 if they haven't been converted yet
+        let photosToSave = [];
+        if (uploadedPhotos.length > 0) {
+          try {
+            photosToSave = await Promise.all(
+              uploadedPhotos.map(async (photo) => ({
+                id: photo.id,
+                name: photo.name,
+                base64: photo.base64 || (photo.file ? await fileToBase64(photo.file) : photo.url)
+              }))
+            );
+          } catch (error) {
+            console.error('Error converting photos for save:', error);
+            // Fallback to summary if conversion fails
+            photosToSave = uploadedPhotos.map(photo => ({
+              id: photo.id,
+              name: photo.name,
+              url: photo.url
+            }));
+          }
+        }
+        
+        // Create modified state data with forced currentStep and photos
+        const { user, isLoading, ...dataToSave } = state;
+        dataToSave.currentStep = 'photos'; // Force the currentStep
+        dataToSave.photos = photosToSave; // Save photos with base64 data
+        dataToSave.photoCount = uploadedPhotos.length; // Also save count for quick reference
+        
+        console.log('Photos: Data to save with forced currentStep and photos:', dataToSave);
+        
+        // Import the draftService directly and save with our custom data
+        const { saveDraft } = await import('@/pages/Host/services/draftService');
+        const draftId = await saveDraft(dataToSave, state.draftId);
+        console.log("Saving draft dataToSave.photos:", dataToSave.photos);
+        
+        // Update the draftId in context
+        if (actions.setDraftId) {
+          actions.setDraftId(draftId);
+        }
+        
+        // Navigate to dashboard
+        navigate('/host/hostdashboard', { 
+          state: { 
+            message: 'Draft saved successfully!',
+            draftSaved: true 
+          }
+        });
+      } else {
+        // Fallback to normal save
+        await handleSaveAndExit();
+      }
+      
+    } catch (error) {
+      console.error('Error in Photos save:', error);
+      alert('Failed to save progress: ' + error.message);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-white">
@@ -80,7 +343,13 @@ const Photos = () => {
           </svg>
           <div className="flex items-center gap-6">
             <button className="font-medium text-sm hover:underline">Questions?</button>
-            <button className="font-medium text-sm hover:underline">Save & exit</button>
+            <button 
+              onClick={handleSaveAndExitClick}
+              disabled={state.isLoading}
+              className="font-medium text-sm hover:underline disabled:opacity-50"
+            >
+              {state.isLoading ? 'Saving...' : 'Save & exit'}
+            </button>
           </div>
         </div>
       </header>
@@ -108,6 +377,22 @@ const Photos = () => {
             <p className="text-gray-600 text-lg">
               You'll need 5 photos to get started. You can add more or make changes later.
             </p>
+            {/* Show message when continuing from draft */}
+            {draftLoaded.current && uploadedPhotos.length > 0 && (
+              <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+                <p className="text-green-800 text-sm">
+                  ✅ <strong>Draft restored:</strong> {uploadedPhotos.length} photo{uploadedPhotos.length !== 1 ? 's' : ''} loaded from your previous session.
+                </p>
+              </div>
+            )}
+            {state.photoSummary && draftLoaded.current && uploadedPhotos.length === 0 && (
+              <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <p className="text-blue-800 text-sm">
+                  📝 <strong>Continuing from draft:</strong> You previously uploaded {state.photoSummary.count} photo{state.photoSummary.count !== 1 ? 's' : ''} 
+                  ({state.photoSummary.names.join(', ')}). Please re-upload your photos to continue.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Photo Upload Area */}
@@ -202,6 +487,21 @@ const Photos = () => {
                   <span className="text-sm text-gray-600">Add more</span>
                 </button>
               </div>
+
+              {/* Preview photos button - only show when photos are uploaded */}
+              {uploadedPhotos.length > 0 && (
+                <div className="flex justify-center mt-6">
+                  <button
+                    onClick={async () => {
+                      // Save and navigate to photos preview
+                      await saveAndNavigate('/pages/photos-preview');
+                    }}
+                    className="bg-white border border-black text-black px-6 py-3 rounded-lg font-medium hover:bg-gray-50 transition-colors"
+                  >
+                    Preview photos
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -223,7 +523,7 @@ const Photos = () => {
           <div className="px-8 py-6">
             <div className="flex justify-between items-center">
               <button
-                onClick={() => navigate('/pages/amenities')}
+                onClick={async () => await saveAndNavigate('/pages/amenities')}
                 className="hover:underline"
               >
                 Back
@@ -234,25 +534,110 @@ const Photos = () => {
                     ? 'bg-black text-white hover:bg-gray-800'
                     : 'bg-gray-200 text-gray-500 cursor-not-allowed'
                 }`}
-                onClick={() => {
+                onClick={async () => {
                   if (canProceed) {
-                    // Navigate to photos preview
-                    navigate('/pages/photos-preview', { 
-                      state: { 
-                        ...location.state,
-                        photos: uploadedPhotos
-                      } 
-                    });
+                    // Save and navigate to title-description page
+                    await saveAndNavigate('/pages/title-description');
                   }
                 }}
                 disabled={!canProceed}
               >
-                {uploadedPhotos.length >= 5 ? 'Preview photos' : 'Next'}
+                Next
               </button>
             </div>
           </div>
         </div>
       </footer>
+
+      {/* Photo Preview Modal */}
+      {showPreviewModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-6 border-b">
+              <h2 className="text-xl font-semibold">Upload photos</h2>
+              <button
+                onClick={handleCancelPhotos}
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-sm text-gray-600">
+                  {pendingPhotos.length} item{pendingPhotos.length !== 1 ? 's' : ''} selected
+                </p>
+                
+                {/* Add More Photos Button */}
+                <button
+                  onClick={() => {
+                    // Open file picker to add more photos
+                    fileInputRef.current?.click();
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 border border-gray-300 hover:border-gray-400 rounded-lg transition-colors"
+                >
+                  <Upload className="w-4 h-4" />
+                  Add more
+                </button>
+              </div>
+
+              {/* Photo Grid */}
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 max-h-96 overflow-y-auto">
+                {pendingPhotos.map((photo) => (
+                  <div key={photo.id} className="relative group">
+                    <div className="aspect-square rounded-lg overflow-hidden bg-gray-100 border-2 border-transparent hover:border-gray-300 transition-colors">
+                      <img
+                        src={photo.url}
+                        alt={photo.name}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                    
+                    {/* Remove button - Always visible with better styling */}
+                    <button
+                      onClick={() => removePendingPhoto(photo.id)}
+                      className="absolute top-2 right-2 p-2 bg-white hover:bg-gray-50 text-gray-700 hover:text-red-600 rounded-full shadow-lg border transition-colors"
+                      title="Remove photo"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+
+                    {/* File name */}
+                    <p className="mt-2 text-xs text-gray-600 truncate" title={photo.name}>
+                      {photo.name}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-between p-6 border-t bg-gray-50">
+              <button
+                onClick={handleCancelPhotos}
+                className="px-6 py-2.5 text-gray-600 hover:text-gray-800 font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              
+              <button
+                onClick={handleConfirmPhotos}
+                disabled={pendingPhotos.length === 0}
+                className={`px-8 py-2.5 rounded-lg font-medium transition-colors ${
+                  pendingPhotos.length > 0
+                    ? 'bg-black text-white hover:bg-gray-800'
+                    : 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                }`}
+              >
+                Upload {pendingPhotos.length} photo{pendingPhotos.length !== 1 ? 's' : ''}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

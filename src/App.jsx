@@ -4,6 +4,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { OnboardingProvider } from "./pages/Host/contexts/OnboardingContext";
 import Index from "./pages/Index.jsx";
 import NotFound from "@/pages/Common/NotFound.jsx";
 import Accommodations from "./pages/Guest/Accommodations";
@@ -17,8 +18,8 @@ import Login from "./pages/Auth/LogIn";
 import SignUp from "./pages/Auth/SignUp";
 import GuestIndex from "./pages/Guest/Index";
 import Favorites from "@/pages/Guest/Favorites";
-import HostDashboard from "@/pages/host/HostDashboard";
-import AdminDashboard from "@/pages/admin/AdminDashboard";
+import HostDashboard from "@/pages/Host/HostDashboard";
+import AdminDashboard from "@/pages/Admin/AdminDashboard";
 import Profile from "@/pages/Common/Profile";
 import AccountSettings from "@/pages/Common/AccountSettings";
 import HostingSteps from './components/HostingSteps';
@@ -86,27 +87,36 @@ const App = () => {
             <Route path="/profile" element={<Profile darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/accountsettings" element={<AccountSettings darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/become-host/steps" element={<HostingSteps />} />
-            <Route path="/pages/propertydetails" element={<PropertyDetails />} />
-            <Route path="/pages/propertystructure" element={<PropertyStructure />} />
-            <Route path="/pages/privacy-type" element={<PrivacyType />} />
-            <Route path="/pages/location" element={<Location />} />
-            <Route path="/pages/location-confirmation" element={<LocationConfirmation />} />
-            <Route path="/pages/property-basics" element={<PropertyBasics />} />
-            <Route path="/pages/make-it-stand-out" element={<MakeItStandOut />} />
-            <Route path="/pages/amenities" element={<Amenities />} />
-            <Route path="/pages/photos" element={<Photos />} />
-            <Route path="/pages/photos-preview" element={<PhotosPreview />} />
-            <Route path="/pages/title-description" element={<TitleDescription />} />
-            <Route path="/pages/description" element={<Description />} />
-            <Route path="/pages/description-details" element={<DescriptionDetails />} />
-            <Route path="/pages/finish-setup" element={<FinishSetup />} />
-            <Route path="/pages/booking-settings" element={<BookingSettings />} />
-            <Route path="/pages/guest-selection" element={<GuestSelection />} />
-            <Route path="/pages/pricing" element={<Pricing />} />
-            <Route path="/pages/weekend-pricing" element={<WeekendPricing />} />
-            <Route path="/pages/discounts" element={<Discounts />} />
-            <Route path="/pages/safety-details" element={<SafetyDetails />} />
-            <Route path="/pages/final-details" element={<FinalDetails />} />
+            
+            {/* Onboarding Routes with Context */}
+            <Route path="/pages/*" element={
+              <OnboardingProvider>
+                <Routes>
+                  <Route path="propertydetails" element={<PropertyDetails />} />
+                  <Route path="propertystructure" element={<PropertyStructure />} />
+                  <Route path="privacy-type" element={<PrivacyType />} />
+                  <Route path="location" element={<Location />} />
+                  <Route path="location-confirmation" element={<LocationConfirmation />} />
+                  <Route path="property-basics" element={<PropertyBasics />} />
+                  <Route path="make-it-stand-out" element={<MakeItStandOut />} />
+                  <Route path="amenities" element={<Amenities />} />
+                  <Route path="photos" element={<Photos />} />
+                  <Route path="photos-preview" element={<PhotosPreview />} />
+                  <Route path="title-description" element={<TitleDescription />} />
+                  <Route path="description" element={<Description />} />
+                  <Route path="description-details" element={<DescriptionDetails />} />
+                  <Route path="finish-setup" element={<FinishSetup />} />
+                  <Route path="booking-settings" element={<BookingSettings />} />
+                  <Route path="guest-selection" element={<GuestSelection />} />
+                  <Route path="pricing" element={<Pricing />} />
+                  <Route path="weekend-pricing" element={<WeekendPricing />} />
+                  <Route path="discounts" element={<Discounts />} />
+                  <Route path="safety-details" element={<SafetyDetails />} />
+                  <Route path="final-details" element={<FinalDetails />} />
+                </Routes>
+              </OnboardingProvider>
+            } />
+            
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

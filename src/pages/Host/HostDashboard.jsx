@@ -1,15 +1,23 @@
-import React from 'react';
-import { useLocation } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import Navigation from '@/components/Navigation';
 import Footer from '@/components/Footer';
+import { getUserDrafts, deleteDraft, getDraftSummary } from '@/pages/Host/services/draftService';
+import { auth } from '@/lib/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 import { 
   Home, Calendar, MessageSquare, DollarSign, Plus,
   TrendingUp, Eye, Star, Users, Clock, Settings, MapPin, Camera,
-  Bed, Bath, Edit, Check
+  Bed, Bath, Edit, Check, X
 } from 'lucide-react';
 
 const HostDashboard = () => {
   const location = useLocation();
+  const navigate = useNavigate();
+  const [drafts, setDrafts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState(null);
+  const [showDraftSuccess, setShowDraftSuccess] = useState(false);
   
   // Get listing data from navigation state or use defaults for newly created listing
   const listingData = location.state || {};
@@ -38,6 +46,93 @@ const HostDashboard = () => {
 
   // Empty bookings for new host
   const recentBookings = [];
+
+  // Auth state listener
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setUser(user);
+      if (user) {
+        loadDrafts();
+      } else {
+        setDrafts([]);
+        setLoading(false);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Check for draft saved message
+  useEffect(() => {
+    if (location.state?.draftSaved) {
+      setShowDraftSuccess(true);
+      setTimeout(() => setShowDraftSuccess(false), 5000);
+      
+      // Clear the state to prevent showing message on refresh
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state]);
+
+  // Load user drafts
+  const loadDrafts = async () => {
+    try {
+      setLoading(true);
+      const userDrafts = await getUserDrafts();
+      setDrafts(userDrafts);
+    } catch (error) {
+      console.error('Error loading drafts:', error);
+      // Set empty array on error to prevent UI crashes
+      setDrafts([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Continue editing a draft
+  const handleContinueDraft = (draft) => {
+    // Navigate to the current step with draft ID as query param
+    const stepRoutes = {
+      'property-details': '/pages/propertydetails',
+      'property-structure': '/pages/propertystructure',
+      'privacy-type': '/pages/privacy-type',
+      'location': '/pages/location',
+      'location-confirmation': '/pages/location-confirmation',
+      'property-basics': '/pages/property-basics',
+      'make-it-stand-out': '/pages/make-it-stand-out',
+      'amenities': '/pages/amenities',
+      'photos': '/pages/photos',
+      'photos-preview': '/pages/photos-preview',
+      'title-description': '/pages/title-description',
+      'description': '/pages/description',
+      'description-details': '/pages/description-details',
+      'finish-setup': '/pages/finish-setup',
+      'booking-settings': '/pages/booking-settings',
+      'guest-selection': '/pages/guest-selection',
+      'pricing': '/pages/pricing',
+      'weekend-pricing': '/pages/weekend-pricing',
+      'discounts': '/pages/discounts',
+      'safety-details': '/pages/safety-details',
+      'final-details': '/pages/final-details'
+    };
+
+    const route = stepRoutes[draft.currentStep] || '/pages/propertydetails';
+    navigate(route, { state: { draftId: draft.id } });
+  };
+
+  // Delete a draft
+  const handleDeleteDraft = async (draftId) => {
+    if (!window.confirm('Are you sure you want to delete this draft? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      await deleteDraft(draftId);
+      await loadDrafts(); // Reload drafts
+    } catch (error) {
+      console.error('Error deleting draft:', error);
+      alert('Failed to delete draft. Please try again.');
+    }
+  };
 
   // The newly created listing
   const listings = [
@@ -115,6 +210,118 @@ const HostDashboard = () => {
             ))}
           </div>
         </div>
+
+        {/* Draft Success Message */}
+        {showDraftSuccess && (
+          <div className="max-w-7xl mx-auto px-6 mb-6">
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+              <div className="flex items-center gap-3">
+                <div className="w-6 h-6 bg-green-600 rounded-full flex items-center justify-center">
+                  <Check className="w-4 h-4 text-white" />
+                </div>
+                <div>
+                  <p className="font-medium text-green-800">Draft saved successfully!</p>
+                  <p className="text-sm text-green-600">You can continue editing your listing anytime from the drafts section below.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Saved Drafts Section */}
+        {user && (
+          <div className="max-w-7xl mx-auto px-6 mb-12">
+            <div className="card-listing p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="font-heading text-2xl font-bold text-foreground">
+                  {drafts.length > 0 ? 'Saved Drafts' : 'Your Listings'}
+                </h2>
+                <div className="flex items-center gap-3">
+                  {drafts.length > 0 && (
+                    <span className="text-sm text-muted-foreground">{drafts.length} draft{drafts.length !== 1 ? 's' : ''}</span>
+                  )}
+                  <button
+                    onClick={() => navigate('/become-host/steps')}
+                    className="btn-primary flex items-center gap-2"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Start New Listing
+                  </button>
+                </div>
+              </div>
+              
+              {drafts.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {drafts.map((draft) => {
+                    const summary = getDraftSummary(draft);
+                    return (
+                      <div key={draft.id} className="border border-border rounded-xl overflow-hidden hover:shadow-md transition-shadow">
+                        <div className="aspect-[4/3] bg-gray-100 overflow-hidden">
+                          <img 
+                            src={summary.mainImage}
+                            alt={summary.title}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                        <div className="p-4">
+                          <div className="flex items-start justify-between mb-2">
+                            <div>
+                              <h3 className="font-medium text-foreground mb-1">{summary.title}</h3>
+                              <p className="text-sm text-muted-foreground">{summary.location}</p>
+                            </div>
+                            <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded-full">
+                              {summary.progress}%
+                            </span>
+                          </div>
+                          
+                          <div className="mb-3">
+                            <p className="text-xs text-muted-foreground mb-1">Current step:</p>
+                            <p className="text-sm font-medium text-foreground">{summary.currentStep}</p>
+                          </div>
+
+                          <div className="w-full bg-gray-200 rounded-full h-2 mb-4">
+                            <div 
+                              className="bg-primary h-2 rounded-full transition-all" 
+                              style={{ width: `${summary.progress}%` }}
+                            ></div>
+                          </div>
+                          
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleContinueDraft(draft)}
+                              className="flex-1 bg-black text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors"
+                            >
+                              Continue Editing
+                            </button>
+                            <button
+                              onClick={() => handleDeleteDraft(draft.id)}
+                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                              title="Delete draft"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                          
+                          <p className="text-xs text-muted-foreground mt-2">
+                            Last edited: {summary.lastModified?.toDate?.()?.toLocaleDateString() || 'Recently'}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  <Home className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+                  <h3 className="font-heading text-lg font-semibold text-foreground mb-2">No drafts yet</h3>
+                  <p className="text-muted-foreground mb-6">
+                    Start creating your first listing to begin hosting with Havenly.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Main Content */}
         <div className="max-w-7xl mx-auto px-6 grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12">

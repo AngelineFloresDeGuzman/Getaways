@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
+import { useSaveAndExitWithContext } from './hooks/useSaveAndExit.js';
 
 const privacyOptions = [
   {
@@ -22,7 +24,151 @@ const privacyOptions = [
 const PrivacyType = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  
+  // Use OnboardingContext for proper draft management
+  let contextData;
+  try {
+    contextData = useOnboarding();
+  } catch (error) {
+    console.error('PrivacyType must be used within OnboardingProvider');
+    return null;
+  }
+
+  const { state, actions } = contextData;
+  const { handleSaveAndExit } = useSaveAndExitWithContext(actions);
   const [selectedOption, setSelectedOption] = useState('');
+  const [hasLoadedDraft, setHasLoadedDraft] = useState(false);
+  const [hasInitialized, setHasInitialized] = useState(false);
+  
+  // Use ref to avoid infinite re-renders
+  const actionsRef = useRef(actions);
+  actionsRef.current = actions;
+
+  // Initialize selectedOption from state (only once)
+  useEffect(() => {
+    if (!hasInitialized) {
+      if (state.privacyType) {
+        setSelectedOption(state.privacyType);
+      }
+      setHasInitialized(true);
+    }
+  }, [hasInitialized, state.privacyType]);
+
+  // Load draft if draftId is provided
+  useEffect(() => {
+    const loadDraftData = async () => {
+      if (location.state?.draftId && !hasLoadedDraft) {
+        try {
+          console.log('Loading draft in PrivacyType:', location.state.draftId);
+          await actionsRef.current.loadDraft(location.state.draftId);
+          setHasLoadedDraft(true);
+        } catch (error) {
+          console.error('Failed to load draft:', error);
+        }
+      }
+    };
+
+    loadDraftData();
+  }, [location.state?.draftId, hasLoadedDraft]);
+
+  // Update selectedOption when draft is loaded
+  useEffect(() => {
+    if (hasLoadedDraft && state.privacyType && state.privacyType !== selectedOption) {
+      console.log('Setting selectedOption from loaded draft:', state.privacyType);
+      setSelectedOption(state.privacyType);
+    }
+  }, [hasLoadedDraft, state.privacyType]);
+
+  // Update context when local state changes (only when user makes a selection)
+  useEffect(() => {
+    if (hasInitialized && selectedOption && !state.isLoading) {
+      actionsRef.current.updatePrivacyType(selectedOption);
+    }
+  }, [selectedOption, hasInitialized, state.isLoading]);
+
+  // Set current step when component mounts (only once)
+  useEffect(() => {
+    if (actionsRef.current.setCurrentStep && state.currentStep !== 'privacy-type') {
+      actionsRef.current.setCurrentStep('privacy-type');
+    }
+  }, []); // Empty dependency array - only run on mount
+
+  // Force reset loading state once draft is loaded
+  useEffect(() => {
+    if (hasLoadedDraft && state.draftId && state.isLoading) {
+      console.log('Draft loaded in PrivacyType, resetting loading state');
+      actionsRef.current.setLoading(false);
+    }
+  }, [hasLoadedDraft, state.draftId, state.isLoading]);
+
+  // Safety mechanism to reset loading state if stuck
+  useEffect(() => {
+    if (state.isLoading) {
+      const timeoutId = setTimeout(() => {
+        console.warn('Loading state was stuck in PrivacyType, forcing reset');
+        actionsRef.current.setLoading(false);
+      }, 5000); // 5 second timeout
+
+      return () => clearTimeout(timeoutId);
+    }
+  }, [state.isLoading]);
+
+  // Custom save handler
+  const handleSaveAndExitClick = async () => {
+    console.log('PrivacyType Save & Exit clicked - Selected:', selectedOption);
+    console.log('PrivacyType: Current state before setting step:', { 
+      currentStep: state.currentStep, 
+      privacyType: state.privacyType 
+    });
+    
+    if (!selectedOption) {
+      alert('Please select a privacy type before saving.');
+      return;
+    }
+    
+    try {
+      // Set current step before saving so "Continue Editing" returns to this page
+      if (actions.setCurrentStep) {
+        console.log('PrivacyType: Setting currentStep to privacy-type');
+        actions.setCurrentStep('privacy-type');
+      }
+      
+      // Override the saveDraft to ensure currentStep is set to privacy-type
+      if (actions.saveDraft) {
+        console.log('PrivacyType: Calling custom saveDraft with forced currentStep');
+        
+        // Create modified state data with forced currentStep
+        const { user, isLoading, ...dataToSave } = state;
+        dataToSave.currentStep = 'privacy-type'; // Force the currentStep
+        
+        console.log('PrivacyType: Data to save with forced currentStep:', dataToSave);
+        
+        // Import the draftService directly and save with our custom data
+        const { saveDraft } = await import('@/pages/Host/services/draftService');
+        const draftId = await saveDraft(dataToSave, state.draftId);
+        
+        // Update the draftId in context
+        if (actions.setDraftId) {
+          actions.setDraftId(draftId);
+        }
+        
+        // Navigate to dashboard
+        navigate('/host/hostdashboard', { 
+          state: { 
+            message: 'Draft saved successfully!',
+            draftSaved: true 
+          }
+        });
+      } else {
+        // Fallback to normal save
+        await handleSaveAndExit();
+      }
+      
+    } catch (error) {
+      console.error('Error in PrivacyType save:', error);
+      alert('Failed to save progress: ' + error.message);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-white">
@@ -34,7 +180,13 @@ const PrivacyType = () => {
           </svg>
           <div className="flex items-center gap-6">
             <button className="font-medium text-sm hover:underline">Questions?</button>
-            <button className="font-medium text-sm hover:underline">Save & exit</button>
+            <button 
+              onClick={handleSaveAndExitClick}
+              disabled={state.isLoading}
+              className="font-medium text-sm hover:underline disabled:opacity-50"
+            >
+              {state.isLoading ? 'Saving...' : 'Save & exit'}
+            </button>
           </div>
         </div>
       </header>

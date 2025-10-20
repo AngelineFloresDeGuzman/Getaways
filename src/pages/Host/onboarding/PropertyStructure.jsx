@@ -1,5 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
+import { useSaveAndExitWithContext } from './hooks/useSaveAndExit';
+import { auth } from '@/lib/firebase';
 import {
   Home,
   Building2 as Building,
@@ -51,7 +54,206 @@ const propertyTypes = [
 const PropertyStructure = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const [selectedType, setSelectedType] = useState('');
+  
+  // Use OnboardingContext for proper draft management
+  let contextData;
+  try {
+    contextData = useOnboarding();
+  } catch (error) {
+    console.error('OnboardingContext error:', error);
+    contextData = {
+      state: { propertyStructure: null, isLoading: false },
+      actions: { 
+        updatePropertyStructure: () => {},
+        saveAndExit: () => Promise.reject(new Error('Context not available'))
+      }
+    };
+  }
+  
+  const { state, actions } = contextData;
+  const { handleSaveAndExit } = useSaveAndExitWithContext(actions);
+  const [hasLoadedDraft, setHasLoadedDraft] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const actionsRef = useRef(actions);
+  actionsRef.current = actions;
+  
+  const [selectedType, setSelectedType] = useState(state.propertyStructure || '');
+
+  // Debug logging for initial state
+  useEffect(() => {
+    console.log('PropertyStructure: Component mounted with initial state:', {
+      propertyStructure: state.propertyStructure,
+      selectedType,
+      draftId: state.draftId,
+      locationDraftId: location.state?.draftId,
+      hasLoadedDraft
+    });
+  }, []);
+
+  // Check if we're continuing from a draft
+  useEffect(() => {
+    const loadDraftFromState = async () => {
+      // Only load draft if user is authenticated and we have a draftId
+      if (location.state?.draftId && !hasLoadedDraft && state.user) {
+        setHasLoadedDraft(true);
+        try {
+          console.log('PropertyStructure: Loading draft with ID:', location.state.draftId);
+          await actionsRef.current.loadDraft(location.state.draftId);
+          console.log('PropertyStructure: Draft loaded successfully');
+        } catch (error) {
+          console.error('Error loading draft in PropertyStructure:', error);
+          setHasLoadedDraft(false); // Reset on error so user can retry
+        }
+      } else if (location.state?.draftId && !state.user && !hasLoadedDraft) {
+        console.log('PropertyStructure: Cannot load draft - user not authenticated yet');
+      }
+    };
+
+    loadDraftFromState();
+  }, [location.state?.draftId, hasLoadedDraft, state.user]);
+
+  // Update selectedType when state changes (after loading draft) - improved version
+  useEffect(() => {
+    console.log('PropertyStructure: State propertyStructure changed to:', state.propertyStructure);
+    console.log('PropertyStructure: Current selectedType:', selectedType);
+    
+    if (state.propertyStructure && state.propertyStructure !== selectedType) {
+      console.log('PropertyStructure: Updating selectedType from state.propertyStructure:', state.propertyStructure);
+      setSelectedType(state.propertyStructure);
+    }
+  }, [state.propertyStructure]);
+
+  // Also update when draft loading completes
+  useEffect(() => {
+    if (hasLoadedDraft && state.propertyStructure && !selectedType) {
+      console.log('PropertyStructure: Draft loaded, setting selectedType to:', state.propertyStructure);
+      setSelectedType(state.propertyStructure);
+    }
+  }, [hasLoadedDraft, state.propertyStructure, selectedType]);
+
+  // Force reset loading state once draft is loaded and we have the data
+  useEffect(() => {
+    if (hasLoadedDraft && state.draftId && state.isLoading) {
+      console.log('Draft loaded in PropertyStructure, resetting loading state');
+      actionsRef.current.setLoading(false);
+    }
+  }, [hasLoadedDraft, state.draftId, state.isLoading]);
+
+  // Safety mechanism to reset loading state if stuck
+  useEffect(() => {
+    if (state.isLoading) {
+      const timeoutId = setTimeout(() => {
+        console.warn('Loading state was stuck in PropertyStructure, forcing reset');
+        actionsRef.current.setLoading(false);
+      }, 5000); // 5 second timeout
+
+      return () => clearTimeout(timeoutId);
+    }
+  }, [state.isLoading]);
+
+  const handlePropertyStructureSelect = (structureType) => {
+    console.log('Property structure selected:', structureType);
+    setSelectedType(structureType);
+    // Immediately update context
+    actions.updatePropertyStructure(structureType);
+  };
+
+  const handleSaveAndExitClick = async () => {
+    if (isSaving) return; // Prevent double clicks
+    
+    console.log('PropertyStructure Save & Exit clicked!'); // Debug log
+    console.log('Current state:', state); // Debug log
+    console.log('Selected type:', selectedType); // Debug log
+    console.log('Actions available:', actions); // Debug log
+    
+    // Check if user is authenticated
+    const currentUser = auth.currentUser;
+    console.log('Current user:', currentUser);
+    
+    if (!currentUser) {
+      alert('Please log in to save your progress.');
+      navigate('/login');
+      return;
+    }
+    
+    setIsSaving(true);
+    
+    try {
+      // Ensure selectedType is saved to context before saving draft
+      if (selectedType && selectedType !== state.propertyStructure) {
+        console.log('Updating property structure before save:', selectedType);
+        actions.updatePropertyStructure(selectedType);
+        
+        // Wait for state to update
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+      
+      // Set current step to property-structure so "Continue Editing" returns here
+      if (actions.setCurrentStep) {
+        console.log('PropertyStructure: Setting currentStep to property-structure');
+        actions.setCurrentStep('property-structure');
+      }
+      
+      // Use custom save logic like other pages to ensure currentStep is preserved
+      if (actions.saveDraft) {
+        console.log('PropertyStructure: Calling custom saveDraft with forced currentStep');
+        
+        // Create modified state data with forced currentStep and property structure
+        const { user, isLoading, ...dataToSave } = state;
+        dataToSave.currentStep = 'property-structure'; // Force the currentStep
+        if (selectedType) {
+          dataToSave.propertyStructure = selectedType; // Ensure property structure is saved
+        }
+        
+        console.log('PropertyStructure: Data to save with forced currentStep and property structure:', dataToSave);
+        
+        // Import the draftService directly and save with our custom data
+        const { saveDraft } = await import('@/pages/Host/services/draftService');
+        const draftId = await saveDraft(dataToSave, state.draftId);
+        
+        // Update the draftId in context
+        if (actions.setDraftId) {
+          actions.setDraftId(draftId);
+        }
+        
+        // Navigate to dashboard
+        navigate('/host/hostdashboard', { 
+          state: { 
+            message: 'Draft saved successfully!',
+            draftSaved: true 
+          }
+        });
+      } else {
+        // Fallback to normal handleSaveAndExit
+        await handleSaveAndExit();
+      }
+    } catch (error) {
+      console.error('Error saving draft:', error);
+      alert('Failed to save draft: ' + error.message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleNext = async () => {
+    try {
+      navigate('/pages/privacy-type', {
+        state: {
+          ...location.state,
+          propertyStructure: selectedType
+        }
+      });
+    } catch (error) {
+      console.error('Error navigating to next page:', error);
+      // Still navigate even if error occurs
+      navigate('/pages/privacy-type', {
+        state: {
+          ...location.state,
+          propertyStructure: selectedType
+        }
+      });
+    }
+  };
 
   return (
     <div className="min-h-screen bg-white">
@@ -63,7 +265,13 @@ const PropertyStructure = () => {
           </svg>
           <div className="flex items-center gap-6">
             <button className="font-medium text-sm hover:underline">Questions?</button>
-            <button className="font-medium text-sm hover:underline">Save & exit</button>
+            <button 
+              onClick={handleSaveAndExitClick}
+              className="font-medium text-sm hover:underline"
+              disabled={state.isLoading || isSaving}
+            >
+              {state.isLoading || isSaving ? 'Saving...' : 'Save & exit'}
+            </button>
           </div>
         </div>
       </header>
@@ -90,7 +298,7 @@ const PropertyStructure = () => {
             {propertyTypes.map((type) => (
               <button
                 key={type.label}
-                onClick={() => setSelectedType(type.label)}
+                onClick={() => handlePropertyStructureSelect(type.label)}
                 className={`flex flex-col items-center justify-center p-6 rounded-xl border hover:border-black transition-colors ${
                   selectedType === type.label
                     ? 'border-black bg-gray-50'
@@ -130,12 +338,7 @@ const PropertyStructure = () => {
                     ? 'bg-black text-white hover:bg-gray-800'
                     : 'bg-gray-200 text-gray-500 cursor-not-allowed'
                 }`}
-                onClick={() => navigate('/pages/privacy-type', {
-                  state: {
-                    ...location.state,
-                    propertyType: selectedType
-                  }
-                })}
+                onClick={handleNext}
                 disabled={!selectedType}
               >
                 Next

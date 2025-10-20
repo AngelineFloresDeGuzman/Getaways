@@ -1,9 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
+import { useSaveAndExitWithContext } from './hooks/useSaveAndExit';
 
 const PropertyBasics = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  
+  // OnboardingContext integration
+  const { state, actions } = useOnboarding();
   
   // State for property basics
   const [propertyBasics, setPropertyBasics] = useState({
@@ -13,17 +18,174 @@ const PropertyBasics = () => {
     bathrooms: 1
   });
 
+  // Ref to track initialization
+  const hasInitialized = useRef(false);
+  const draftLoaded = useRef(false);
+
+  // Save and Exit hook integration
+  const { handleSaveAndExit } = useSaveAndExitWithContext(actions);
+
+  // Load draft data when navigating from "Continue Editing"
+  useEffect(() => {
+    const loadDraftData = async () => {
+      // Only load draft if user is authenticated and we have a draftId
+      if (location.state?.draftId && !draftLoaded.current && actions.loadDraft && state.user) {
+        console.log('PropertyBasics - Loading draft with ID:', location.state.draftId);
+        try {
+          await actions.loadDraft(location.state.draftId);
+          draftLoaded.current = true;
+          console.log('PropertyBasics - Draft loaded successfully');
+        } catch (error) {
+          console.error('PropertyBasics - Error loading draft:', error);
+        }
+      } else if (location.state?.draftId && !state.user && !draftLoaded.current) {
+        console.log('PropertyBasics: Cannot load draft - user not authenticated yet');
+      }
+    };
+
+    loadDraftData();
+  }, [location.state?.draftId, state.user]); // Added state.user dependency
+
+  // Set current step when component mounts (only once)
+  useEffect(() => {
+    if (actions.setCurrentStep) {
+      actions.setCurrentStep('property-basics');
+    }
+  }, []); // Remove actions from dependency, run only once
+
+  // Initialize from context if available
+  useEffect(() => {
+    if (!hasInitialized.current && state && (draftLoaded.current || !location.state?.draftId)) {
+      console.log('PropertyBasics - Initializing from context:', {
+        guests: state.guestCapacity,
+        bedrooms: state.bedrooms,
+        beds: state.beds,
+        bathrooms: state.bathrooms
+      });
+      
+      setPropertyBasics({
+        guests: state.guestCapacity || 4,
+        bedrooms: state.bedrooms || 1,
+        beds: state.beds || 2,
+        bathrooms: state.bathrooms || 1
+      });
+      hasInitialized.current = true;
+    }
+  }, [state.guestCapacity, state.bedrooms, state.beds, state.bathrooms, draftLoaded.current, location.state?.draftId]);
+
+  // Real-time context updates (moved to handleCounterChange)
+  const updatePropertyBasics = (newBasics) => {
+    console.log('PropertyBasics - Updating context with:', newBasics);
+    // Map local state structure to context structure
+    const contextBasics = {
+      guestCapacity: newBasics.guests,
+      bedrooms: newBasics.bedrooms,
+      beds: newBasics.beds,
+      bathrooms: newBasics.bathrooms
+    };
+    
+    actions.updatePropertyBasics(contextBasics);
+    // Removed setCurrentStep to prevent infinite loops
+  };
+
   // Handle counter changes
   const handleCounterChange = (field, increment) => {
     setPropertyBasics(prev => {
       const newValue = increment ? prev[field] + 1 : prev[field] - 1;
       // Ensure minimum values
       const minValue = field === 'guests' ? 1 : (field === 'bathrooms' ? 0.5 : 1);
-      return {
+      const updatedBasics = {
         ...prev,
         [field]: Math.max(minValue, newValue)
       };
+      
+      // Schedule context update after render using setTimeout
+      setTimeout(() => {
+        const contextBasics = {
+          guestCapacity: updatedBasics.guests,
+          bedrooms: updatedBasics.bedrooms,
+          beds: updatedBasics.beds,
+          bathrooms: updatedBasics.bathrooms
+        };
+        
+        console.log('Counter changed, updating context:', contextBasics);
+        actions.updatePropertyBasics(contextBasics);
+        // Remove setCurrentStep from counter changes to prevent infinite loops
+      }, 0);
+      
+      return updatedBasics;
     });
+  };
+
+  // Save & Exit handler
+  const handleSaveAndExitClick = async () => {
+    console.log('PropertyBasics Save & Exit clicked');
+    console.log('Current propertyBasics state:', propertyBasics);
+    console.log('Current onboarding context state:', {
+      guestCapacity: state.guestCapacity,
+      bedrooms: state.bedrooms,
+      beds: state.beds,
+      bathrooms: state.bathrooms
+    });
+    
+    try {
+      // Set current step before saving so "Continue Editing" returns to this page
+      if (actions.setCurrentStep) {
+        console.log('PropertyBasics: Setting currentStep to property-basics');
+        actions.setCurrentStep('property-basics');
+      }
+      
+      // Update context with current values
+      const contextBasics = {
+        guestCapacity: propertyBasics.guests,
+        bedrooms: propertyBasics.bedrooms,
+        beds: propertyBasics.beds,
+        bathrooms: propertyBasics.bathrooms
+      };
+      
+      console.log('PropertyBasics: Updating context with:', contextBasics);
+      actions.updatePropertyBasics(contextBasics);
+      
+      // Override the saveDraft to ensure currentStep and data are saved correctly
+      if (actions.saveDraft) {
+        console.log('PropertyBasics: Calling custom saveDraft with forced currentStep and data');
+        
+        // Create modified state data with forced currentStep and property basics
+        const { user, isLoading, ...dataToSave } = state;
+        dataToSave.currentStep = 'property-basics'; // Force the currentStep
+        dataToSave.guestCapacity = propertyBasics.guests;
+        dataToSave.bedrooms = propertyBasics.bedrooms;
+        dataToSave.beds = propertyBasics.beds;
+        dataToSave.bathrooms = propertyBasics.bathrooms;
+        
+        console.log('PropertyBasics: Data to save with forced currentStep and property data:', dataToSave);
+        
+        // Import the draftService directly and save with our custom data
+        const { saveDraft } = await import('@/pages/Host/services/draftService');
+        const draftId = await saveDraft(dataToSave, state.draftId);
+        
+        // Update the draftId in context
+        if (actions.setDraftId) {
+          actions.setDraftId(draftId);
+        }
+        
+        // Navigate to dashboard
+        navigate('/host/hostdashboard', { 
+          state: { 
+            message: 'Draft saved successfully!',
+            draftSaved: true 
+          }
+        });
+      } else {
+        // Fallback to normal save
+        await handleSaveAndExit();
+      }
+      
+      console.log('PropertyBasics save completed successfully');
+    } catch (error) {
+      console.error('Error during PropertyBasics save and exit:', error);
+      alert('Failed to save: ' + error.message);
+    }
   };
 
   // Counter component
@@ -69,7 +231,13 @@ const PropertyBasics = () => {
           </svg>
           <div className="flex items-center gap-6">
             <button className="font-medium text-sm hover:underline">Questions?</button>
-            <button className="font-medium text-sm hover:underline">Save & exit</button>
+            <button 
+              onClick={handleSaveAndExitClick}
+              className="font-medium text-sm hover:underline"
+              disabled={state.isLoading}
+            >
+              {state.isLoading ? 'Saving...' : 'Save & exit'}
+            </button>
           </div>
         </div>
       </header>
@@ -139,6 +307,9 @@ const PropertyBasics = () => {
               <button 
                 className="bg-black text-white hover:bg-gray-800 rounded-lg px-8 py-3.5 text-base font-medium"
                 onClick={() => {
+                  // Update context before navigation
+                  updatePropertyBasics(propertyBasics);
+                  
                   // Navigate to make it stand out with property basics data
                   navigate('/pages/make-it-stand-out', { 
                     state: { 

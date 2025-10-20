@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
+import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
+import { useSaveAndExitWithContext } from './hooks/useSaveAndExit.js';
 
 // Fix marker icon issue
 delete L.Icon.Default.prototype._getIconUrl;
@@ -45,6 +47,23 @@ const LocationConfirmation = () => {
   const navigate = useNavigate();
   const location = useLocation();
   
+  // Use OnboardingContext for proper draft management
+  let contextData;
+  try {
+    contextData = useOnboarding();
+  } catch (error) {
+    console.error('LocationConfirmation must be used within OnboardingProvider');
+    return null;
+  }
+
+  const { state, actions } = contextData;
+  const { handleSaveAndExit } = useSaveAndExitWithContext(actions);
+  const [hasLoadedDraft, setHasLoadedDraft] = useState(false);
+  
+  // Use ref to avoid infinite re-renders
+  const actionsRef = useRef(actions);
+  actionsRef.current = actions;
+  
   // Get location data from previous page or use default
   const [locationData, setLocationData] = useState(
     location.state?.locationData || {
@@ -63,6 +82,56 @@ const LocationConfirmation = () => {
   const [position, setPosition] = useState(
     location.state?.position || [14.602, 120.9827] // Sampaloc, Manila area
   );
+
+  // Load draft if draftId is provided
+  useEffect(() => {
+    const loadDraftData = async () => {
+      // Only load draft if user is authenticated and we have a draftId
+      if (location.state?.draftId && !hasLoadedDraft && state.user) {
+        try {
+          console.log('Loading draft in LocationConfirmation:', location.state.draftId);
+          await actionsRef.current.loadDraft(location.state.draftId);
+          setHasLoadedDraft(true);
+        } catch (error) {
+          console.error('Failed to load draft:', error);
+        }
+      } else if (location.state?.draftId && !state.user && !hasLoadedDraft) {
+        console.log('LocationConfirmation: Cannot load draft - user not authenticated yet');
+      }
+    };
+
+    loadDraftData();
+  }, [location.state?.draftId, hasLoadedDraft, state.user]);
+
+  // Update local state when context state changes
+  useEffect(() => {
+    if (state.locationData && hasLoadedDraft) {
+      setLocationData(state.locationData);
+      if (state.locationData.latitude && state.locationData.longitude) {
+        setPosition([state.locationData.latitude, state.locationData.longitude]);
+      }
+    }
+  }, [state.locationData, hasLoadedDraft]);
+
+  // Set current step when component mounts
+  useEffect(() => {
+    if (actionsRef.current.setCurrentStep) {
+      actionsRef.current.setCurrentStep('location-confirmation');
+    }
+  }, []);
+
+  // Sync initial location data with context (from navigation state or default)
+  useEffect(() => {
+    if (locationData && (locationData.country || locationData.city || locationData.latitude)) {
+      const locationWithCoords = {
+        ...locationData,
+        latitude: position[0],
+        longitude: position[1]
+      };
+      console.log('Syncing location data with context:', locationWithCoords);
+      actionsRef.current.updateLocationData(locationWithCoords);
+    }
+  }, []); // Only run once on mount
 
   // Initialize location on component mount if no data is provided
   useEffect(() => {
@@ -211,6 +280,14 @@ const LocationConfirmation = () => {
   const handleMarkerDragEnd = async (e) => {
     const { lat, lng } = e.target.getLatLng();
     setPosition([lat, lng]);
+    
+    // Update context with new coordinates immediately
+    const updatedLocation = {
+      ...locationData,
+      latitude: lat,
+      longitude: lng
+    };
+    actionsRef.current.updateLocationData(updatedLocation);
 
     // Use the same reliable geocoding services as Location.jsx
     const geocodingServices = [
@@ -307,6 +384,74 @@ const LocationConfirmation = () => {
 
   const displayAddress = formatAddress() || 'Address not available';
 
+  // Save handler for Save & Exit functionality
+  const handleSaveAndExitClick = async () => {
+    console.log('LocationConfirmation Save & Exit clicked');
+    console.log('Current locationData:', locationData);
+    console.log('Current position:', position);
+    console.log('Current context state:', state);
+    
+    // Check if we have meaningful location data
+    if (!locationData || (!locationData.country && !locationData.city && !position[0])) {
+      alert('Please ensure location data is set before saving.');
+      return;
+    }
+    
+    try {
+      // Set current step before saving so "Continue Editing" returns to this page
+      if (actionsRef.current.setCurrentStep) {
+        console.log('LocationConfirmation: Setting currentStep to location-confirmation');
+        actionsRef.current.setCurrentStep('location-confirmation');
+      }
+      
+      // Ensure location data is up to date in context
+      const currentLocationData = {
+        ...locationData,
+        latitude: position[0],
+        longitude: position[1]
+      };
+      
+      console.log('Updating context with:', currentLocationData);
+      actionsRef.current.updateLocationData(currentLocationData);
+      
+      // Override the saveDraft to ensure currentStep is set to location-confirmation
+      if (actions.saveDraft) {
+        console.log('LocationConfirmation: Calling custom saveDraft with forced currentStep');
+        
+        // Create modified state data with forced currentStep
+        const { user, isLoading, ...dataToSave } = state;
+        dataToSave.currentStep = 'location-confirmation'; // Force the currentStep
+        dataToSave.locationData = currentLocationData; // Ensure latest location data
+        
+        console.log('LocationConfirmation: Data to save with forced currentStep:', dataToSave);
+        
+        // Import the draftService directly and save with our custom data
+        const { saveDraft } = await import('@/pages/Host/services/draftService');
+        const draftId = await saveDraft(dataToSave, state.draftId);
+        
+        // Update the draftId in context
+        if (actions.setDraftId) {
+          actions.setDraftId(draftId);
+        }
+        
+        // Navigate to dashboard
+        navigate('/host/hostdashboard', { 
+          state: { 
+            message: 'Draft saved successfully!',
+            draftSaved: true 
+          }
+        });
+      } else {
+        // Fallback to normal save
+        await handleSaveAndExit();
+      }
+      
+    } catch (error) {
+      console.error('Error in LocationConfirmation save:', error);
+      alert('Failed to save progress: ' + error.message);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-white">
       {/* Header */}
@@ -317,7 +462,13 @@ const LocationConfirmation = () => {
           </svg>
           <div className="flex items-center gap-6">
             <button className="font-medium text-sm hover:underline">Questions?</button>
-            <button className="font-medium text-sm hover:underline">Save & exit</button>
+            <button 
+              onClick={handleSaveAndExitClick}
+              disabled={state.isLoading}
+              className="font-medium text-sm hover:underline disabled:opacity-50"
+            >
+              {state.isLoading ? 'Saving...' : 'Save & exit'}
+            </button>
           </div>
         </div>
       </header>
@@ -390,7 +541,7 @@ const LocationConfirmation = () => {
           {/* Map Controls Info */}
           <div className="mt-4 text-center">
             <p className="text-gray-600 text-sm">
-              Click anywhere on the map or drag the red pin to adjust your location
+              Click anywhere on the map or drag the blue pin to adjust your location
             </p>
           </div>
         </div>

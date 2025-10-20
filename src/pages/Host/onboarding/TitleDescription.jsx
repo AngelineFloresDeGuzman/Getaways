@@ -1,9 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
+import { useSaveAndExitWithContext } from './hooks/useSaveAndExit';
 
 const TitleDescription = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  
+  // OnboardingContext integration
+  const { state, actions } = useOnboarding();
   
   // Get property type from navigation state, default to 'place'
   // Try multiple fallbacks to get property type
@@ -18,11 +23,51 @@ const TitleDescription = () => {
   const [title, setTitle] = useState('');
   const maxLength = 50;
 
+  // Ref to track initialization
+  const hasInitialized = useRef(false);
+
+  // Save and Exit hook integration
+  const { handleSaveAndExit } = useSaveAndExitWithContext(actions);
+
   const canProceed = title.trim().length > 0;
+
+  // Initialize from context if available
+  useEffect(() => {
+    if (!hasInitialized.current && state.title) {
+      console.log('TitleDescription - Initializing from context:', state.title);
+      setTitle(state.title);
+      hasInitialized.current = true;
+    }
+  }, [state.title]);
+
+  // Real-time context updates
+  const updateTitleContext = (newTitle) => {
+    console.log('TitleDescription - Updating context with:', newTitle);
+    actions.updateTitleDescription(newTitle, state.description || '');
+    actions.setCurrentStep('title-description');
+  };
 
   const handleTitleChange = (e) => {
     if (e.target.value.length <= maxLength) {
-      setTitle(e.target.value);
+      const newTitle = e.target.value;
+      setTitle(newTitle);
+      
+      // Update context in real-time
+      updateTitleContext(newTitle);
+    }
+  };
+
+  // Save & Exit handler
+  const handleSaveAndExitClick = async () => {
+    console.log('TitleDescription Save & Exit clicked');
+    try {
+      // Ensure context is up to date
+      updateTitleContext(title);
+      
+      // Use the hook's save and exit functionality
+      await handleSaveAndExit();
+    } catch (error) {
+      console.error('Error during save and exit:', error);
     }
   };
 
@@ -36,7 +81,13 @@ const TitleDescription = () => {
           </svg>
           <div className="flex items-center gap-6">
             <button className="font-medium text-sm hover:underline">Questions?</button>
-            <button className="font-medium text-sm hover:underline">Save & exit</button>
+            <button 
+              onClick={handleSaveAndExitClick}
+              className="font-medium text-sm hover:underline"
+              disabled={state.isLoading}
+            >
+              {state.isLoading ? 'Saving...' : 'Save & exit'}
+            </button>
           </div>
         </div>
       </header>
@@ -88,7 +139,7 @@ const TitleDescription = () => {
           <div className="px-8 py-6">
             <div className="flex justify-between items-center">
               <button
-                onClick={() => navigate('/pages/photos-preview')}
+                onClick={() => navigate('/pages/photos')}
                 className="hover:underline"
               >
                 Back
@@ -101,6 +152,9 @@ const TitleDescription = () => {
                 }`}
                 onClick={() => {
                   if (canProceed) {
+                    // Update context before navigation
+                    updateTitleContext(title);
+                    
                     // Continue to next step with title
                     navigate('/pages/description', { 
                       state: { 

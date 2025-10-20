@@ -1,14 +1,25 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
+import { useSaveAndExitWithContext } from './hooks/useSaveAndExit';
 
 const WeekendPricing = () => {
   const navigate = useNavigate();
   const location = useLocation();
   
+  // OnboardingContext integration
+  const { state, actions } = useOnboarding();
+  
   // Get weekday price from previous page, default to 1511
   const weekdayPrice = location.state?.weekdayPrice || 1511;
   
   const [premiumPercentage, setPremiumPercentage] = useState(5);
+  
+  // Ref to track initialization
+  const hasInitialized = useRef(false);
+
+  // Save and Exit hook integration
+  const { handleSaveAndExit } = useSaveAndExitWithContext(actions);
   
   // Calculate weekend price based on premium
   const weekendPrice = Math.round(weekdayPrice * (1 + premiumPercentage / 100));
@@ -16,13 +27,60 @@ const WeekendPricing = () => {
 
   const canProceed = true; // Always can proceed with any percentage
 
+  // Initialize from context if available
+  useEffect(() => {
+    if (!hasInitialized.current && state.weekendPricingEnabled !== undefined) {
+      console.log('WeekendPricing - Initializing from context:', {
+        weekendPrice: state.weekendPrice,
+        weekendPricingEnabled: state.weekendPricingEnabled
+      });
+      
+      if (state.weekendPrice > 0 && weekdayPrice > 0) {
+        // Calculate premium percentage from saved weekend price
+        const calculatedPremium = Math.round(((state.weekendPrice / weekdayPrice) - 1) * 100);
+        setPremiumPercentage(Math.max(0, Math.min(99, calculatedPremium)));
+      }
+      hasInitialized.current = true;
+    }
+  }, [state.weekendPrice, state.weekendPricingEnabled, weekdayPrice]);
+
+  // Real-time context updates
+  const updateWeekendPricingContext = (percentage) => {
+    const calculatedWeekendPrice = Math.round(weekdayPrice * (1 + percentage / 100));
+    console.log('WeekendPricing - Updating context with:', {
+      enabled: true,
+      price: calculatedWeekendPrice,
+      percentage
+    });
+    actions.updateWeekendPricing(true, calculatedWeekendPrice);
+    actions.setCurrentStep('weekend-pricing');
+  };
+
   const handleSliderChange = (e) => {
-    setPremiumPercentage(parseInt(e.target.value));
+    const newPercentage = parseInt(e.target.value);
+    setPremiumPercentage(newPercentage);
+    
+    // Update context in real-time
+    updateWeekendPricingContext(newPercentage);
   };
 
   // Debug: Log the location state
   console.log('WeekendPricing - location.state:', location.state);
   console.log('WeekendPricing - weekdayPrice:', weekdayPrice);
+
+  // Save & Exit handler
+  const handleSaveAndExitClick = async () => {
+    console.log('WeekendPricing Save & Exit clicked');
+    try {
+      // Ensure context is up to date
+      updateWeekendPricingContext(premiumPercentage);
+      
+      // Use the hook's save and exit functionality
+      await handleSaveAndExit();
+    } catch (error) {
+      console.error('Error during save and exit:', error);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-white">
@@ -34,7 +92,13 @@ const WeekendPricing = () => {
           </svg>
           <div className="flex items-center gap-6">
             <button className="font-medium text-sm hover:underline">Questions?</button>
-            <button className="font-medium text-sm hover:underline">Save & exit</button>
+            <button 
+              onClick={handleSaveAndExitClick}
+              className="font-medium text-sm hover:underline"
+              disabled={state.isLoading}
+            >
+              {state.isLoading ? 'Saving...' : 'Save & exit'}
+            </button>
           </div>
         </div>
       </header>
@@ -132,6 +196,9 @@ const WeekendPricing = () => {
                 }`}
                 onClick={() => {
                   if (canProceed) {
+                    // Update context before navigation
+                    updateWeekendPricingContext(premiumPercentage);
+                    
                     // Continue to discounts
                     navigate('/pages/discounts', { 
                       state: { 

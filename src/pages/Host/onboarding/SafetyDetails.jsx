@@ -1,16 +1,59 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Info } from 'lucide-react';
+import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
+import { useSaveAndExitWithContext } from './hooks/useSaveAndExit';
 
 const SafetyDetails = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  
+  // OnboardingContext integration
+  const { state, actions } = useOnboarding();
   
   const [safetyFeatures, setSafetyFeatures] = useState({
     'exterior-camera': false,
     'noise-monitor': false,
     'weapons': false
   });
+
+  // Ref to track initialization
+  const hasInitialized = useRef(false);
+
+  // Save and Exit hook integration
+  const { handleSaveAndExit } = useSaveAndExitWithContext(actions);
+
+  // Initialize from context if available
+  useEffect(() => {
+    if (!hasInitialized.current && state.safetyAmenities?.length > 0) {
+      console.log('SafetyDetails - Initializing from context:', state.safetyAmenities);
+      
+      // Convert array back to object format
+      const featuresFromContext = {
+        'exterior-camera': false,
+        'noise-monitor': false,
+        'weapons': false
+      };
+      
+      state.safetyAmenities.forEach(amenity => {
+        if (featuresFromContext.hasOwnProperty(amenity)) {
+          featuresFromContext[amenity] = true;
+        }
+      });
+      
+      setSafetyFeatures(featuresFromContext);
+      hasInitialized.current = true;
+    }
+  }, [state.safetyAmenities]);
+
+  // Real-time context updates
+  const updateSafetyContext = (features) => {
+    // Convert object to array format for context
+    const selectedFeatures = Object.keys(features).filter(key => features[key]);
+    console.log('SafetyDetails - Updating context with:', selectedFeatures);
+    actions.updateSafetyDetails(selectedFeatures);
+    actions.setCurrentStep('safety-details');
+  };
 
   const safetyOptions = [
     {
@@ -28,16 +71,37 @@ const SafetyDetails = () => {
   ];
 
   const toggleSafetyFeature = (featureId) => {
-    setSafetyFeatures(prev => ({
-      ...prev,
-      [featureId]: !prev[featureId]
-    }));
+    setSafetyFeatures(prev => {
+      const updatedFeatures = {
+        ...prev,
+        [featureId]: !prev[featureId]
+      };
+      
+      // Update context in real-time
+      updateSafetyContext(updatedFeatures);
+      
+      return updatedFeatures;
+    });
   };
 
   const canProceed = true; // Can always proceed regardless of safety feature selection
 
   // Debug: Log the location state
   console.log('SafetyDetails - location.state:', location.state);
+
+  // Save & Exit handler
+  const handleSaveAndExitClick = async () => {
+    console.log('SafetyDetails Save & Exit clicked');
+    try {
+      // Ensure context is up to date
+      updateSafetyContext(safetyFeatures);
+      
+      // Use the hook's save and exit functionality
+      await handleSaveAndExit();
+    } catch (error) {
+      console.error('Error during save and exit:', error);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-white">
@@ -49,7 +113,13 @@ const SafetyDetails = () => {
           </svg>
           <div className="flex items-center gap-6">
             <button className="font-medium text-sm hover:underline">Questions?</button>
-            <button className="font-medium text-sm hover:underline">Save & exit</button>
+            <button 
+              onClick={handleSaveAndExitClick}
+              className="font-medium text-sm hover:underline"
+              disabled={state.isLoading}
+            >
+              {state.isLoading ? 'Saving...' : 'Save & exit'}
+            </button>
           </div>
         </div>
       </header>
@@ -162,6 +232,9 @@ const SafetyDetails = () => {
                 }`}
                 onClick={() => {
                   if (canProceed) {
+                    // Update context before navigation
+                    updateSafetyContext(safetyFeatures);
+                    
                     // Continue to final details
                     navigate('/pages/final-details', { 
                       state: { 

@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from "react";
 import { Moon, Sun, Menu, Home, Mountain, ConciergeBell } from "lucide-react";
 import { onAuthStateChanged, signOut } from "firebase/auth";
-import { auth } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
+import { doc, getDoc } from "firebase/firestore";
 import { useLocation, Link, useNavigate } from "react-router-dom";
 import { useTheme } from "../components/ThemeContext.jsx";
 import HostTypeModal from "./HostTypeModal";
 
 const Navigation = () => {
   const [currentUser, setCurrentUser] = useState(null);
+  const [userRoles, setUserRoles] = useState([]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [showHostModal, setShowHostModal] = useState(false);
   const location = useLocation();
@@ -19,9 +21,24 @@ const Navigation = () => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user && user.emailVerified) {
         setCurrentUser(user);
+        
+        // Fetch user roles from Firestore
+        try {
+          const userDocRef = doc(db, "users", user.uid);
+          const userDoc = await getDoc(userDocRef);
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            const roles = userData.roles || [userData.role]; // Handle both old and new role structure
+            setUserRoles(roles);
+          }
+        } catch (error) {
+          console.error("Error fetching user roles:", error);
+          setUserRoles([]);
+        }
       } else {
         await signOut(auth);
         setCurrentUser(null);
+        setUserRoles([]);
       }
     });
     return () => unsubscribe();
@@ -34,6 +51,62 @@ const Navigation = () => {
   };
 
   const isActive = (path) => location.pathname === path || location.pathname.startsWith(path + "/");
+
+  // Determine if user is currently on host pages
+  const isOnHostPages = location.pathname.includes('/host/') || 
+                       location.pathname.includes('/hostdashboard') ||
+                       location.pathname.includes('/pages/property') ||
+                       location.pathname.includes('/pages/onboarding') ||
+                       location.pathname.startsWith('/pages/') && 
+                       (location.pathname.includes('property') || 
+                        location.pathname.includes('amenities') || 
+                        location.pathname.includes('photos') || 
+                        location.pathname.includes('pricing') || 
+                        location.pathname.includes('description'));
+
+  // Check if user has both guest and host roles
+  const hasMultipleRoles = userRoles.includes('guest') && userRoles.includes('host');
+  const hasHostRole = userRoles.includes('host');
+
+  // Determine what role switching button to show
+  const getRoleSwitchButton = () => {
+    // For logged-out users, always show "Become a host"
+    if (!currentUser) {
+      return {
+        text: "Become a host",
+        action: () => setShowHostModal(true),
+        icon: <Mountain className="w-4 h-4" />
+      };
+    }
+    
+    // For authenticated users with multiple roles
+    if (hasMultipleRoles) {
+      if (isOnHostPages) {
+        return {
+          text: "Switch to Traveler",
+          action: () => navigate('/'),
+          icon: <Mountain className="w-4 h-4" />
+        };
+      } else {
+        return {
+          text: "Switch to Host",
+          action: () => navigate('/host/hostdashboard'),
+          icon: <Home className="w-4 h-4" />
+        };
+      }
+    } else if (!hasHostRole) {
+      // For authenticated users without host role
+      return {
+        text: "Become a host",
+        action: () => setShowHostModal(true),
+        icon: <Mountain className="w-4 h-4" />
+      };
+    }
+    
+    return null;
+  };
+
+  const roleSwitchButton = getRoleSwitchButton();
 
   // Smooth scroll to top on route change
   useEffect(() => {
@@ -110,14 +183,17 @@ const Navigation = () => {
 
           {/* Right Side */}
           <div className="flex items-center gap-4">
-            <button
-              onClick={() => setShowHostModal(true)}
-              className={`hidden md:block text-sm font-medium transition-colors ${
-                darkMode ? "text-gray-300 hover:text-white" : "hover:text-primary"
-              }`}
-            >
-              Become a host
-            </button>
+            {roleSwitchButton && (
+              <button
+                onClick={roleSwitchButton.action}
+                className={`hidden md:flex items-center gap-2 text-sm font-medium transition-colors ${
+                  darkMode ? "text-gray-300 hover:text-white" : "hover:text-primary"
+                }`}
+              >
+                {roleSwitchButton.icon}
+                {roleSwitchButton.text}
+              </button>
+            )}
 
             {/* Dark Mode Toggle */}
             <button
@@ -150,6 +226,23 @@ const Navigation = () => {
                 >
                   {currentUser ? (
                     <>
+                      {/* Role switching for mobile */}
+                      {roleSwitchButton && (
+                        <>
+                          <button 
+                            onClick={() => {
+                              roleSwitchButton.action();
+                              setMenuOpen(false);
+                            }} 
+                            className="flex items-center gap-2 w-full text-left px-4 py-2 hover:bg-muted font-medium"
+                          >
+                            {roleSwitchButton.icon}
+                            {roleSwitchButton.text}
+                          </button>
+                          <hr className="my-2 mx-4 border-border" />
+                        </>
+                      )}
+                      
                       <Link to="/favorites" className="block px-4 py-2 hover:bg-muted">Wishlists</Link>
                       <Link to="/bookings" className="block px-4 py-2 hover:bg-muted">Bookings</Link>
                       <Link to="/messages" className="block px-4 py-2 hover:bg-muted">Messages</Link>
@@ -165,7 +258,17 @@ const Navigation = () => {
                     </>
                   ) : (
                     <>
-                      <Link to="/become-host" className="block px-4 py-2 hover:bg-muted">Become a host</Link>
+                      {roleSwitchButton && (
+                        <button 
+                          onClick={() => {
+                            roleSwitchButton.action();
+                            setMenuOpen(false);
+                          }} 
+                          className="block w-full text-left px-4 py-2 hover:bg-muted"
+                        >
+                          {roleSwitchButton.text}
+                        </button>
+                      )}
                       <p className="px-4 py-1 text-xs text-muted-foreground">
                         It's easy to start hosting and earn extra income.
                       </p>
@@ -186,6 +289,7 @@ const Navigation = () => {
       <HostTypeModal
         isOpen={showHostModal}
         onClose={() => setShowHostModal(false)}
+        currentUser={currentUser}
       />
     </>
   );

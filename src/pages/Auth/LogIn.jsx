@@ -1,13 +1,13 @@
-import React, { useState } from "react"; 
+﻿import React, { useState } from "react"; 
 import { useNavigate } from "react-router-dom";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import { Eye, EyeOff, X } from "lucide-react";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
 
-const LogIn = ({ isModal = false, onClose, setUserData }) => {
+const LogIn = ({ isModal = false, onClose, setUserData, onSwitchToSignup, upgradeToHost = false }) => {
   const navigate = useNavigate();
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
@@ -44,14 +44,37 @@ const LogIn = ({ isModal = false, onClose, setUserData }) => {
       // Ensure favorites exist
       if (!userData.favorites) userData.favorites = [];
 
+      // Check if user wants to upgrade to host
+      if (upgradeToHost && userData.role === "guest") {
+        console.log("🔄 Upgrading user from guest to host...");
+        await updateDoc(doc(db, "users", user.uid), {
+          role: "host",
+          updatedAt: new Date().toISOString(),
+        });
+        userData.role = "host"; // Update local data
+        showToast("Welcome! Your account has been upgraded to host status.", "success");
+      } else if (upgradeToHost && userData.role === "host") {
+        showToast("Welcome back! You're already a host.", "info");
+      }
+
       // Store user-specific data in parent state/context
       setUserData?.(userData);
 
       // Redirect user immediately based on role
-      if (role === "host") navigate("/host/hostdashboard", { replace: true });
-      else if (role === "guest") navigate("/guest/index", { replace: true });
-      else if (role === "admin") navigate("/admin/admindashboard", { replace: true });
-      else navigate("/", { replace: true });
+      if (userData.role === "host") {
+        if (upgradeToHost) {
+          // For newly upgraded hosts, start with property details onboarding
+          navigate("/pages/propertydetails", { replace: true });
+        } else {
+          navigate("/host/hostdashboard", { replace: true });
+        }
+      } else if (userData.role === "guest") {
+        navigate("/guest/index", { replace: true });
+      } else if (userData.role === "admin") {
+        navigate("/admin/admindashboard", { replace: true });
+      } else {
+        navigate("/", { replace: true });
+      }
 
       onClose?.(); // close modal if applicable
     } catch (error) {
@@ -114,6 +137,13 @@ const LogIn = ({ isModal = false, onClose, setUserData }) => {
               <p className="font-body text-sm md:text-base text-muted-foreground">
                 Sign in to your Havenly account
               </p>
+              {upgradeToHost && (
+                <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <p className="text-sm text-green-700">
+                    🎯 <strong>Upgrading to Host:</strong> Log in with your existing account to automatically upgrade to host status and start your hosting journey!
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="card-listing animate-scale-in">
@@ -184,13 +214,22 @@ const LogIn = ({ isModal = false, onClose, setUserData }) => {
 
                 <div className="mt-6 text-center">
                   <p className="text-muted-foreground">
-                    Don’t have an account?{" "}
-                    <a
-                      href="/signup"
-                      className="text-primary hover:text-primary/80 font-medium transition-colors"
-                    >
-                      Sign up
-                    </a>
+                    Don't have an account?{" "}
+                    {isModal && onSwitchToSignup ? (
+                      <button
+                        onClick={onSwitchToSignup}
+                        className="text-primary hover:text-primary/80 font-medium transition-colors"
+                      >
+                        Sign up
+                      </button>
+                    ) : (
+                      <a
+                        href="/signup"
+                        className="text-primary hover:text-primary/80 font-medium transition-colors"
+                      >
+                        Sign up
+                      </a>
+                    )}
                   </p>
                 </div>
               </div>

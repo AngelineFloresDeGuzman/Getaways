@@ -1,9 +1,94 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
+import { useSaveAndExitWithContext } from './hooks/useSaveAndExit.js';
 
 const MakeItStandOut = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  
+  // OnboardingContext integration
+  const { state, actions } = useOnboarding();
+  const draftLoaded = useRef(false);
+  
+  // Save and Exit hook integration
+  const { handleSaveAndExit } = useSaveAndExitWithContext(actions);
+
+  // Load draft data when navigating from "Continue Editing"
+  useEffect(() => {
+    const loadDraftData = async () => {
+      // Only load draft if user is authenticated and we have a draftId
+      if (location.state?.draftId && !draftLoaded.current && actions.loadDraft && state.user) {
+        console.log('MakeItStandOut - Loading draft with ID:', location.state.draftId);
+        try {
+          await actions.loadDraft(location.state.draftId);
+          draftLoaded.current = true;
+          console.log('MakeItStandOut - Draft loaded successfully');
+        } catch (error) {
+          console.error('MakeItStandOut - Error loading draft:', error);
+        }
+      } else if (location.state?.draftId && !state.user && !draftLoaded.current) {
+        console.log('MakeItStandOut: Cannot load draft - user not authenticated yet');
+      }
+    };
+
+    loadDraftData();
+  }, [location.state?.draftId, state.user]);
+
+  // Set current step when component mounts
+  useEffect(() => {
+    if (actions.setCurrentStep) {
+      actions.setCurrentStep('make-it-stand-out');
+    }
+  }, []);
+
+  // Save & Exit handler
+  const handleSaveAndExitClick = async () => {
+    console.log('MakeItStandOut Save & Exit clicked');
+    
+    try {
+      // Set current step before saving so "Continue Editing" returns to this page
+      if (actions.setCurrentStep) {
+        console.log('MakeItStandOut: Setting currentStep to make-it-stand-out');
+        actions.setCurrentStep('make-it-stand-out');
+      }
+      
+      // Override the saveDraft to ensure currentStep is set correctly
+      if (actions.saveDraft) {
+        console.log('MakeItStandOut: Calling custom saveDraft with forced currentStep');
+        
+        // Create modified state data with forced currentStep
+        const { user, isLoading, ...dataToSave } = state;
+        dataToSave.currentStep = 'make-it-stand-out'; // Force the currentStep
+        
+        console.log('MakeItStandOut: Data to save with forced currentStep:', dataToSave);
+        
+        // Import the draftService directly and save with our custom data
+        const { saveDraft } = await import('@/pages/Host/services/draftService');
+        const draftId = await saveDraft(dataToSave, state.draftId);
+        
+        // Update the draftId in context
+        if (actions.setDraftId) {
+          actions.setDraftId(draftId);
+        }
+        
+        // Navigate to dashboard
+        navigate('/host/hostdashboard', { 
+          state: { 
+            message: 'Draft saved successfully!',
+            draftSaved: true 
+          }
+        });
+      } else {
+        // Fallback to normal save
+        await handleSaveAndExit();
+      }
+      
+    } catch (error) {
+      console.error('Error in MakeItStandOut save:', error);
+      alert('Failed to save progress: ' + error.message);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-white">
@@ -15,7 +100,13 @@ const MakeItStandOut = () => {
           </svg>
           <div className="flex items-center gap-6">
             <button className="font-medium text-sm hover:underline">Questions?</button>
-            <button className="font-medium text-sm hover:underline">Save & exit</button>
+            <button 
+              onClick={handleSaveAndExitClick}
+              disabled={state.isLoading}
+              className="font-medium text-sm hover:underline disabled:opacity-50"
+            >
+              {state.isLoading ? 'Saving...' : 'Save & exit'}
+            </button>
           </div>
         </div>
       </header>

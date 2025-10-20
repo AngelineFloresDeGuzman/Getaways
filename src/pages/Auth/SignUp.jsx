@@ -2,15 +2,15 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
-import { Eye, EyeOff, Mail, User } from "lucide-react";
-import { createUserWithEmailAndPassword, sendEmailVerification, signOut } from "firebase/auth";
+import { Eye, EyeOff, Mail, User, X } from "lucide-react";
+import { createUserWithEmailAndPassword, sendEmailVerification, signOut, signInWithEmailAndPassword } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
-import { doc, setDoc, collection, getDocs } from "firebase/firestore";  // Add collection, getDocs if missing
+import { doc, setDoc, collection, getDocs, getDoc, updateDoc } from "firebase/firestore";  // Add collection, getDocs if missing
 
-const SignUp = () => {
+const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType = "guest" }) => {
     const navigate = useNavigate();
     const [showPassword, setShowPassword] = useState(false);
-    const [accountType, setAccountType] = useState("guest");
+    const [accountType, setAccountType] = useState(defaultAccountType);
     const [firstName, setFirstName] = useState("");
     const [lastName, setLastName] = useState("");
     const [email, setEmail] = useState("");
@@ -23,17 +23,39 @@ const SignUp = () => {
         setTimeout(() => setToast({ message: "", type: "" }), 3000);
     };
 
+    // Function to check if user exists in Firestore by email
+    const checkExistingUser = async (email) => {
+        try {
+            const usersCollection = collection(db, 'users');
+            const usersSnapshot = await getDocs(usersCollection);
+            
+            for (const userDoc of usersSnapshot.docs) {
+                const userData = userDoc.data();
+                if (userData.email === email) {
+                    return { exists: true, uid: userDoc.id, userData };
+                }
+            }
+            return { exists: false };
+        } catch (error) {
+            console.error("Error checking existing user:", error);
+            return { exists: false };
+        }
+    };
+
     const handleSignUp = async (e) => {
         e.preventDefault();
 
-        const passwordRegex = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d]{8,}$/;
+        const passwordRegex = /^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*#?&])[A-Za-z\d@$!%*#?&]{8,}$/;
         if (!passwordRegex.test(password)) {
-            showToast("Password must be at least 8 characters long and contain both letters and numbers.", "error");
+            showToast("Password must be at least 8 characters long and contain at least one letter, one number, and one special character (@$!%*#?&).", "error");
             return;
         }
 
+        let connectionTestPassed = false; // Declare outside try block for catch access
+        
         try {
-            console.log("🟡 Creating user...");
+            // Create new account directly - let Firebase handle email conflicts
+            console.log("🟡 Creating new user...");
             const userCredential = await createUserWithEmailAndPassword(auth, email, password);
             const user = userCredential.user;
             console.log("✅ User created:", user.uid);
@@ -41,7 +63,6 @@ const SignUp = () => {
 
             // Quick connection test before write (skips gracefully if Firestore helpers unavailable)
             console.log("🧪 Testing Firestore connection...");
-            let connectionTestPassed = false;
             try {
                 // Safely check if getDocs and collection are available (prevents import errors)
                 if (typeof getDocs === 'function' && typeof collection === 'function') {
@@ -60,15 +81,28 @@ const SignUp = () => {
 
             // Now attempt the write
             console.log("🟡 Saving to Firestore...");
-            await setDoc(doc(db, "users", user.uid), {
+            
+            // Prepare user data with proper role structure
+            const userData = {
                 firstName,
                 lastName,
                 email,
-                role: accountType,
+                role: accountType === "host" ? "guest" : accountType, // Primary role is guest for hosts
                 createdAt: new Date().toISOString(),
                 emailVerified: false,
-            });
-            console.log("✅ User saved to Firestore");
+            };
+            
+            // If signing up as host, add both guest and host roles
+            if (accountType === "host") {
+                userData.roles = ["guest", "host"];
+                console.log("🟡 Creating dual-role account (guest + host)");
+            } else {
+                userData.roles = ["guest"];
+                console.log("🟡 Creating guest account");
+            }
+            
+            await setDoc(doc(db, "users", user.uid), userData);
+            console.log("✅ User saved to Firestore with roles:", userData.roles);
 
             // Send verification email
             console.log("🟡 Sending verification email...");
@@ -98,22 +132,19 @@ const SignUp = () => {
             const errorCode = error?.code || '';
             const errorMsg = error?.message || '';
 
-            if (errorMsg.includes("Firestore") || errorCode.includes("firestore") || !connectionTestPassed) {
-                message = "Failed to save profile to database. ";
-                if (errorCode === "permission-denied") {
-                    message += "Database permissions issue—update your Firestore rules in the Firebase Console.";
-                } else if (errorCode === "unavailable" || errorMsg.includes("network")) {
-                    message += "Network or connection issue—ensure Firestore is enabled in your project.";
-                } else if (errorMsg.includes("failed-precondition") || errorMsg.includes("invalid-argument")) {
-                    message += "Invalid data or config—check your Firebase config in @/lib/firebase.js.";
-                } else {
-                    message += "Check your internet and Firebase setup (Firestore may not be enabled).";
-                }
-            } else {
+            // Check for auth errors first (higher priority)
+            if (errorCode.startsWith("auth/")) {
                 switch (errorCode) {
                     case "auth/email-already-in-use":
-                        message = "This email is already registered. Try logging in instead.";
-                        break;
+                        showToast("This email is already registered. Please use a different email or log in to your existing account.", "error");
+                        // Offer to switch to login modal
+                        if (onSwitchToLogin) {
+                            setTimeout(() => {
+                                showToast("Redirecting to login...", "info");
+                                onSwitchToLogin();
+                            }, 2500);
+                        }
+                        return; // Early return to prevent generic error toast
                     case "auth/invalid-email":
                         message = "Invalid email address format.";
                         break;
@@ -127,10 +158,24 @@ const SignUp = () => {
                         message = "Too many attempts. Please wait before trying again.";
                         break;
                     default:
-                        if (errorCode.startsWith("auth/")) {
-                            message = `Auth error: ${errorMsg}`;  // Fallback for other auth issues
-                        }
+                        message = `Auth error: ${errorMsg}`;  // Fallback for other auth issues
+                        break;
                 }
+            } else if (errorMsg.includes("Firestore") || errorCode.includes("firestore") || !connectionTestPassed) {
+                // Handle Firestore-related errors
+                message = "Failed to save profile to database. ";
+                if (errorCode === "permission-denied") {
+                    message += "Database permissions issue—update your Firestore rules in the Firebase Console.";
+                } else if (errorCode === "unavailable" || errorMsg.includes("network")) {
+                    message += "Network or connection issue—ensure Firestore is enabled in your project.";
+                } else if (errorMsg.includes("failed-precondition") || errorMsg.includes("invalid-argument")) {
+                    message += "Invalid data or config—check your Firebase config in @/lib/firebase.js.";
+                } else {
+                    message += "Check your internet and Firebase setup (Firestore may not be enabled).";
+                }
+            } else {
+                // Generic fallback for other errors
+                message = "An unexpected error occurred. Please try again.";
             }
 
             // Ensure message is a clean string (no code snippets)
@@ -140,14 +185,43 @@ const SignUp = () => {
         }
     };
 
+    const handleOverlayClick = () => onClose?.();
+
     return (
-        <div className="min-h-screen bg-background">
-            <Navigation />
-            <section className="pt-40 pb-20 px-6">
+        <div
+            className={`${
+                isModal
+                    ? "fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+                    : "min-h-screen bg-background"
+            }`}
+            onClick={isModal ? handleOverlayClick : undefined}
+        >
+            {isModal && (
+                <div
+                    className="bg-white rounded-2xl shadow-lg p-6 w-full max-w-md relative max-h-[90vh] overflow-y-auto"
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <button
+                        onClick={onClose}
+                        className="absolute top-4 right-4 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                    >
+                        <X className="w-5 h-5" />
+                    </button>
+
+                    <section className="py-8 px-6">
                 <div className="max-w-md mx-auto">
                     <div className="text-center mb-8 animate-fade-in">
                         <h1 className="font-heading text-3xl font-bold text-foreground mb-4">Join Havenly</h1>
                         <p className="font-body text-muted-foreground">Create your account and start exploring</p>
+                        {defaultAccountType === "host" && (
+                            <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                                <p className="text-sm text-amber-700">
+                                    ⚠️ <strong>Have a guest account already?</strong> You can either:
+                                    <br />• Use a <strong>different email</strong> to create a new host account
+                                    <br />• Or <strong>log in</strong> with your existing credentials to upgrade your account
+                                </p>
+                            </div>
+                        )}
                     </div>
 
                     <div className="card-listing animate-scale-in">
@@ -235,7 +309,7 @@ const SignUp = () => {
                                         </button>
                                     </div>
                                     <p className="mt-2 text-xs text-muted-foreground">
-                                        Must be at least 8 characters with letters and numbers
+                                        Must be at least 8 characters with letters, numbers, and special characters (@$!%*#?&)
                                     </p>
                                 </div>
 
@@ -243,15 +317,36 @@ const SignUp = () => {
                                     Create Account
                                 </button>
 
+                                {defaultAccountType === "host" && onSwitchToLogin && (
+                                    <div className="mt-3">
+                                        <button
+                                            type="button"
+                                            onClick={onSwitchToLogin}
+                                            className="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white py-3 px-4 rounded-xl font-medium hover:from-green-600 hover:to-emerald-700 transition-all text-sm"
+                                        >
+                                            🔄 Upgrade Existing Account to Host
+                                        </button>
+                                    </div>
+                                )}
+
                                 <div className="mt-2 text-center">
                                     <p className="text-muted-foreground">
                                         Already have an account?{" "}
-                                        <a
-                                            href="/login"
-                                            className="text-primary hover:text-primary/80 font-medium transition-colors"
-                                        >
-                                            Login
-                                        </a>
+                                        {isModal && onSwitchToLogin ? (
+                                            <button
+                                                onClick={onSwitchToLogin}
+                                                className="text-primary hover:text-primary/80 font-medium transition-colors"
+                                            >
+                                                Login
+                                            </button>
+                                        ) : (
+                                            <a
+                                                href="/login"
+                                                className="text-primary hover:text-primary/80 font-medium transition-colors"
+                                            >
+                                                Login
+                                            </a>
+                                        )}
                                     </p>
                                 </div>
                             </form>
@@ -259,6 +354,140 @@ const SignUp = () => {
                     </div>
                 </div>
             </section>
+                </div>
+            )}
+
+            {!isModal && (
+                <>
+                    <Navigation />
+                    <section className="pt-40 pb-20 px-6">
+                        <div className="max-w-md mx-auto">
+                            <div className="text-center mb-8 animate-fade-in">
+                                <h1 className="font-heading text-3xl font-bold text-foreground mb-4">Join Havenly</h1>
+                                <p className="font-body text-muted-foreground">Create your account and start exploring</p>
+                                {defaultAccountType === "host" && (
+                                    <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                                        <p className="text-sm text-amber-700">
+                                            ⚠️ <strong>Have a guest account already?</strong> You can either:
+                                            <br />• Use a <strong>different email</strong> to create a new host account
+                                            <br />• Or <strong>log in</strong> with your existing credentials to upgrade your account
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="card-listing animate-scale-in">
+                                <div className="p-8">
+                                    {/* Account Type Switch */}
+                                    <div className="flex rounded-xl bg-muted p-1 mb-6">
+                                        <button
+                                            onClick={() => setAccountType("guest")}
+                                            className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-lg font-medium transition-all ${accountType === "guest"
+                                                ? "bg-background text-foreground shadow-sm"
+                                                : "text-muted-foreground hover:text-foreground"
+                                                }`}
+                                        >
+                                            <User className="w-4 h-4" />
+                                            Guest
+                                        </button>
+                                        <button
+                                            onClick={() => setAccountType("host")}
+                                            className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-lg font-medium transition-all ${accountType === "host"
+                                                ? "bg-background text-foreground shadow-sm"
+                                                : "text-muted-foreground hover:text-foreground"
+                                                }`}
+                                        >
+                                            <Mail className="w-4 h-4" />
+                                            Host
+                                        </button>
+                                    </div>
+
+                                    {/* Signup Form */}
+                                    <form className="space-y-6" onSubmit={handleSignUp}>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="block font-medium text-foreground mb-2">First name</label>
+                                                <input
+                                                    type="text"
+                                                    placeholder="First name"
+                                                    value={firstName}
+                                                    onChange={(e) => setFirstName(e.target.value)}
+                                                    className="w-full p-4 border border-border rounded-xl bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                                                    required
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block font-medium text-foreground mb-2">Last name</label>
+                                                <input
+                                                    type="text"
+                                                    placeholder="Last name"
+                                                    value={lastName}
+                                                    onChange={(e) => setLastName(e.target.value)}
+                                                    className="w-full p-4 border border-border rounded-xl bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                                                    required
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <label className="block font-medium text-foreground mb-2">Email address</label>
+                                            <input
+                                                type="email"
+                                                placeholder="Enter your email address"
+                                                value={email}
+                                                onChange={(e) => setEmail(e.target.value)}
+                                                className="w-full p-4 border border-border rounded-xl bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                                                required
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label className="block font-medium text-foreground mb-2">Password</label>
+                                            <div className="relative">
+                                                <input
+                                                    type={showPassword ? "text" : "password"}
+                                                    placeholder="Create a password"
+                                                    value={password}
+                                                    onChange={(e) => setPassword(e.target.value)}
+                                                    className="w-full p-4 pr-12 border border-border rounded-xl bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                                                    required
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowPassword(!showPassword)}
+                                                    className="absolute right-4 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                                                >
+                                                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                                                </button>
+                                            </div>
+                                            <p className="mt-2 text-xs text-muted-foreground">
+                                                Must be at least 8 characters with letters, numbers, and special characters (@$!%*#?&)
+                                            </p>
+                                        </div>
+
+                                        <button type="submit" className="w-full btn-primary text-lg py-4">
+                                            Create Account
+                                        </button>
+
+                                        <div className="mt-2 text-center">
+                                            <p className="text-muted-foreground">
+                                                Already have an account?{" "}
+                                                <a
+                                                    href="/login"
+                                                    className="text-primary hover:text-primary/80 font-medium transition-colors"
+                                                >
+                                                    Login
+                                                </a>
+                                            </p>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                    <Footer />
+                </>
+            )}
 
             {/* Toast Notification */}
             {toast.message && (
@@ -284,7 +513,7 @@ const SignUp = () => {
 
                         <h2 className="text-2xl font-bold text-foreground mt-6">Verify Email Address</h2>
                         <p className="text-muted-foreground">
-                            We’ve sent a verification link. Please open your inbox to confirm your email address and activate your account.
+                            We've sent a verification link. Please open your inbox to confirm your email address and activate your account.
                         </p>
                         <div className="flex flex-col gap-3 mt-6">
                             <button
@@ -299,7 +528,14 @@ const SignUp = () => {
                             <span
                                 onClick={async () => {
                                     await signOut(auth);
-                                    navigate("/login", { replace: true });
+                                    if (isModal && onSwitchToLogin) {
+                                        // If in modal mode, switch to login modal
+                                        setShowVerifyPopup(false);
+                                        onSwitchToLogin();
+                                    } else {
+                                        // If not in modal mode, navigate to login page
+                                        navigate("/login", { replace: true });
+                                    }
                                 }}
                                 className="text-sm text-primary hover:underline cursor-pointer mt-2"
                             >
@@ -309,8 +545,6 @@ const SignUp = () => {
                     </div>
                 </div>
             )}
-
-            <Footer />
         </div>
     );
 };
