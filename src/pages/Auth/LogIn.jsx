@@ -131,11 +131,11 @@ const LogIn = ({ isModal = false, onClose, setUserData, onSwitchToSignup, upgrad
         >
           <div className="w-full max-w-md">
             <div className="text-center mb-6 animate-fade-in">
-              <h1 className="font-heading text-2xl md:text-3xl font-bold text-foreground mb-2">
-                Welcome back
+                            <h1 className="font-heading text-3xl font-bold text-foreground mb-2">
+                Sign in to your Getaways account
               </h1>
               <p className="font-body text-sm md:text-base text-muted-foreground">
-                Sign in to your Havenly account
+                Sign in to your Getaways account
               </p>
               {upgradeToHost && (
                 <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">

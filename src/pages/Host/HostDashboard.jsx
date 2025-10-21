@@ -94,25 +94,25 @@ const HostDashboard = () => {
     const stepRoutes = {
       'property-details': '/pages/propertydetails',
       'property-structure': '/pages/propertystructure',
-      'privacy-type': '/pages/privacy-type',
+      'privacy-type': '/pages/privacytype',
       'location': '/pages/location',
-      'location-confirmation': '/pages/location-confirmation',
-      'property-basics': '/pages/property-basics',
-      'make-it-stand-out': '/pages/make-it-stand-out',
+      'location-confirmation': '/pages/locationconfirmation',
+      'property-basics': '/pages/propertybasics',
+      'make-it-stand-out': '/pages/makeitstandout',
       'amenities': '/pages/amenities',
       'photos': '/pages/photos',
-      'photos-preview': '/pages/photos-preview',
-      'title-description': '/pages/title-description',
+      'photos-preview': '/pages/photospreview',
+      'title-description': '/pages/titleDescription',
       'description': '/pages/description',
-      'description-details': '/pages/description-details',
-      'finish-setup': '/pages/finish-setup',
-      'booking-settings': '/pages/booking-settings',
-      'guest-selection': '/pages/guest-selection',
+      'description-details': '/pages/descriptiondetails',
+      'finish-setup': '/pages/finishsetup',
+      'booking-settings': '/pages/bookingsettings',
+      'guest-selection': '/pages/guestselection',
       'pricing': '/pages/pricing',
-      'weekend-pricing': '/pages/weekend-pricing',
+      'weekend-pricing': '/pages/weekendpricing',
       'discounts': '/pages/discounts',
-      'safety-details': '/pages/safety-details',
-      'final-details': '/pages/final-details'
+      'safety-details': '/pages/safetydetails',
+      'final-details': '/pages/finaldetails'
     };
 
     const route = stepRoutes[draft.currentStep] || '/pages/propertydetails';
@@ -315,7 +315,7 @@ const HostDashboard = () => {
                   <Home className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
                   <h3 className="font-heading text-lg font-semibold text-foreground mb-2">No drafts yet</h3>
                   <p className="text-muted-foreground mb-6">
-                    Start creating your first listing to begin hosting with Havenly.
+                    Start creating your first listing to begin hosting with Getaways.
                   </p>
                 </div>
               )}

@@ -448,7 +448,7 @@ const ExperiencesDetails = () => {
                   if (navigator.share) {
                     try {
                       await navigator.share({
-                        title: "Check out this accommodation on Havenly!",
+                        title: "Check out this accommodation on Getaways!",
                         text: "Explore this amazing accommodation!",
                         url: `${window.location.origin}/accommodations/${activeShare}`,
                       });

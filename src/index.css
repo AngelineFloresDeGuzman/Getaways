@@ -5,7 +5,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Havenly Hospitality Design System - Warm & Cozy Vibes */
+/* Getaways Hospitality Design System - Warm & Cozy Vibes */
 
 @layer base {
   :root {
@@ -56,7 +56,7 @@
 
     --radius: 0.75rem;
 
-    /* Custom Havenly Gradients */
+    /* Custom Getaways Gradients */
     --gradient-hero: linear-gradient(135deg, hsl(var(--muted)), hsl(var(--secondary) / 0.8));
     --gradient-card: linear-gradient(135deg, hsl(var(--background)), hsl(var(--muted) / 0.5));
     --gradient-primary: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-hover)));
@@ -160,7 +160,7 @@
 }
 
 @layer components {
-  /* Havenly Component Styles */
+  /* Getaways Component Styles */
 
   .btn-primary {
     background-color: hsl(var(--primary));

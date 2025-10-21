@@ -2,21 +2,38 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
+import TermsModal from "@/components/TermsModal";
+import PrivacyModal from "@/components/PrivacyModal";
 import { Eye, EyeOff, Mail, User, X } from "lucide-react";
 import { createUserWithEmailAndPassword, sendEmailVerification, signOut, signInWithEmailAndPassword } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { doc, setDoc, collection, getDocs, getDoc, updateDoc } from "firebase/firestore";  // Add collection, getDocs if missing
+import { Checkbox } from "@/components/ui/checkbox";
 
 const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType = "guest" }) => {
     const navigate = useNavigate();
     const [showPassword, setShowPassword] = useState(false);
+    const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [accountType, setAccountType] = useState(defaultAccountType);
     const [firstName, setFirstName] = useState("");
     const [lastName, setLastName] = useState("");
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
+    const [confirmPassword, setConfirmPassword] = useState("");
+    const [acceptTerms, setAcceptTerms] = useState(false);
+    const [showTermsModal, setShowTermsModal] = useState(false);
+    const [showPrivacyModal, setShowPrivacyModal] = useState(false);
+    const [hasReadTerms, setHasReadTerms] = useState(false);
+    const [hasReadPrivacy, setHasReadPrivacy] = useState(false);
     const [toast, setToast] = useState({ message: "", type: "" });
     const [showVerifyPopup, setShowVerifyPopup] = useState(false);
+
+    // Auto-check the checkbox when both documents are read
+    React.useEffect(() => {
+        if (hasReadTerms && hasReadPrivacy && !acceptTerms) {
+            setAcceptTerms(true);
+        }
+    }, [hasReadTerms, hasReadPrivacy, acceptTerms]);
 
     const showToast = (message, type = "info") => {
         setToast({ message, type });
@@ -44,6 +61,31 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
 
     const handleSignUp = async (e) => {
         e.preventDefault();
+
+        // Validate terms and conditions
+        if (!acceptTerms) {
+            showToast("You must accept the terms and conditions to create an account.", "error");
+            return;
+        }
+
+        // Validate that both documents have been read
+        if (!hasReadTerms) {
+            showToast("Please read the complete Terms & Conditions before creating an account.", "error");
+            setShowTermsModal(true);
+            return;
+        }
+
+        if (!hasReadPrivacy) {
+            showToast("Please read the complete Privacy Policy before creating an account.", "error");
+            setShowPrivacyModal(true);
+            return;
+        }
+
+        // Validate password match
+        if (password !== confirmPassword) {
+            showToast("Passwords do not match. Please try again.", "error");
+            return;
+        }
 
         const passwordRegex = /^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*#?&])[A-Za-z\d@$!%*#?&]{8,}$/;
         if (!passwordRegex.test(password)) {
@@ -117,6 +159,10 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
             setLastName("");
             setEmail("");
             setPassword("");
+            setConfirmPassword("");
+            setAcceptTerms(false);
+            setHasReadTerms(false);
+            setHasReadPrivacy(false);
 
         } catch (error) {
             console.error("Signup error (outer):", error?.code || error?.message || 'Unknown error', error);
@@ -313,6 +359,79 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
                                     </p>
                                 </div>
 
+                                <div>
+                                    <label className="block font-medium text-foreground mb-2">Confirm Password</label>
+                                    <div className="relative">
+                                        <input
+                                            type={showConfirmPassword ? "text" : "password"}
+                                            placeholder="Confirm your password"
+                                            value={confirmPassword}
+                                            onChange={(e) => setConfirmPassword(e.target.value)}
+                                            className="w-full p-4 pr-12 border border-border rounded-xl bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                                            required
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                                            className="absolute right-4 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                                        >
+                                            {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-start space-x-3">
+                                    <Checkbox
+                                        id="terms-modal"
+                                        checked={acceptTerms && hasReadTerms && hasReadPrivacy}
+                                        onCheckedChange={(checked) => {
+                                            if (!checked) {
+                                                // Allow unchecking
+                                                setAcceptTerms(false);
+                                            } else if (hasReadTerms && hasReadPrivacy) {
+                                                // Allow checking only if both documents are read
+                                                setAcceptTerms(true);
+                                            } else {
+                                                // User trying to check without reading documents
+                                                if (!hasReadTerms) {
+                                                    showToast("Please read the Terms & Conditions first.", "error");
+                                                    setShowTermsModal(true);
+                                                } else if (!hasReadPrivacy) {
+                                                    showToast("Please read the Privacy Policy first.", "error");
+                                                    setShowPrivacyModal(true);
+                                                }
+                                            }
+                                        }}
+                                        className="mt-1"
+                                        required
+                                    />
+                                    <label htmlFor="terms-modal" className="text-sm text-foreground leading-relaxed">
+                                        I agree to the{" "}
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowTermsModal(true)}
+                                            className={`text-primary hover:text-primary/80 underline font-medium ${hasReadTerms ? 'text-green-600' : ''}`}
+                                        >
+                                            Terms of Service {hasReadTerms && '✓'}
+                                        </button>
+                                        {" "}and{" "}
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowPrivacyModal(true)}
+                                            className={`text-primary hover:text-primary/80 underline font-medium ${hasReadPrivacy ? 'text-green-600' : ''}`}
+                                        >
+                                            Privacy Policy {hasReadPrivacy && '✓'}
+                                        </button>
+                                        {hasReadTerms && hasReadPrivacy ? (
+                                            <span className="block text-xs text-green-600 mt-1">✓ Both documents read - Agreement automatically accepted</span>
+                                        ) : (
+                                            <span className="block text-xs text-muted-foreground mt-1">
+                                                Please read both documents to automatically accept the agreement
+                                            </span>
+                                        )}
+                                    </label>
+                                </div>
+
                                 <button type="submit" className="w-full btn-primary text-lg py-4">
                                     Create Account
                                 </button>
@@ -465,6 +584,79 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
                                             </p>
                                         </div>
 
+                                        <div>
+                                            <label className="block font-medium text-foreground mb-2">Confirm Password</label>
+                                            <div className="relative">
+                                                <input
+                                                    type={showConfirmPassword ? "text" : "password"}
+                                                    placeholder="Confirm your password"
+                                                    value={confirmPassword}
+                                                    onChange={(e) => setConfirmPassword(e.target.value)}
+                                                    className="w-full p-4 pr-12 border border-border rounded-xl bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                                                    required
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                                                    className="absolute right-4 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                                                >
+                                                    {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-start space-x-3">
+                                            <Checkbox
+                                                id="terms"
+                                                checked={acceptTerms && hasReadTerms && hasReadPrivacy}
+                                                onCheckedChange={(checked) => {
+                                                    if (!checked) {
+                                                        // Allow unchecking
+                                                        setAcceptTerms(false);
+                                                    } else if (hasReadTerms && hasReadPrivacy) {
+                                                        // Allow checking only if both documents are read
+                                                        setAcceptTerms(true);
+                                                    } else {
+                                                        // User trying to check without reading documents
+                                                        if (!hasReadTerms) {
+                                                            showToast("Please read the Terms & Conditions first.", "error");
+                                                            setShowTermsModal(true);
+                                                        } else if (!hasReadPrivacy) {
+                                                            showToast("Please read the Privacy Policy first.", "error");
+                                                            setShowPrivacyModal(true);
+                                                        }
+                                                    }
+                                                }}
+                                                className="mt-1"
+                                                required
+                                            />
+                                            <label htmlFor="terms" className="text-sm text-foreground leading-relaxed">
+                                                I agree to the{" "}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowTermsModal(true)}
+                                                    className={`text-primary hover:text-primary/80 underline font-medium ${hasReadTerms ? 'text-green-600' : ''}`}
+                                                >
+                                                    Terms of Service {hasReadTerms && '✓'}
+                                                </button>
+                                                {" "}and{" "}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowPrivacyModal(true)}
+                                                    className={`text-primary hover:text-primary/80 underline font-medium ${hasReadPrivacy ? 'text-green-600' : ''}`}
+                                                >
+                                                    Privacy Policy {hasReadPrivacy && '✓'}
+                                                </button>
+                                                {hasReadTerms && hasReadPrivacy ? (
+                                                    <span className="block text-xs text-green-600 mt-1">✓ Both documents read - Agreement automatically accepted</span>
+                                                ) : (
+                                                    <span className="block text-xs text-muted-foreground mt-1">
+                                                        Please read both documents to automatically accept the agreement
+                                                    </span>
+                                                )}
+                                            </label>
+                                        </div>
+
                                         <button type="submit" className="w-full btn-primary text-lg py-4">
                                             Create Account
                                         </button>
@@ -545,6 +737,19 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
                     </div>
                 </div>
             )}
+
+            {/* Terms & Privacy Modals */}
+            <TermsModal
+                isOpen={showTermsModal}
+                onClose={() => setShowTermsModal(false)}
+                onScrollComplete={() => setHasReadTerms(true)}
+            />
+            
+            <PrivacyModal
+                isOpen={showPrivacyModal}
+                onClose={() => setShowPrivacyModal(false)}
+                onScrollComplete={() => setHasReadPrivacy(true)}
+            />
         </div>
     );
 };

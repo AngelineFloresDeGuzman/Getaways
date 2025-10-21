@@ -22,17 +22,8 @@ const Hero = ({ darkMode }) => {
 
     const [showSuggestions, setShowSuggestions] = useState(false);
 
-    const destinations = [
-        "Manila, Philippines",
-        "Paris, France",
-        "Tokyo, Japan",
-        "New York, USA",
-        "Rome, Italy",
-        "Bali, Indonesia",
-        "Sydney, Australia",
-        "Seoul, South Korea",
-        "London, UK",
-    ];
+    // TODO: This will be populated dynamically from API/database
+    const destinations = [];
 
     // ✅ Dynamically generate the next 18 months
     const generateMonths = (count = 18) => {
@@ -79,7 +70,7 @@ const Hero = ({ darkMode }) => {
                     </h1>
                     <p className="font-body text-lg md:text-xl text-white/90 mb-8 max-w-xl leading-relaxed">
                         Discover unique accommodations, exceptional services, and
-                        unforgettable experiences with Havenly.
+                        unforgettable experiences with Getaways.
                     </p>
                 </div>
 
@@ -114,7 +105,7 @@ const Hero = ({ darkMode }) => {
                             />
 
                             {/* Suggestions Dropdown */}
-                            {showSuggestions && (
+                            {showSuggestions && destinations.length > 0 && (
                                 <ul className="absolute left-0 right-0 mt-2 bg-white border border-gray-200 rounded-xl shadow-lg z-20 max-h-60 overflow-y-auto">
                                     <li className="px-4 py-2 text-sm font-semibold text-gray-600 uppercase tracking-wider bg-gray-50 border-b border-gray-200">
                                         Suggested Destinations
@@ -548,7 +539,7 @@ const Hero = ({ darkMode }) => {
                             className={`w-full btn-primary flex items-center justify-center gap-2 py-3 text-lg font-semibold rounded-xl shadow-md hover:shadow-lg transition-all
                             ${darkMode ? "text-white" : "text-gray-900"}`} // <-- change color based on darkMode
                         >
-                            Search Havenly
+                            Search Getaways
                             <Search className={`w-5 h-5 ${darkMode ? "text-white" : "text-gray-900"}`} /> {/* Icon color */}
                         </button>
                     </div>

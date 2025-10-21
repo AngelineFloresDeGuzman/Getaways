@@ -1,70 +1,49 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
+import { useOnboardingAutoSave, useOnboardingNavigation } from './hooks/useOnboardingAutoSave';
 import { Home, Building2, TreePine } from 'lucide-react';
 
 const PropertyDetails = () => {
   const navigate = useNavigate();
   const location = useLocation();
   
-  // Add error boundary for context
-  let contextData;
-  try {
-    contextData = useOnboarding();
-  } catch (error) {
-    console.error('Failed to load onboarding context:', error);
-    // Fallback handling
-    contextData = { 
-      state: { propertyType: null, isLoading: false }, 
-      actions: { 
-        updatePropertyType: () => console.log('Mock updatePropertyType'),
-        saveAndExit: () => Promise.reject(new Error('Context not available'))
-      } 
-    };
-  }
+  // Enhanced auto-save and state management
+  const { 
+    state, 
+    actions, 
+    loadDraftIfNeeded, 
+    saveAndExit, 
+    isLoading 
+  } = useOnboardingAutoSave('property-details', []);
   
-  const { state, actions } = contextData;
+  const { navigateNext } = useOnboardingNavigation('property-details');
+  
   const [selectedType, setSelectedType] = useState(state.propertyType || null);
-  const [hasLoadedDraft, setHasLoadedDraft] = useState(false);
-  const actionsRef = useRef(actions);
-  actionsRef.current = actions;
+  const [saveError, setSaveError] = useState(null);
 
-  // Check if we're continuing from a draft
+  // Load draft if continuing from saved progress
   useEffect(() => {
-    const loadDraftFromState = async () => {
-      if (location.state?.draftId && !hasLoadedDraft) {
-        setHasLoadedDraft(true);
+    const initializePage = async () => {
+      if (location.state?.draftId) {
         try {
-          await actionsRef.current.loadDraft(location.state.draftId);
+          await loadDraftIfNeeded(location.state.draftId);
         } catch (error) {
           console.error('Error loading draft in PropertyDetails:', error);
-          setHasLoadedDraft(false); // Reset on error so user can retry
+          setSaveError('Failed to load saved progress. Starting fresh.');
         }
+      }
+      
+      // Show any save error from previous navigation
+      if (location.state?.saveError) {
+        setSaveError(location.state.saveError);
+        // Clear error after 5 seconds
+        setTimeout(() => setSaveError(null), 5000);
       }
     };
 
-    loadDraftFromState();
-  }, [location.state?.draftId, hasLoadedDraft]);
-
-  // Force reset loading state once draft is loaded and we have the data
-  useEffect(() => {
-    if (hasLoadedDraft && state.draftId && state.isLoading) {
-      console.log('Draft loaded, resetting loading state');
-      actionsRef.current.setLoading(false);
-    }
-  }, [hasLoadedDraft, state.draftId, state.isLoading]);
-
-  // Safety mechanism to reset loading state if stuck
-  useEffect(() => {
-    if (state.isLoading) {
-      const timeoutId = setTimeout(() => {
-        console.warn('Loading state was stuck, forcing reset');
-        actionsRef.current.setLoading(false);
-      }, 5000); // 5 second timeout
-
-      return () => clearTimeout(timeoutId);
-    }
-  }, [state.isLoading]);
+    initializePage();
+  }, [location.state, loadDraftIfNeeded]);
 
   // Update selectedType when state changes (after loading draft)
   useEffect(() => {
@@ -76,9 +55,9 @@ const PropertyDetails = () => {
   // Update context when selectedType changes
   useEffect(() => {
     if (selectedType && selectedType !== state.propertyType) {
-      actionsRef.current.updatePropertyType(selectedType);
+      actions.updatePropertyType(selectedType);
     }
-  }, [selectedType, state.propertyType]);
+  }, [selectedType, state.propertyType, actions]);
 
   const propertyTypes = [
     {
@@ -107,38 +86,39 @@ const PropertyDetails = () => {
   const handlePropertyTypeSelect = (typeId) => {
     setSelectedType(typeId);
     actions.updatePropertyType(typeId);
+    setSaveError(null); // Clear any previous errors
   };
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (selectedType) {
-      actions.setCurrentStep('property-structure');
-      navigate('/pages/propertystructure');
+      try {
+        await navigateNext(navigate, '/pages/propertystructure', 'property-structure');
+      } catch (error) {
+        console.error('Error navigating to next step:', error);
+        setSaveError('Failed to save progress. Continuing anyway...');
+        // Continue navigation even if save fails
+        setTimeout(() => {
+          navigate('/pages/propertystructure');
+        }, 1000);
+      }
     }
   };
 
   const handleSaveAndExit = async () => {
-    console.log('Save & Exit clicked!'); // Debug log
-    console.log('Current state:', state); // Debug log
-    console.log('Actions available:', actions); // Debug log
-    
-    // Check if user is authenticated
-    const { auth } = await import('@/lib/firebase');
-    const currentUser = auth.currentUser;
-    console.log('Current user:', currentUser);
-    
-    if (!currentUser) {
-      alert('Please log in to save your progress.');
-      navigate('/login');
-      return;
-    }
-    
     try {
-      console.log('Calling saveAndExit...');
-      await actions.saveAndExit();
-      console.log('Save and exit completed!');
+      setSaveError(null);
+      
+      // Pass current page data to ensure it's saved
+      const currentPageData = selectedType ? { propertyType: selectedType } : null;
+      await saveAndExit(currentPageData);
     } catch (error) {
-      console.error('Error saving draft:', error);
-      alert('Failed to save draft: ' + error.message);
+      console.error('Error saving and exiting:', error);
+      setSaveError(error.message);
+      
+      // If it's an auth error, redirect to login
+      if (error.message.includes('authenticated')) {
+        setTimeout(() => navigate('/login'), 2000);
+      }
     }
   };
 
@@ -147,18 +127,39 @@ const PropertyDetails = () => {
       {/* Header */}
       <header className="fixed top-0 left-0 right-0 bg-white z-50 border-b">
         <div className="py-4 px-8 flex justify-between items-center">
-          <img src="/logo.jpg" alt="Havenly" className="h-8" />
+          <img src="/logo.jpg" alt="Getaways" className="h-8" />
           <div className="flex items-center gap-6">
             <button className="hover:underline">Questions?</button>
             <button 
               onClick={handleSaveAndExit}
-              className="hover:underline"
-              disabled={state.isLoading}
+              className="hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={isLoading}
             >
-              {state.isLoading ? 'Saving...' : 'Save & exit'}
+              {isLoading ? 'Saving...' : 'Save & exit'}
             </button>
           </div>
         </div>
+        
+        {/* Error/Status Messages */}
+        {saveError && (
+          <div className="bg-red-50 border-l-4 border-red-400 p-4 mx-8">
+            <div className="flex">
+              <div className="ml-3">
+                <p className="text-sm text-red-700">{saveError}</p>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {isLoading && (
+          <div className="bg-blue-50 border-l-4 border-blue-400 p-4 mx-8">
+            <div className="flex">
+              <div className="ml-3">
+                <p className="text-sm text-blue-700">Loading your saved progress...</p>
+              </div>
+            </div>
+          </div>
+        )}
       </header>
 
       {/* Main Content */}
@@ -232,14 +233,14 @@ const PropertyDetails = () => {
               </button>
               <button 
                 onClick={handleNext}
-                disabled={!selectedType}
+                disabled={!selectedType || isLoading}
                 className={`rounded-lg px-8 py-3.5 text-base font-medium transition-colors ${
-                  selectedType 
+                  selectedType && !isLoading
                     ? 'bg-black text-white hover:bg-gray-800' 
                     : 'bg-gray-300 text-gray-500 cursor-not-allowed'
                 }`}
               >
-                Next
+                {isLoading ? 'Saving...' : 'Next'}
               </button>
             </div>
           </div>

@@ -1,7 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
-import { useSaveAndExitWithContext } from './hooks/useSaveAndExit';
+import { useOnboardingAutoSave, useOnboardingNavigation } from './hooks/useOnboardingAutoSave';
 import {
   Home,
   Building2 as Building,
@@ -54,106 +53,69 @@ const PropertyStructure = () => {
   const navigate = useNavigate();
   const location = useLocation();
   
-  // Use OnboardingContext for proper draft management
-  let contextData;
-  try {
-    contextData = useOnboarding();
-  } catch (error) {
-    console.error('OnboardingContext error:', error);
-    contextData = {
-      state: { propertyStructure: null, isLoading: false },
-      actions: { 
-        updatePropertyStructure: () => {},
-        saveAndExit: () => Promise.reject(new Error('Context not available'))
-      }
-    };
-  }
-  
-  const { state, actions } = contextData;
-  const { handleSaveAndExit } = useSaveAndExitWithContext(actions);
-  const [hasLoadedDraft, setHasLoadedDraft] = useState(false);
-  const actionsRef = useRef(actions);
-  actionsRef.current = actions;
+  // Enhanced auto-save and state management
+  const { 
+    state, 
+    actions, 
+    loadDraftIfNeeded, 
+    saveAndExit, 
+    isLoading 
+  } = useOnboardingAutoSave('property-structure', []);
+
+  const { navigateNext, navigateBack } = useOnboardingNavigation('property-structure');
   
   const [selectedType, setSelectedType] = useState(state.propertyStructure || '');
 
-  // Check if we're continuing from a draft
+  // Load draft if continuing from saved progress
   useEffect(() => {
-    const loadDraftFromState = async () => {
-      if (location.state?.draftId && !hasLoadedDraft) {
-        setHasLoadedDraft(true);
+    const initializePage = async () => {
+      if (location.state?.draftId) {
         try {
-          await actionsRef.current.loadDraft(location.state.draftId);
+          await loadDraftIfNeeded(location.state.draftId);
         } catch (error) {
           console.error('Error loading draft in PropertyStructure:', error);
-          setHasLoadedDraft(false); // Reset on error so user can retry
         }
       }
     };
 
-    loadDraftFromState();
-  }, [location.state?.draftId, hasLoadedDraft]);
-
-  // Force reset loading state once draft is loaded and we have the data
-  useEffect(() => {
-    if (hasLoadedDraft && state.draftId && state.isLoading) {
-      console.log('Draft loaded in PropertyStructure, resetting loading state');
-      actionsRef.current.setLoading(false);
-    }
-  }, [hasLoadedDraft, state.draftId, state.isLoading]);
-
-  // Safety mechanism to reset loading state if stuck
-  useEffect(() => {
-    if (state.isLoading) {
-      const timeoutId = setTimeout(() => {
-        console.warn('Loading state was stuck in PropertyStructure, forcing reset');
-        actionsRef.current.setLoading(false);
-      }, 5000); // 5 second timeout
-
-      return () => clearTimeout(timeoutId);
-    }
-  }, [state.isLoading]);
+    initializePage();
+  }, [location.state, loadDraftIfNeeded]);
 
   // Update selectedType when state changes (after loading draft)
   useEffect(() => {
     if (state.propertyStructure) {
       setSelectedType(state.propertyStructure);
+      actions.setLoading(false);
     }
-  }, [state.propertyStructure]);
+  }, [state.propertyStructure, actions]);
 
-  // Update context when selectedType changes
-  useEffect(() => {
-    if (selectedType && selectedType !== state.propertyStructure) {
-      actions.updatePropertyStructure(selectedType);
-    }
-  }, [selectedType, state.propertyStructure, actions]);
+  // Handle property type selection
+  const handleTypeSelect = (type) => {
+    setSelectedType(type);
+    actions.updateState({ propertyStructure: type });
+  };
 
-  const handleSaveAndExitClick = async () => {
+  // Enhanced navigation functions
+  const handleNext = async () => {
     try {
-      await handleSaveAndExit();
+      // Ensure latest selection is saved
+      actions.updateState({ propertyStructure: selectedType });
+      await navigateNext(navigate, '/pages/privacytype', 'privacy-type');
     } catch (error) {
-      console.error('Error saving draft:', error);
-      alert('Failed to save draft: ' + error.message);
+      console.error('Error navigating to next step:', error);
+      // Continue navigation even if save fails
+      navigate('/pages/privacytype');
     }
   };
 
-  const handleNext = async () => {
+  const handleSaveAndExit = async () => {
     try {
-      navigate('/pages/privacy-type', {
-        state: {
-          ...location.state,
-          propertyStructure: selectedType
-        }
-      });
+      // Pass current page data to ensure it's saved
+      const currentPageData = selectedType ? { propertyStructure: selectedType } : null;
+      await saveAndExit(currentPageData);
     } catch (error) {
-      console.error('Error navigating to next page:', error);
-      // Still navigate even if error occurs
-      navigate('/pages/privacy-type', {
-        state: {
-          ...location.state,
-          propertyStructure: selectedType
-        }
-      });
+      console.error('Error saving and exiting:', error);
+      alert('Error saving progress: ' + error.message);
     }
   };
 
@@ -168,11 +130,11 @@ const PropertyStructure = () => {
           <div className="flex items-center gap-6">
             <button className="font-medium text-sm hover:underline">Questions?</button>
             <button 
-              onClick={handleSaveAndExitClick}
+              onClick={handleSaveAndExit}
               className="font-medium text-sm hover:underline"
-              disabled={state.isLoading}
+              disabled={isLoading}
             >
-              {state.isLoading ? 'Saving...' : 'Save & exit'}
+              {isLoading ? 'Saving...' : 'Save & exit'}
             </button>
           </div>
         </div>
@@ -200,7 +162,7 @@ const PropertyStructure = () => {
             {propertyTypes.map((type) => (
               <button
                 key={type.label}
-                onClick={() => setSelectedType(type.label)}
+                onClick={() => handleTypeSelect(type.label)}
                 className={`flex flex-col items-center justify-center p-6 rounded-xl border hover:border-black transition-colors ${
                   selectedType === type.label
                     ? 'border-black bg-gray-50'
@@ -229,7 +191,7 @@ const PropertyStructure = () => {
           <div className="px-8 py-6 border-t">
             <div className="flex justify-between items-center">
               <button
-                onClick={() => navigate('/pages/propertydetails')}
+                onClick={() => navigateBack(navigate, '/pages/propertydetails')}
                 className="hover:underline"
               >
                 Back

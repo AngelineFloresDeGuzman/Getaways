@@ -1,74 +1,60 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
-import { useSaveAndExitWithContext } from './hooks/useSaveAndExit';
+import { useOnboardingAutoSave, useOnboardingNavigation } from './hooks/useOnboardingAutoSave';
 
 const PropertyBasics = () => {
   const navigate = useNavigate();
   const location = useLocation();
   
-  // OnboardingContext integration
-  const { state, actions } = useOnboarding();
+  // Enhanced auto-save and state management
+  const { 
+    state, 
+    actions, 
+    loadDraftIfNeeded, 
+    saveAndExit, 
+    isLoading 
+  } = useOnboardingAutoSave('property-basics', []);
+  
+  const { navigateNext, navigateBack } = useOnboardingNavigation('property-basics');
   
   // State for property basics
   const [propertyBasics, setPropertyBasics] = useState({
-    guests: 4,
-    bedrooms: 1,
-    beds: 2,
-    bathrooms: 1
+    guests: state.guestCapacity || 4,
+    bedrooms: state.bedrooms || 1,
+    beds: state.beds || 2,
+    bathrooms: state.bathrooms || 1
   });
 
   // Ref to track initialization
   const hasInitialized = useRef(false);
-  const draftLoaded = useRef(false);
 
-  // Save and Exit hook integration
-  const { handleSaveAndExit } = useSaveAndExitWithContext(actions);
-
-  // Load draft data when navigating from "Continue Editing"
+  // Load draft if continuing from saved progress
   useEffect(() => {
-    const loadDraftData = async () => {
-      if (location.state?.draftId && !draftLoaded.current && actions.loadDraft) {
-        console.log('PropertyBasics - Loading draft with ID:', location.state.draftId);
+    const initializePage = async () => {
+      if (location.state?.draftId) {
         try {
-          await actions.loadDraft(location.state.draftId);
-          draftLoaded.current = true;
-          console.log('PropertyBasics - Draft loaded successfully');
+          await loadDraftIfNeeded(location.state.draftId);
         } catch (error) {
-          console.error('PropertyBasics - Error loading draft:', error);
+          console.error('Error loading draft in PropertyBasics:', error);
         }
       }
     };
 
-    loadDraftData();
-  }, [location.state?.draftId]); // Remove actions from dependency
+    initializePage();
+  }, [location.state, loadDraftIfNeeded]);
 
-  // Set current step when component mounts (only once)
+  // Update propertyBasics when state changes (after loading draft)
   useEffect(() => {
-    if (actions.setCurrentStep) {
-      actions.setCurrentStep('property-basics');
-    }
-  }, []); // Remove actions from dependency, run only once
-
-  // Initialize from context if available
-  useEffect(() => {
-    if (!hasInitialized.current && state && (draftLoaded.current || !location.state?.draftId)) {
-      console.log('PropertyBasics - Initializing from context:', {
-        guests: state.guestCapacity,
-        bedrooms: state.bedrooms,
-        beds: state.beds,
-        bathrooms: state.bathrooms
-      });
-      
-      setPropertyBasics({
-        guests: state.guestCapacity || 4,
+    if (state.guestCapacity !== undefined || state.bedrooms || state.beds || state.bathrooms) {
+      const newBasics = {
+        guests: state.guestCapacity || state.guests || 4,
         bedrooms: state.bedrooms || 1,
         beds: state.beds || 2,
         bathrooms: state.bathrooms || 1
-      });
-      hasInitialized.current = true;
+      };
+      setPropertyBasics(newBasics);
     }
-  }, [state.guestCapacity, state.bedrooms, state.beds, state.bathrooms, draftLoaded.current, location.state?.draftId]);
+  }, [state.guestCapacity, state.guests, state.bedrooms, state.beds, state.bathrooms]);
 
   // Real-time context updates (moved to handleCounterChange)
   const updatePropertyBasics = (newBasics) => {
@@ -116,72 +102,27 @@ const PropertyBasics = () => {
 
   // Save & Exit handler
   const handleSaveAndExitClick = async () => {
-    console.log('PropertyBasics Save & Exit clicked');
-    console.log('Current propertyBasics state:', propertyBasics);
-    console.log('Current onboarding context state:', {
-      guestCapacity: state.guestCapacity,
-      bedrooms: state.bedrooms,
-      beds: state.beds,
-      bathrooms: state.bathrooms
-    });
-    
     try {
-      // Set current step before saving so "Continue Editing" returns to this page
-      if (actions.setCurrentStep) {
-        console.log('PropertyBasics: Setting currentStep to property-basics');
-        actions.setCurrentStep('property-basics');
-      }
+      console.log('PropertyBasics: Saving and exiting...');
+      console.log('Current propertyBasics:', propertyBasics);
       
-      // Update context with current values
-      const contextBasics = {
+      // Update context with current values first
+      updatePropertyBasics(propertyBasics);
+      
+      // Create current page data with proper mapping
+      const currentPageData = {
         guestCapacity: propertyBasics.guests,
+        guests: propertyBasics.guests,
         bedrooms: propertyBasics.bedrooms,
         beds: propertyBasics.beds,
         bathrooms: propertyBasics.bathrooms
       };
       
-      console.log('PropertyBasics: Updating context with:', contextBasics);
-      actions.updatePropertyBasics(contextBasics);
-      
-      // Override the saveDraft to ensure currentStep and data are saved correctly
-      if (actions.saveDraft) {
-        console.log('PropertyBasics: Calling custom saveDraft with forced currentStep and data');
-        
-        // Create modified state data with forced currentStep and property basics
-        const { user, isLoading, ...dataToSave } = state;
-        dataToSave.currentStep = 'property-basics'; // Force the currentStep
-        dataToSave.guestCapacity = propertyBasics.guests;
-        dataToSave.bedrooms = propertyBasics.bedrooms;
-        dataToSave.beds = propertyBasics.beds;
-        dataToSave.bathrooms = propertyBasics.bathrooms;
-        
-        console.log('PropertyBasics: Data to save with forced currentStep and property data:', dataToSave);
-        
-        // Import the draftService directly and save with our custom data
-        const { saveDraft } = await import('@/pages/Host/services/draftService');
-        const draftId = await saveDraft(dataToSave, state.draftId);
-        
-        // Update the draftId in context
-        if (actions.setDraftId) {
-          actions.setDraftId(draftId);
-        }
-        
-        // Navigate to dashboard
-        navigate('/host/hostdashboard', { 
-          state: { 
-            message: 'Draft saved successfully!',
-            draftSaved: true 
-          }
-        });
-      } else {
-        // Fallback to normal save
-        await handleSaveAndExit();
-      }
-      
-      console.log('PropertyBasics save completed successfully');
+      // Save current data and exit
+      await saveAndExit(currentPageData);
     } catch (error) {
-      console.error('Error during PropertyBasics save and exit:', error);
-      alert('Failed to save: ' + error.message);
+      console.error('Error saving and exiting:', error);
+      alert('Error saving progress: ' + error.message);
     }
   };
 
@@ -231,9 +172,9 @@ const PropertyBasics = () => {
             <button 
               onClick={handleSaveAndExitClick}
               className="font-medium text-sm hover:underline"
-              disabled={state.isLoading}
+              disabled={isLoading}
             >
-              {state.isLoading ? 'Saving...' : 'Save & exit'}
+              {isLoading ? 'Saving...' : 'Save & exit'}
             </button>
           </div>
         </div>

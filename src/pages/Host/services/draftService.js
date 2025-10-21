@@ -101,10 +101,33 @@ export const saveDraft = async (draftData, draftId = null) => {
     try {
       await setDoc(draftRef, draftWithMetadata, { merge: true });
       console.log('draftService: Successfully saved to Firestore');
+      console.log('draftService: Document saved with ID:', docId);
     } catch (firestoreError) {
       console.error('draftService: Firestore save failed:', firestoreError);
-      console.error('draftService: Error details:', firestoreError.message);
-      throw firestoreError;
+      console.error('draftService: Error code:', firestoreError.code);
+      console.error('draftService: Error message:', firestoreError.message);
+      console.error('draftService: Full error:', firestoreError);
+      
+      // Provide more specific error messages
+      let userFriendlyMessage = 'Failed to save draft: ';
+      switch (firestoreError.code) {
+        case 'permission-denied':
+          userFriendlyMessage += 'Permission denied. Please check Firestore security rules.';
+          break;
+        case 'unavailable':
+          userFriendlyMessage += 'Service temporarily unavailable. Please try again later.';
+          break;
+        case 'failed-precondition':
+          userFriendlyMessage += 'Database configuration issue. Please contact support.';
+          break;
+        case 'unauthenticated':
+          userFriendlyMessage += 'User not authenticated. Please log in again.';
+          break;
+        default:
+          userFriendlyMessage += firestoreError.message;
+      }
+      
+      throw new Error(userFriendlyMessage);
     }
 
     return docId;

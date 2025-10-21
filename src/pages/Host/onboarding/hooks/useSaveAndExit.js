@@ -47,7 +47,7 @@ export const useSaveAndExit = () => {
         message: 'Basic save completed - please continue from a fully integrated page'
       };
       
-      localStorage.setItem(`havenly_draft_${currentUser.uid}`, JSON.stringify(currentPageData));
+      localStorage.setItem(`getaways_draft_${currentUser.uid}`, JSON.stringify(currentPageData));
       
       // Navigate to dashboard with message
       navigate('/host/hostdashboard', {

@@ -65,7 +65,7 @@ const AdminDashboard = () => {
                   Admin Dashboard
                 </h1>
                 <p className="font-body text-xl text-muted-foreground">
-                  Manage your Havenly platform with comprehensive insights and controls
+                  Manage your Getaways platform with comprehensive insights and controls
                 </p>
               </div>
               <div className="flex items-center gap-4">

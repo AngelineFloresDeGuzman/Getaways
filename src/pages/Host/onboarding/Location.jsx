@@ -3,8 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L, { DragEndEvent } from 'leaflet';
-import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
-import { useSaveAndExitWithContext } from './hooks/useSaveAndExit';
+import { useOnboardingAutoSave, useOnboardingNavigation } from './hooks/useOnboardingAutoSave';
 
 // Fix marker icon issue
 delete L.Icon.Default.prototype._getIconUrl;
@@ -44,25 +43,16 @@ const Location = () => {
   const navigate = useNavigate();
   const location = useLocation();
   
-  // Use OnboardingContext for proper draft management
-  let contextData;
-  try {
-    contextData = useOnboarding();
-  } catch (error) {
-    console.error('OnboardingContext error:', error);
-    contextData = {
-      state: { locationData: {}, isLoading: false },
-      actions: { 
-        updateLocationData: () => {},
-        saveAndExit: () => Promise.reject(new Error('Context not available'))
-      }
-    };
-  }
-  
-  const { state, actions } = contextData;
-  const { handleSaveAndExit } = useSaveAndExitWithContext(actions);
-  const actionsRef = useRef(actions);
-  actionsRef.current = actions;
+  // Enhanced auto-save and state management
+  const { 
+    state, 
+    actions, 
+    loadDraftIfNeeded, 
+    saveAndExit, 
+    isLoading 
+  } = useOnboardingAutoSave('location', []);
+
+  const { navigateNext, navigateBack } = useOnboardingNavigation('location');
   
   const [selectedLocation, setSelectedLocation] = useState(() => {
     const defaultLocation = {
@@ -84,21 +74,20 @@ const Location = () => {
   });
   const [position, setPosition] = useState([14.5995, 120.9842]); // Default to Manila, Philippines
 
-  // Check if we're continuing from a draft
+  // Load draft if continuing from saved progress
   useEffect(() => {
-    const loadDraftFromState = async () => {
-      if (location.state?.draftId && !state.draftId && !state.isLoading) {
+    const initializePage = async () => {
+      if (location.state?.draftId) {
         try {
-          console.log('Loading draft in Location:', location.state.draftId);
-          await actionsRef.current.loadDraft(location.state.draftId);
+          await loadDraftIfNeeded(location.state.draftId);
         } catch (error) {
-          console.error('Error loading draft:', error);
+          console.error('Error loading draft in Location:', error);
         }
       }
     };
 
-    loadDraftFromState();
-  }, [location.state?.draftId, state.draftId, state.isLoading]);
+    initializePage();
+  }, [location.state, loadDraftIfNeeded]);
 
   // Update selectedLocation when state changes (after loading draft)
   useEffect(() => {
@@ -112,13 +101,6 @@ const Location = () => {
 
   // Initialize location on component mount
   const [hasInitialized, setHasInitialized] = useState(false);
-
-  // Set current step when component mounts
-  useEffect(() => {
-    if (actionsRef.current.setCurrentStep) {
-      actionsRef.current.setCurrentStep('location');
-    }
-  }, []);
 
 
   
@@ -181,7 +163,44 @@ const Location = () => {
     setSelectedLocation(updatedLocation);
     
     // Also update the context in real-time
-    actionsRef.current.updateLocationData(updatedLocation);
+    actions.updateState({ locationData: updatedLocation });
+  };
+
+  // Enhanced navigation functions
+  const handleNext = async () => {
+    try {
+      // Update location data with coordinates before saving
+      const locationWithCoordinates = {
+        ...selectedLocation,
+        latitude: position[0],
+        longitude: position[1]
+      };
+      
+      actions.updateState({ locationData: locationWithCoordinates });
+      await navigateNext(navigate, '/pages/locationconfirmation', 'location-confirmation');
+    } catch (error) {
+      console.error('Error navigating to next step:', error);
+      // Continue navigation even if save fails
+      navigate('/pages/locationconfirmation');
+    }
+  };
+
+  const handleSaveAndExit = async () => {
+    try {
+      // Update location data with coordinates before saving
+      const locationWithCoordinates = {
+        ...selectedLocation,
+        latitude: position[0],
+        longitude: position[1]
+      };
+      
+      // Pass current page data to ensure it's saved
+      const currentPageData = { locationData: locationWithCoordinates };
+      await saveAndExit(currentPageData);
+    } catch (error) {
+      console.error('Error saving and exiting:', error);
+      alert('Error saving progress: ' + error.message);
+    }
   };
 
   const handleContinue = async () => {
@@ -227,7 +246,7 @@ const Location = () => {
       latitude: lat,
       longitude: lng
     };
-    actionsRef.current.updateLocationData(updatedLocation);
+    actions.updateState({ locationData: updatedLocation });
 
     // Try multiple geocoding services in order of preference
     const geocodingServices = [
@@ -340,7 +359,7 @@ const Location = () => {
       latitude: lat,
       longitude: lng
     };
-    actionsRef.current.updateLocationData(updatedLocation);
+    actions.updateState({ locationData: updatedLocation });
 
     // Use the same reliable geocoding services
     const geocodingServices = [
@@ -591,7 +610,7 @@ const Location = () => {
           <div className="px-8 py-6">
             <div className="flex justify-between items-center">
               <button
-                onClick={() => navigate('/pages/privacy-type')}
+                onClick={() => navigateBack(navigate, '/pages/privacytype')}
                 className="hover:underline"
               >
                 Back
@@ -602,7 +621,7 @@ const Location = () => {
                     ? 'bg-black text-white hover:bg-gray-800'
                     : 'bg-gray-200 text-gray-500 cursor-not-allowed'
                 }`}
-                onClick={handleContinue}
+                onClick={handleNext}
                 disabled={!selectedLocation.street || !selectedLocation.city}
               >
                 Next

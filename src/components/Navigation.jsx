@@ -123,13 +123,13 @@ const Navigation = () => {
         <div className="flex items-center justify-between px-8 py-3">
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2 flex-shrink-0">
-            <img src="/logo.jpg" alt="Havenly Logo" className="w-8 h-8" />
+            <img src="/logo.jpg" alt="Getaways Logo" className="w-8 h-8" />
             <span
               className={`font-heading text-xl font-bold transition-colors ${
                 darkMode ? "text-white" : "text-primary"
               }`}
             >
-              Havenly
+              Getaways
             </span>
           </Link>
 

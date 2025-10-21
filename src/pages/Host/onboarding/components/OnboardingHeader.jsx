@@ -52,7 +52,7 @@ const OnboardingHeader = ({ showProgress = true, currentStep = 0, totalSteps = 3
       {/* Header */}
       <header className="fixed top-0 left-0 right-0 bg-white z-50 border-b">
         <div className="py-4 px-8 flex justify-between items-center">
-          <img src="/logo.jpg" alt="Havenly" className="h-8" />
+          <img src="/logo.jpg" alt="Getaways" className="h-8" />
           <div className="flex items-center gap-6">
             <button className="hover:underline text-sm font-medium">Questions?</button>
             <button 

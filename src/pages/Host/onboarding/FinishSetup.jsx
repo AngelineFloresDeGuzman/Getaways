@@ -1,105 +1,47 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
-import { useSaveAndExitWithContext } from './hooks/useSaveAndExit';
-import { auth } from '@/lib/firebase';
+import { useOnboardingAutoSave, useOnboardingNavigation } from './hooks/useOnboardingAutoSave';
 
 const FinishSetup = () => {
   const navigate = useNavigate();
   const location = useLocation();
   
-  // OnboardingContext integration
-  const { state, actions } = useOnboarding();
-  const { handleSaveAndExit } = useSaveAndExitWithContext(actions);
-  const [isSaving, setIsSaving] = useState(false);
+  // Enhanced auto-save and state management
+  const { 
+    state, 
+    actions, 
+    loadDraftIfNeeded, 
+    saveAndExit, 
+    isLoading 
+  } = useOnboardingAutoSave('finish-setup', []);
+  
+  const { navigateNext, navigateBack } = useOnboardingNavigation('finish-setup');
 
-  // Ref to track initialization
-  const hasInitialized = useRef(false);
-
-  // Debug: Log the location state
-  console.log('FinishSetup - location.state:', location.state);
-
-  // Load draft data when navigating from "Continue Editing"
+  // Load draft if continuing from saved progress
   useEffect(() => {
-    const loadDraftData = async () => {
-      // Only load draft if user is authenticated and we have a draftId
-      if (location.state?.draftId && !hasInitialized.current && actions.loadDraft && state.user) {
-        console.log('FinishSetup - Loading draft with ID:', location.state.draftId);
+    const initializePage = async () => {
+      if (location.state?.draftId) {
         try {
-          await actions.loadDraft(location.state.draftId);
-          hasInitialized.current = true;
-          console.log('FinishSetup - Draft loaded successfully');
+          await loadDraftIfNeeded(location.state.draftId);
         } catch (error) {
-          console.error('FinishSetup - Error loading draft:', error);
+          console.error('Error loading draft in FinishSetup:', error);
         }
       }
     };
 
-    loadDraftData();
-  }, [location.state?.draftId, state.user]);
+    initializePage();
+  }, [location.state, loadDraftIfNeeded]);
 
-  // Set current step when component mounts
-  useEffect(() => {
-    if (actions.setCurrentStep) {
-      actions.setCurrentStep('finish-setup');
-    }
-  }, []);
-
-  // Custom Save & Exit handler
+  // Save & Exit handler
   const handleSaveAndExitClick = async () => {
-    console.log('FinishSetup Save & Exit clicked');
-    
-    if (!auth.currentUser) {
-      console.error('FinishSetup: No authenticated user');
-      alert('Please log in to save your progress');
-      return;
-    }
-    
-    setIsSaving(true);
-    
     try {
-      // Set current step before saving so "Continue Editing" returns to this page
-      if (actions.setCurrentStep) {
-        console.log('FinishSetup: Setting currentStep to finish-setup');
-        actions.setCurrentStep('finish-setup');
-      }
+      console.log('FinishSetup: Saving and exiting...');
       
-      // Override the saveDraft to ensure currentStep is saved correctly
-      if (actions.saveDraft) {
-        console.log('FinishSetup: Calling custom saveDraft with forced currentStep');
-        
-        // Create modified state data with forced currentStep
-        const { user: contextUser, isLoading, ...dataToSave } = state;
-        dataToSave.currentStep = 'finish-setup'; // Force the currentStep
-        
-        console.log('FinishSetup: Data to save with forced currentStep:', dataToSave);
-        
-        // Import the draftService directly and save with our custom data
-        const { saveDraft } = await import('@/pages/Host/services/draftService');
-        const draftId = await saveDraft(dataToSave, state.draftId);
-        
-        // Update the draftId in context
-        if (actions.setDraftId) {
-          actions.setDraftId(draftId);
-        }
-        
-        // Navigate to dashboard
-        navigate('/host/hostdashboard', { 
-          state: { 
-            message: 'Draft saved successfully!',
-            draftSaved: true 
-          }
-        });
-      } else {
-        // Fallback to normal save
-        await handleSaveAndExit();
-      }
-      
+      // Save all current data and exit
+      await saveAndExit({});
     } catch (error) {
-      console.error('Error in FinishSetup save:', error);
-      alert('Failed to save progress: ' + error.message);
-    } finally {
-      setIsSaving(false);
+      console.error('Error saving and exiting:', error);
+      alert('Error saving progress: ' + error.message);
     }
   };
 
@@ -116,9 +58,9 @@ const FinishSetup = () => {
             <button 
               onClick={handleSaveAndExitClick}
               className="font-medium text-sm hover:underline"
-              disabled={state.isLoading || isSaving}
+              disabled={isLoading}
             >
-              {state.isLoading || isSaving ? 'Saving...' : 'Save & exit'}
+              {isLoading ? 'Saving...' : 'Save & exit'}
             </button>
           </div>
         </div>

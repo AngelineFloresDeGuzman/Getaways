@@ -6,32 +6,8 @@ const Categories = () => {
     const navigate = useNavigate();
     const [showLoginModal, setShowLoginModal] = useState(false);
 
-    const categories = [
-        {
-            id: 'accommodations',
-            title: 'Accommodations',
-            description: 'Cozy homes, luxury hotels, and unique stays for every traveler',
-            image: 'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=800&h=600&fit=crop',
-            stats: '10,000+ properties',
-            link: '/accommodations'
-        },
-        {
-            id: 'experiences',
-            title: 'Experiences',
-            description: 'Local tours, adventure activities, and cultural immersions',
-            image: 'https://images.unsplash.com/photo-1506377247377-2a5b3b417ebb?w=800&h=600&fit=crop',
-            stats: '3,000+ experiences',
-            link: '/experiences'
-        },
-        {
-            id: 'services',
-            title: 'Services',
-            description: 'Professional spa treatments, personal chefs, and concierge services',
-            image: 'https://images.unsplash.com/photo-1540555700478-4be289fbecef?w=800&h=600&fit=crop',
-            stats: '5,000+ services',
-            link: '/services'
-        }
-    ];
+    // TODO: This will be populated dynamically from API/database
+    const categories = [];
 
     const handleNavigate = (link) => {
         navigate(link);
@@ -54,41 +30,48 @@ const Categories = () => {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                    {categories.map((category, index) => (
-                        <div
-                            key={category.id}
-                            className="card-listing hover-lift group cursor-pointer animate-slide-up"
-                            style={{ animationDelay: `${index * 150}ms` }}
-                        >
-                            {/* Image block */}
-                            <div className="relative h-48 overflow-hidden rounded-lg">
-                                <img
-                                    src={category.image}
-                                    alt={category.title}
-                                    className="w-full h-full object-cover"
-                                />
-                            </div>
+                    {categories.length > 0 ? (
+                        categories.map((category, index) => (
+                            <div
+                                key={category.id}
+                                className="card-listing hover-lift group cursor-pointer animate-slide-up"
+                                style={{ animationDelay: `${index * 150}ms` }}
+                            >
+                                {/* Image block */}
+                                <div className="relative h-48 overflow-hidden rounded-lg">
+                                    <img
+                                        src={category.image}
+                                        alt={category.title}
+                                        className="w-full h-full object-cover"
+                                    />
+                                </div>
 
-                            {/* Info block */}
-                            <div className="p-8 text-center">
-                                <h3 className="font-heading text-2xl font-bold text-foreground mb-2">
-                                    {category.title}
-                                </h3>
-                                <p className="font-body text-muted-foreground mb-2 text-sm">
-                                    {category.stats}
-                                </p>
-                                <p className="font-body text-muted-foreground mb-6 leading-relaxed">
-                                    {category.description}
-                                </p>
-                                <button
-                                    onClick={() => handleNavigate(category.link)}
-                                    className="btn-outline w-full group-hover:bg-primary group-hover:text-primary-foreground transition-all duration-300"
-                                >
-                                    Explore {category.title}
-                                </button>
+                                {/* Info block */}
+                                <div className="p-8 text-center">
+                                    <h3 className="font-heading text-2xl font-bold text-foreground mb-2">
+                                        {category.title}
+                                    </h3>
+                                    <p className="font-body text-muted-foreground mb-2 text-sm">
+                                        {category.stats}
+                                    </p>
+                                    <p className="font-body text-muted-foreground mb-6 leading-relaxed">
+                                        {category.description}
+                                    </p>
+                                    <button
+                                        onClick={() => handleNavigate(category.link)}
+                                        className="btn-outline w-full group-hover:bg-primary group-hover:text-primary-foreground transition-all duration-300"
+                                    >
+                                        Explore {category.title}
+                                    </button>
+                                </div>
                             </div>
+                        ))
+                    ) : (
+                        /* Placeholder for empty categories */
+                        <div className="col-span-full text-center py-16">
+                            <p className="text-muted-foreground">Categories will be loaded dynamically</p>
                         </div>
-                    ))}
+                    )}
                 </div>
             </div>
 

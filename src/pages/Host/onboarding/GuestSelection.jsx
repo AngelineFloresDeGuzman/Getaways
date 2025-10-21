@@ -1,22 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
-import { useSaveAndExitWithContext } from './hooks/useSaveAndExit';
-import { auth } from '@/lib/firebase';
+import { useOnboardingAutoSave, useOnboardingNavigation } from './hooks/useOnboardingAutoSave';
 
 const GuestSelection = () => {
   const navigate = useNavigate();
   const location = useLocation();
   
-  // OnboardingContext integration
-  const { state, actions } = useOnboarding();
-  const { handleSaveAndExit } = useSaveAndExitWithContext(actions);
-  const [isSaving, setIsSaving] = useState(false);
+  // Enhanced auto-save and state management
+  const { 
+    state, 
+    actions, 
+    loadDraftIfNeeded, 
+    saveAndExit, 
+    isLoading 
+  } = useOnboardingAutoSave('guest-selection', []);
   
-  const [selectedOption, setSelectedOption] = useState('any-guest');
-
-  // Ref to track initialization
-  const hasInitialized = useRef(false);
+  const { navigateNext, navigateBack } = useOnboardingNavigation('guest-selection');
+  
+  const [selectedOption, setSelectedOption] = useState(state.selectedGuestOption || 'any-guest');
 
   const guestOptions = [
     {
@@ -33,27 +34,27 @@ const GuestSelection = () => {
 
   const canProceed = selectedOption !== null;
 
-  // Debug: Log the location state
-  console.log('GuestSelection - location.state:', location.state);
-
-  // Load draft data when navigating from "Continue Editing"
+  // Load draft if continuing from saved progress
   useEffect(() => {
-    const loadDraftData = async () => {
-      // Only load draft if user is authenticated and we have a draftId
-      if (location.state?.draftId && !hasInitialized.current && actions.loadDraft && state.user) {
-        console.log('GuestSelection - Loading draft with ID:', location.state.draftId);
+    const initializePage = async () => {
+      if (location.state?.draftId) {
         try {
-          await actions.loadDraft(location.state.draftId);
-          hasInitialized.current = true;
-          console.log('GuestSelection - Draft loaded successfully');
+          await loadDraftIfNeeded(location.state.draftId);
         } catch (error) {
-          console.error('GuestSelection - Error loading draft:', error);
+          console.error('Error loading draft in GuestSelection:', error);
         }
       }
     };
 
-    loadDraftData();
-  }, [location.state?.draftId, state.user]);
+    initializePage();
+  }, [location.state, loadDraftIfNeeded]);
+
+  // Update selectedOption when state changes (after loading draft)
+  useEffect(() => {
+    if (state.selectedGuestOption) {
+      setSelectedOption(state.selectedGuestOption);
+    }
+  }, [state.selectedGuestOption]);
 
   // Set current step when component mounts
   useEffect(() => {
@@ -90,66 +91,26 @@ const GuestSelection = () => {
     updateGuestSelectionContext(optionId);
   };
 
-  // Custom Save & Exit handler
+  // Save & Exit handler
   const handleSaveAndExitClick = async () => {
-    console.log('GuestSelection Save & Exit clicked');
-    console.log('Current guest selection:', selectedOption);
-    
-    if (!auth.currentUser) {
-      console.error('GuestSelection: No authenticated user');
-      alert('Please log in to save your progress');
-      return;
-    }
-    
-    setIsSaving(true);
-    
     try {
-      // Set current step before saving so "Continue Editing" returns to this page
-      if (actions.setCurrentStep) {
-        console.log('GuestSelection: Setting currentStep to guest-selection');
-        actions.setCurrentStep('guest-selection');
-      }
+      console.log('GuestSelection: Saving and exiting...');
+      console.log('Current guest selection:', selectedOption);
       
-      // Ensure guest selection is updated in context
+      // Update context with current selection first
       updateGuestSelectionContext(selectedOption);
       
-      // Override the saveDraft to ensure currentStep and guest selection are saved correctly
-      if (actions.saveDraft) {
-        console.log('GuestSelection: Calling custom saveDraft with forced currentStep and guest selection');
-        
-        // Create modified state data with forced currentStep and guest selection
-        const { user: contextUser, isLoading, ...dataToSave } = state;
-        dataToSave.currentStep = 'guest-selection'; // Force the currentStep
-        dataToSave.guestSelection = selectedOption; // Save the current guest selection
-        
-        console.log('GuestSelection: Data to save with forced currentStep and guest selection:', dataToSave);
-        
-        // Import the draftService directly and save with our custom data
-        const { saveDraft } = await import('@/pages/Host/services/draftService');
-        const draftId = await saveDraft(dataToSave, state.draftId);
-        
-        // Update the draftId in context
-        if (actions.setDraftId) {
-          actions.setDraftId(draftId);
-        }
-        
-        // Navigate to dashboard
-        navigate('/host/hostdashboard', { 
-          state: { 
-            message: 'Draft saved successfully!',
-            draftSaved: true 
-          }
-        });
-      } else {
-        // Fallback to normal save
-        await handleSaveAndExit();
-      }
+      // Create current page data
+      const currentPageData = {
+        selectedGuestOption: selectedOption,
+        guestSelection: selectedOption  // Legacy support
+      };
       
+      // Save current data and exit
+      await saveAndExit(currentPageData);
     } catch (error) {
-      console.error('Error in GuestSelection save:', error);
-      alert('Failed to save progress: ' + error.message);
-    } finally {
-      setIsSaving(false);
+      console.error('Error saving and exiting:', error);
+      alert('Error saving progress: ' + error.message);
     }
   };
 
@@ -166,9 +127,9 @@ const GuestSelection = () => {
             <button 
               onClick={handleSaveAndExitClick}
               className="font-medium text-sm hover:underline"
-              disabled={state.isLoading || isSaving}
+              disabled={isLoading}
             >
-              {state.isLoading || isSaving ? 'Saving...' : 'Save & exit'}
+              {isLoading ? 'Saving...' : 'Save & exit'}
             </button>
           </div>
         </div>

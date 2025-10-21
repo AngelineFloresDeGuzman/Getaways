@@ -10,7 +10,7 @@ const HostingSteps = () => {
       {/* Header */}
       <header className="fixed top-0 left-0 right-0 bg-white z-50 border-b">
         <div className="py-4 px-8 flex justify-between items-center">
-          <img src="/logo.jpg" alt="Havenly" className="h-8" />
+          <img src="/logo.jpg" alt="Getaways" className="h-8" />
           <button 
             onClick={() => navigate('/')}
             className="text-black hover:bg-gray-100 rounded-lg px-4 py-2"
@@ -25,7 +25,7 @@ const HostingSteps = () => {
         <div className="max-w-7xl mx-auto px-24">
           <div className="grid grid-cols-2 items-center gap-24 w-full">
             <h1 className="text-[48px] leading-[1.1] font-medium">
-              It's easy to get started on Havenly
+              It's easy to get started on Getaways
             </h1>
 
             <div className="space-y-20">
