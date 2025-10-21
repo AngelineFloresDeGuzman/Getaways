@@ -17,8 +17,7 @@ const MakeItStandOut = () => {
   // Load draft data when navigating from "Continue Editing"
   useEffect(() => {
     const loadDraftData = async () => {
-      // Only load draft if user is authenticated and we have a draftId
-      if (location.state?.draftId && !draftLoaded.current && actions.loadDraft && state.user) {
+      if (location.state?.draftId && !draftLoaded.current && actions.loadDraft) {
         console.log('MakeItStandOut - Loading draft with ID:', location.state.draftId);
         try {
           await actions.loadDraft(location.state.draftId);
@@ -27,13 +26,11 @@ const MakeItStandOut = () => {
         } catch (error) {
           console.error('MakeItStandOut - Error loading draft:', error);
         }
-      } else if (location.state?.draftId && !state.user && !draftLoaded.current) {
-        console.log('MakeItStandOut: Cannot load draft - user not authenticated yet');
       }
     };
 
     loadDraftData();
-  }, [location.state?.draftId, state.user]);
+  }, [location.state?.draftId]);
 
   // Set current step when component mounts
   useEffect(() => {

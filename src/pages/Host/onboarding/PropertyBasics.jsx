@@ -28,8 +28,7 @@ const PropertyBasics = () => {
   // Load draft data when navigating from "Continue Editing"
   useEffect(() => {
     const loadDraftData = async () => {
-      // Only load draft if user is authenticated and we have a draftId
-      if (location.state?.draftId && !draftLoaded.current && actions.loadDraft && state.user) {
+      if (location.state?.draftId && !draftLoaded.current && actions.loadDraft) {
         console.log('PropertyBasics - Loading draft with ID:', location.state.draftId);
         try {
           await actions.loadDraft(location.state.draftId);
@@ -38,13 +37,11 @@ const PropertyBasics = () => {
         } catch (error) {
           console.error('PropertyBasics - Error loading draft:', error);
         }
-      } else if (location.state?.draftId && !state.user && !draftLoaded.current) {
-        console.log('PropertyBasics: Cannot load draft - user not authenticated yet');
       }
     };
 
     loadDraftData();
-  }, [location.state?.draftId, state.user]); // Added state.user dependency
+  }, [location.state?.draftId]); // Remove actions from dependency
 
   // Set current step when component mounts (only once)
   useEffect(() => {

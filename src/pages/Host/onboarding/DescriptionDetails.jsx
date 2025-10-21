@@ -1,9 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
+import { useSaveAndExitWithContext } from './hooks/useSaveAndExit';
+import { auth } from '@/lib/firebase';
 
 const DescriptionDetails = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  
+  // OnboardingContext integration
+  const { state, actions } = useOnboarding();
+  const { handleSaveAndExit } = useSaveAndExitWithContext(actions);
+  const [isSaving, setIsSaving] = useState(false);
   
   // Get property type from navigation state, default to 'place'
   const propertyType = location.state?.propertyType?.toLowerCase() || 
@@ -13,17 +21,135 @@ const DescriptionDetails = () => {
   const [description, setDescription] = useState("You'll have a great time at this comfortable place to stay.");
   const maxLength = 500;
 
+  // Ref to track initialization
+  const hasInitialized = useRef(false);
+
   const canProceed = description.trim().length > 0;
 
   const handleDescriptionChange = (e) => {
     if (e.target.value.length <= maxLength) {
-      setDescription(e.target.value);
+      const newDescription = e.target.value;
+      setDescription(newDescription);
+      
+      // Update context in real-time
+      updateDescriptionContext(newDescription);
+    }
+  };
+
+  // Custom Save & Exit handler
+  const handleSaveAndExitClick = async () => {
+    console.log('DescriptionDetails Save & Exit clicked');
+    console.log('Current description:', description);
+    
+    if (!auth.currentUser) {
+      console.error('DescriptionDetails: No authenticated user');
+      alert('Please log in to save your progress');
+      return;
+    }
+    
+    setIsSaving(true);
+    
+    try {
+      // Set current step before saving so "Continue Editing" returns to this page
+      if (actions.setCurrentStep) {
+        console.log('DescriptionDetails: Setting currentStep to description-details');
+        actions.setCurrentStep('description-details');
+      }
+      
+      // Ensure description is updated in context
+      updateDescriptionContext(description);
+      
+      // Override the saveDraft to ensure currentStep and description are saved correctly
+      if (actions.saveDraft) {
+        console.log('DescriptionDetails: Calling custom saveDraft with forced currentStep and description');
+        
+        // Create modified state data with forced currentStep and description
+        const { user: contextUser, isLoading, ...dataToSave } = state;
+        dataToSave.currentStep = 'description-details'; // Force the currentStep
+        dataToSave.description = description.trim(); // Save the current description
+        
+        console.log('DescriptionDetails: Data to save with forced currentStep and description:', dataToSave);
+        
+        // Import the draftService directly and save with our custom data
+        const { saveDraft } = await import('@/pages/Host/services/draftService');
+        const draftId = await saveDraft(dataToSave, state.draftId);
+        
+        // Update the draftId in context
+        if (actions.setDraftId) {
+          actions.setDraftId(draftId);
+        }
+        
+        // Navigate to dashboard
+        navigate('/host/hostdashboard', { 
+          state: { 
+            message: 'Draft saved successfully!',
+            draftSaved: true 
+          }
+        });
+      } else {
+        // Fallback to normal save
+        await handleSaveAndExit();
+      }
+      
+    } catch (error) {
+      console.error('Error in DescriptionDetails save:', error);
+      alert('Failed to save progress: ' + error.message);
+    } finally {
+      setIsSaving(false);
     }
   };
 
   // Debug: Log the location state
   console.log('DescriptionDetails - location.state:', location.state);
   console.log('DescriptionDetails - propertyType:', propertyType);
+
+  // Load draft data when navigating from "Continue Editing"
+  useEffect(() => {
+    const loadDraftData = async () => {
+      // Only load draft if user is authenticated and we have a draftId
+      if (location.state?.draftId && !hasInitialized.current && actions.loadDraft && state.user) {
+        console.log('DescriptionDetails - Loading draft with ID:', location.state.draftId);
+        try {
+          await actions.loadDraft(location.state.draftId);
+          hasInitialized.current = true;
+          console.log('DescriptionDetails - Draft loaded successfully');
+        } catch (error) {
+          console.error('DescriptionDetails - Error loading draft:', error);
+        }
+      }
+    };
+
+    loadDraftData();
+  }, [location.state?.draftId, state.user]);
+
+  // Set current step when component mounts
+  useEffect(() => {
+    if (actions.setCurrentStep) {
+      actions.setCurrentStep('description-details');
+    }
+  }, []);
+
+  // Initialize from context if available (after draft loading or direct navigation)
+  useEffect(() => {
+    if (state.description && (hasInitialized.current || !location.state?.draftId)) {
+      console.log('DescriptionDetails - Initializing from context:', state.description);
+      setDescription(state.description);
+      if (!hasInitialized.current) {
+        hasInitialized.current = true;
+      }
+    }
+  }, [state.description, hasInitialized.current, location.state?.draftId]);
+
+  // Real-time context updates
+  const updateDescriptionContext = (desc) => {
+    console.log('DescriptionDetails - Updating context with:', desc);
+    if (actions.updateTitleDescription) {
+      actions.updateTitleDescription(state.title || '', desc);
+    }
+    if (actions.setCurrentStep) {
+      actions.setCurrentStep('description-details');
+    }
+  };
 
   return (
     <div className="min-h-screen bg-white">
@@ -35,7 +161,13 @@ const DescriptionDetails = () => {
           </svg>
           <div className="flex items-center gap-6">
             <button className="font-medium text-sm hover:underline">Questions?</button>
-            <button className="font-medium text-sm hover:underline">Save & exit</button>
+            <button 
+              onClick={handleSaveAndExitClick}
+              className="font-medium text-sm hover:underline"
+              disabled={state.isLoading || isSaving}
+            >
+              {state.isLoading || isSaving ? 'Saving...' : 'Save & exit'}
+            </button>
           </div>
         </div>
       </header>
@@ -99,6 +231,9 @@ const DescriptionDetails = () => {
                 }`}
                 onClick={() => {
                   if (canProceed) {
+                    // Update context before navigation
+                    updateDescriptionContext(description);
+                    
                     // Continue to next step with description
                     navigate('/pages/finish-setup', { 
                       state: { 

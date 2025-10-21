@@ -308,7 +308,6 @@ const Photos = () => {
         // Import the draftService directly and save with our custom data
         const { saveDraft } = await import('@/pages/Host/services/draftService');
         const draftId = await saveDraft(dataToSave, state.draftId);
-        console.log("Saving draft dataToSave.photos:", dataToSave.photos);
         
         // Update the draftId in context
         if (actions.setDraftId) {
@@ -487,21 +486,6 @@ const Photos = () => {
                   <span className="text-sm text-gray-600">Add more</span>
                 </button>
               </div>
-
-              {/* Preview photos button - only show when photos are uploaded */}
-              {uploadedPhotos.length > 0 && (
-                <div className="flex justify-center mt-6">
-                  <button
-                    onClick={async () => {
-                      // Save and navigate to photos preview
-                      await saveAndNavigate('/pages/photos-preview');
-                    }}
-                    className="bg-white border border-black text-black px-6 py-3 rounded-lg font-medium hover:bg-gray-50 transition-colors"
-                  >
-                    Preview photos
-                  </button>
-                </div>
-              )}
             </div>
           )}
 
@@ -536,13 +520,13 @@ const Photos = () => {
                 }`}
                 onClick={async () => {
                   if (canProceed) {
-                    // Save and navigate to title-description page
-                    await saveAndNavigate('/pages/title-description');
+                    // Save and navigate to photos preview
+                    await saveAndNavigate('/pages/photos-preview');
                   }
                 }}
                 disabled={!canProceed}
               >
-                Next
+                {uploadedPhotos.length >= 5 ? 'Preview photos' : 'Next'}
               </button>
             </div>
           </div>

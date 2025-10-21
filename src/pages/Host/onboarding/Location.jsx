@@ -5,7 +5,6 @@ import 'leaflet/dist/leaflet.css';
 import L, { DragEndEvent } from 'leaflet';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
 import { useSaveAndExitWithContext } from './hooks/useSaveAndExit';
-import { auth } from '@/lib/firebase';
 
 // Fix marker icon issue
 delete L.Icon.Default.prototype._getIconUrl;
@@ -62,7 +61,6 @@ const Location = () => {
   
   const { state, actions } = contextData;
   const { handleSaveAndExit } = useSaveAndExitWithContext(actions);
-  const [isSaving, setIsSaving] = useState(false);
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
   
@@ -81,102 +79,31 @@ const Location = () => {
       longitude: null
     };
     
-    // Merge with state data if available, ensuring no undefined values
-    if (state.locationData && typeof state.locationData === 'object') {
-      const mergedLocation = { ...defaultLocation, ...state.locationData };
-      
-      // Ensure string properties are always strings (not undefined or null)
-      Object.keys(mergedLocation).forEach(key => {
-        if (typeof defaultLocation[key] === 'string' && 
-            (mergedLocation[key] === null || mergedLocation[key] === undefined)) {
-          mergedLocation[key] = '';
-        }
-      });
-      
-      return mergedLocation;
-    }
-    
-    return defaultLocation;
+    // Merge with state data if available
+    return { ...defaultLocation, ...(state.locationData || {}) };
   });
   const [position, setPosition] = useState([14.5995, 120.9842]); // Default to Manila, Philippines
-
-  // Helper function to safely get input values (always returns a string)
-  const getInputValue = (property) => {
-    const value = selectedLocation[property];
-    return (value !== null && value !== undefined) ? String(value) : '';
-  };
-
-  // Helper function to safely get boolean values
-  const getBooleanValue = (property) => {
-    const value = selectedLocation[property];
-    return Boolean(value);
-  };
 
   // Check if we're continuing from a draft
   useEffect(() => {
     const loadDraftFromState = async () => {
-      // Only load draft if user is authenticated and we have a draftId
-      if (location.state?.draftId && !state.draftId && !state.isLoading && state.user) {
+      if (location.state?.draftId && !state.draftId && !state.isLoading) {
         try {
           console.log('Loading draft in Location:', location.state.draftId);
           await actionsRef.current.loadDraft(location.state.draftId);
         } catch (error) {
           console.error('Error loading draft:', error);
         }
-      } else if (location.state?.draftId && !state.user) {
-        console.log('Location: Cannot load draft - user not authenticated yet');
       }
     };
 
     loadDraftFromState();
-  }, [location.state?.draftId, state.draftId, state.isLoading, state.user]);
+  }, [location.state?.draftId, state.draftId, state.isLoading]);
 
   // Update selectedLocation when state changes (after loading draft)
   useEffect(() => {
-    console.log('Location: state.locationData changed:', state.locationData);
-    
-    if (state.locationData && typeof state.locationData === 'object') {
-      // Ensure all required properties exist with default values to prevent controlled/uncontrolled input issues
-      const defaultLocation = {
-        country: '',
-        unit: '',
-        building: '',
-        street: '',
-        barangay: '',
-        city: '',
-        zipCode: '',
-        province: '',
-        showPreciseLocation: false,
-        latitude: null,
-        longitude: null
-      };
-      
-      // Merge loaded data with defaults, ensuring no undefined values
-      const mergedLocation = { ...defaultLocation };
-      
-      // Carefully merge each property to ensure proper types
-      Object.keys(state.locationData).forEach(key => {
-        if (key in defaultLocation) {
-          const value = state.locationData[key];
-          
-          // Handle string properties
-          if (typeof defaultLocation[key] === 'string') {
-            mergedLocation[key] = (value !== null && value !== undefined) ? String(value) : '';
-          }
-          // Handle boolean properties
-          else if (typeof defaultLocation[key] === 'boolean') {
-            mergedLocation[key] = Boolean(value);
-          }
-          // Handle other properties (latitude, longitude)
-          else {
-            mergedLocation[key] = value;
-          }
-        }
-      });
-      
-      console.log('Location: Setting merged location:', mergedLocation);
-      setSelectedLocation(mergedLocation);
-      
+    if (state.locationData) {
+      setSelectedLocation(state.locationData);
       if (state.locationData.latitude && state.locationData.longitude) {
         setPosition([state.locationData.latitude, state.locationData.longitude]);
       }
@@ -255,85 +182,6 @@ const Location = () => {
     
     // Also update the context in real-time
     actionsRef.current.updateLocationData(updatedLocation);
-  };
-
-  const handleSaveAndExitClick = async () => {
-    if (isSaving) return; // Prevent double clicks
-    
-    console.log('Location Save & Exit clicked!'); // Debug log
-    console.log('Current state:', state); // Debug log
-    console.log('Selected location:', selectedLocation); // Debug log
-    console.log('Actions available:', actions); // Debug log
-    
-    // Check if user is authenticated
-    const currentUser = auth.currentUser;
-    console.log('Current user:', currentUser);
-    
-    if (!currentUser) {
-      alert('Please log in to save your progress.');
-      navigate('/login');
-      return;
-    }
-    
-    setIsSaving(true);
-    
-    try {
-      // Ensure location data is saved to context before saving draft
-      const locationWithCoordinates = {
-        ...selectedLocation,
-        latitude: position[0],
-        longitude: position[1]
-      };
-      
-      console.log('Updating location data before save:', locationWithCoordinates);
-      actions.updateLocationData(locationWithCoordinates);
-      
-      // Wait for state to update
-      await new Promise(resolve => setTimeout(resolve, 200));
-      
-      // Set current step to location so "Continue Editing" returns here
-      if (actions.setCurrentStep) {
-        console.log('Location: Setting currentStep to location');
-        actions.setCurrentStep('location');
-      }
-      
-      // Use custom save logic like other pages to ensure currentStep is preserved
-      if (actions.saveDraft) {
-        console.log('Location: Calling custom saveDraft with forced currentStep');
-        
-        // Create modified state data with forced currentStep and location data
-        const { user, isLoading, ...dataToSave } = state;
-        dataToSave.currentStep = 'location'; // Force the currentStep
-        dataToSave.locationData = locationWithCoordinates; // Ensure location data is saved
-        
-        console.log('Location: Data to save with forced currentStep and location data:', dataToSave);
-        
-        // Import the draftService directly and save with our custom data
-        const { saveDraft } = await import('@/pages/Host/services/draftService');
-        const draftId = await saveDraft(dataToSave, state.draftId);
-        
-        // Update the draftId in context
-        if (actions.setDraftId) {
-          actions.setDraftId(draftId);
-        }
-        
-        // Navigate to dashboard
-        navigate('/host/hostdashboard', { 
-          state: { 
-            message: 'Draft saved successfully!',
-            draftSaved: true 
-          }
-        });
-      } else {
-        // Fallback to normal handleSaveAndExit
-        await handleSaveAndExit();
-      }
-    } catch (error) {
-      console.error('Error saving draft:', error);
-      alert('Failed to save draft: ' + error.message);
-    } finally {
-      setIsSaving(false);
-    }
   };
 
   const handleContinue = async () => {
@@ -582,11 +430,10 @@ const Location = () => {
           <div className="flex items-center gap-6">
             <button className="font-medium text-sm hover:underline">Questions?</button>
             <button 
-              onClick={handleSaveAndExitClick}
+              onClick={handleSaveAndExit}
               className="font-medium text-sm hover:underline"
-              disabled={state.isLoading || isSaving}
             >
-              {state.isLoading || isSaving ? 'Saving...' : 'Save & exit'}
+              Save & exit
             </button>
           </div>
         </div>
@@ -619,7 +466,7 @@ const Location = () => {
               <input
                 type="text"
                 placeholder="Country"
-                value={getInputValue('country')}
+                value={selectedLocation.country || ''}
                 onChange={(e) => handleLocationChange('country', e.target.value)}
                 className="w-full p-4 border border-gray-300 rounded-lg focus:outline-none focus:border-black"
                 readOnly
@@ -630,7 +477,7 @@ const Location = () => {
             <input
               type="text"
               placeholder="Unit, level, etc. (if applicable)"
-              value={getInputValue('unit')}
+              value={selectedLocation.unit || ''}
               onChange={(e) => handleLocationChange('unit', e.target.value)}
               className="w-full p-4 border border-gray-300 rounded-lg focus:outline-none focus:border-black"
             />
@@ -639,7 +486,7 @@ const Location = () => {
             <input
               type="text"
               placeholder="Building name (if applicable)"
-              value={getInputValue('building')}
+              value={selectedLocation.building || ''}
               onChange={(e) => handleLocationChange('building', e.target.value)}
               className="w-full p-4 border border-gray-300 rounded-lg focus:outline-none focus:border-black"
             />
@@ -648,7 +495,7 @@ const Location = () => {
             <input
               type="text"
               placeholder="Street address"
-              value={getInputValue('street')}
+              value={selectedLocation.street || ''}
               onChange={(e) => handleLocationChange('street', e.target.value)}
               className="w-full p-4 border border-gray-300 rounded-lg focus:outline-none focus:border-black"
             />
@@ -657,7 +504,7 @@ const Location = () => {
             <input
               type="text"
               placeholder="Barangay / district (if applicable)"
-              value={getInputValue('barangay')}
+              value={selectedLocation.barangay || ''}
               onChange={(e) => handleLocationChange('barangay', e.target.value)}
               className="w-full p-4 border border-gray-300 rounded-lg focus:outline-none focus:border-black"
             />
@@ -666,7 +513,7 @@ const Location = () => {
             <input
               type="text"
               placeholder="City / municipality"
-              value={getInputValue('city')}
+              value={selectedLocation.city || ''}
               onChange={(e) => handleLocationChange('city', e.target.value)}
               className="w-full p-4 border border-gray-300 rounded-lg focus:outline-none focus:border-black"
             />
@@ -675,7 +522,7 @@ const Location = () => {
             <input
               type="text"
               placeholder="ZIP code"
-              value={getInputValue('zipCode')}
+              value={selectedLocation.zipCode || ''}
               onChange={(e) => handleLocationChange('zipCode', e.target.value)}
               className="w-full p-4 border border-gray-300 rounded-lg focus:outline-none focus:border-black"
             />
@@ -684,7 +531,7 @@ const Location = () => {
             <input
               type="text"
               placeholder="Province"
-              value={getInputValue('province')}
+              value={selectedLocation.province || ''}
               onChange={(e) => handleLocationChange('province', e.target.value)}
               className="w-full p-4 border border-gray-300 rounded-lg focus:outline-none focus:border-black"
             />
@@ -701,7 +548,7 @@ const Location = () => {
               <label className="relative inline-flex items-center cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={getBooleanValue('showPreciseLocation')}
+                  checked={selectedLocation.showPreciseLocation}
                   onChange={(e) => handleLocationChange('showPreciseLocation', e.target.checked)}
                   className="sr-only peer"
                 />

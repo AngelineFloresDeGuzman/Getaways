@@ -1,9 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
+import { useSaveAndExitWithContext } from './hooks/useSaveAndExit';
+import { auth } from '@/lib/firebase';
 
 const Description = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  
+  // OnboardingContext integration
+  const { state, actions } = useOnboarding();
+  const { handleSaveAndExit } = useSaveAndExitWithContext(actions);
+  const [isSaving, setIsSaving] = useState(false);
   
   // Get property type from navigation state, default to 'house'
   const propertyType = location.state?.propertyType?.toLowerCase() || 
@@ -11,6 +19,9 @@ const Description = () => {
                       'house';
   
   const [selectedHighlights, setSelectedHighlights] = useState([]);
+
+  // Ref to track initialization
+  const hasInitialized = useRef(false);
 
   const highlights = [
     { id: 'peaceful', label: 'Peaceful', icon: '🕊️' },
@@ -23,13 +34,82 @@ const Description = () => {
 
   const toggleHighlight = (highlightId) => {
     setSelectedHighlights(prev => {
+      let newHighlights;
       if (prev.includes(highlightId)) {
-        return prev.filter(id => id !== highlightId);
+        newHighlights = prev.filter(id => id !== highlightId);
       } else if (prev.length < 2) {
-        return [...prev, highlightId];
+        newHighlights = [...prev, highlightId];
+      } else {
+        return prev; // No change if already at max
       }
-      return prev;
+      
+      // Update context in real-time
+      updateHighlightsContext(newHighlights);
+      return newHighlights;
     });
+  };
+
+  // Custom Save & Exit handler
+  const handleSaveAndExitClick = async () => {
+    console.log('Description Save & Exit clicked');
+    console.log('Current highlights:', selectedHighlights);
+    
+    if (!auth.currentUser) {
+      console.error('Description: No authenticated user');
+      alert('Please log in to save your progress');
+      return;
+    }
+    
+    setIsSaving(true);
+    
+    try {
+      // Set current step before saving so "Continue Editing" returns to this page
+      if (actions.setCurrentStep) {
+        console.log('Description: Setting currentStep to description');
+        actions.setCurrentStep('description');
+      }
+      
+      // Ensure highlights are updated in context
+      updateHighlightsContext(selectedHighlights);
+      
+      // Override the saveDraft to ensure currentStep and highlights are saved correctly
+      if (actions.saveDraft) {
+        console.log('Description: Calling custom saveDraft with forced currentStep and highlights');
+        
+        // Create modified state data with forced currentStep and highlights
+        const { user: contextUser, isLoading, ...dataToSave } = state;
+        dataToSave.currentStep = 'description'; // Force the currentStep
+        dataToSave.descriptionHighlights = selectedHighlights; // Save the current highlights
+        
+        console.log('Description: Data to save with forced currentStep and highlights:', dataToSave);
+        
+        // Import the draftService directly and save with our custom data
+        const { saveDraft } = await import('@/pages/Host/services/draftService');
+        const draftId = await saveDraft(dataToSave, state.draftId);
+        
+        // Update the draftId in context
+        if (actions.setDraftId) {
+          actions.setDraftId(draftId);
+        }
+        
+        // Navigate to dashboard
+        navigate('/host/hostdashboard', { 
+          state: { 
+            message: 'Draft saved successfully!',
+            draftSaved: true 
+          }
+        });
+      } else {
+        // Fallback to normal save
+        await handleSaveAndExit();
+      }
+      
+    } catch (error) {
+      console.error('Error in Description save:', error);
+      alert('Failed to save progress: ' + error.message);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const canProceed = selectedHighlights.length >= 1;
@@ -37,6 +117,54 @@ const Description = () => {
   // Debug: Log the location state
   console.log('Description - location.state:', location.state);
   console.log('Description - propertyType:', propertyType);
+
+  // Load draft data when navigating from "Continue Editing"
+  useEffect(() => {
+    const loadDraftData = async () => {
+      // Only load draft if user is authenticated and we have a draftId
+      if (location.state?.draftId && !hasInitialized.current && actions.loadDraft && state.user) {
+        console.log('Description - Loading draft with ID:', location.state.draftId);
+        try {
+          await actions.loadDraft(location.state.draftId);
+          hasInitialized.current = true;
+          console.log('Description - Draft loaded successfully');
+        } catch (error) {
+          console.error('Description - Error loading draft:', error);
+        }
+      }
+    };
+
+    loadDraftData();
+  }, [location.state?.draftId, state.user]);
+
+  // Set current step when component mounts
+  useEffect(() => {
+    if (actions.setCurrentStep) {
+      actions.setCurrentStep('description');
+    }
+  }, []);
+
+  // Initialize from context if available (after draft loading or direct navigation)
+  useEffect(() => {
+    if (state.descriptionHighlights && (hasInitialized.current || !location.state?.draftId)) {
+      console.log('Description - Initializing from context:', state.descriptionHighlights);
+      setSelectedHighlights(state.descriptionHighlights);
+      if (!hasInitialized.current) {
+        hasInitialized.current = true;
+      }
+    }
+  }, [state.descriptionHighlights, hasInitialized.current, location.state?.draftId]);
+
+  // Real-time context updates
+  const updateHighlightsContext = (highlights) => {
+    console.log('Description - Updating context with:', highlights);
+    if (actions.updateDescriptionHighlights) {
+      actions.updateDescriptionHighlights(highlights);
+    }
+    if (actions.setCurrentStep) {
+      actions.setCurrentStep('description');
+    }
+  };
 
   return (
     <div className="min-h-screen bg-white">
@@ -48,7 +176,13 @@ const Description = () => {
           </svg>
           <div className="flex items-center gap-6">
             <button className="font-medium text-sm hover:underline">Questions?</button>
-            <button className="font-medium text-sm hover:underline">Save & exit</button>
+            <button 
+              onClick={handleSaveAndExitClick}
+              className="font-medium text-sm hover:underline"
+              disabled={state.isLoading || isSaving}
+            >
+              {state.isLoading || isSaving ? 'Saving...' : 'Save & exit'}
+            </button>
           </div>
         </div>
       </header>
@@ -133,6 +267,9 @@ const Description = () => {
                 }`}
                 onClick={() => {
                   if (canProceed) {
+                    // Update context before navigation
+                    updateHighlightsContext(selectedHighlights);
+                    
                     // Continue to next step with description highlights
                     navigate('/pages/description-details', { 
                       state: { 

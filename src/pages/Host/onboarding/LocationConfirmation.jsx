@@ -86,8 +86,7 @@ const LocationConfirmation = () => {
   // Load draft if draftId is provided
   useEffect(() => {
     const loadDraftData = async () => {
-      // Only load draft if user is authenticated and we have a draftId
-      if (location.state?.draftId && !hasLoadedDraft && state.user) {
+      if (location.state?.draftId && !hasLoadedDraft) {
         try {
           console.log('Loading draft in LocationConfirmation:', location.state.draftId);
           await actionsRef.current.loadDraft(location.state.draftId);
@@ -95,13 +94,11 @@ const LocationConfirmation = () => {
         } catch (error) {
           console.error('Failed to load draft:', error);
         }
-      } else if (location.state?.draftId && !state.user && !hasLoadedDraft) {
-        console.log('LocationConfirmation: Cannot load draft - user not authenticated yet');
       }
     };
 
     loadDraftData();
-  }, [location.state?.draftId, hasLoadedDraft, state.user]);
+  }, [location.state?.draftId, hasLoadedDraft]);
 
   // Update local state when context state changes
   useEffect(() => {

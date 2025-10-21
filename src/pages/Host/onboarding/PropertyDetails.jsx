@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
-import { auth } from '@/lib/firebase';
 import { Home, Building2, TreePine } from 'lucide-react';
 
 const PropertyDetails = () => {
@@ -27,61 +26,25 @@ const PropertyDetails = () => {
   const { state, actions } = contextData;
   const [selectedType, setSelectedType] = useState(state.propertyType || null);
   const [hasLoadedDraft, setHasLoadedDraft] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
-
-  // Debug logging for initial state
-  useEffect(() => {
-    console.log('PropertyDetails: Component mounted with initial state:', {
-      propertyType: state.propertyType,
-      selectedType,
-      draftId: state.draftId,
-      locationDraftId: location.state?.draftId,
-      hasLoadedDraft
-    });
-  }, []);
 
   // Check if we're continuing from a draft
   useEffect(() => {
     const loadDraftFromState = async () => {
-      // Only load draft if user is authenticated and we have a draftId
-      if (location.state?.draftId && !hasLoadedDraft && state.user) {
+      if (location.state?.draftId && !hasLoadedDraft) {
         setHasLoadedDraft(true);
         try {
-          console.log('PropertyDetails: Loading draft with ID:', location.state.draftId);
           await actionsRef.current.loadDraft(location.state.draftId);
-          console.log('PropertyDetails: Draft loaded successfully');
         } catch (error) {
           console.error('Error loading draft in PropertyDetails:', error);
           setHasLoadedDraft(false); // Reset on error so user can retry
         }
-      } else if (location.state?.draftId && !state.user && !hasLoadedDraft) {
-        console.log('PropertyDetails: Cannot load draft - user not authenticated yet');
       }
     };
 
     loadDraftFromState();
-  }, [location.state?.draftId, hasLoadedDraft, state.user]);
-
-  // Update selectedType when state changes (after loading draft) - improved version
-  useEffect(() => {
-    console.log('PropertyDetails: State propertyType changed to:', state.propertyType);
-    console.log('PropertyDetails: Current selectedType:', selectedType);
-    
-    if (state.propertyType && state.propertyType !== selectedType) {
-      console.log('PropertyDetails: Updating selectedType from state.propertyType:', state.propertyType);
-      setSelectedType(state.propertyType);
-    }
-  }, [state.propertyType]);
-
-  // Also update when draft loading completes
-  useEffect(() => {
-    if (hasLoadedDraft && state.propertyType && !selectedType) {
-      console.log('PropertyDetails: Draft loaded, setting selectedType to:', state.propertyType);
-      setSelectedType(state.propertyType);
-    }
-  }, [hasLoadedDraft, state.propertyType, selectedType]);
+  }, [location.state?.draftId, hasLoadedDraft]);
 
   // Force reset loading state once draft is loaded and we have the data
   useEffect(() => {
@@ -102,6 +65,20 @@ const PropertyDetails = () => {
       return () => clearTimeout(timeoutId);
     }
   }, [state.isLoading]);
+
+  // Update selectedType when state changes (after loading draft)
+  useEffect(() => {
+    if (state.propertyType) {
+      setSelectedType(state.propertyType);
+    }
+  }, [state.propertyType]);
+
+  // Update context when selectedType changes
+  useEffect(() => {
+    if (selectedType && selectedType !== state.propertyType) {
+      actionsRef.current.updatePropertyType(selectedType);
+    }
+  }, [selectedType, state.propertyType]);
 
   const propertyTypes = [
     {
@@ -128,9 +105,7 @@ const PropertyDetails = () => {
   ];
 
   const handlePropertyTypeSelect = (typeId) => {
-    console.log('Property type selected:', typeId);
     setSelectedType(typeId);
-    // Immediately update context
     actions.updatePropertyType(typeId);
   };
 
@@ -142,14 +117,12 @@ const PropertyDetails = () => {
   };
 
   const handleSaveAndExit = async () => {
-    if (isSaving) return; // Prevent double clicks
-    
     console.log('Save & Exit clicked!'); // Debug log
     console.log('Current state:', state); // Debug log
-    console.log('Selected type:', selectedType); // Debug log
     console.log('Actions available:', actions); // Debug log
     
     // Check if user is authenticated
+    const { auth } = await import('@/lib/firebase');
     const currentUser = auth.currentUser;
     console.log('Current user:', currentUser);
     
@@ -159,67 +132,13 @@ const PropertyDetails = () => {
       return;
     }
     
-    setIsSaving(true);
-    
     try {
-      // Ensure selectedType is saved to context before saving draft
-      if (selectedType && selectedType !== state.propertyType) {
-        console.log('Updating property type before save:', selectedType);
-        actions.updatePropertyType(selectedType);
-        
-        // Wait for state to update
-        await new Promise(resolve => setTimeout(resolve, 200));
-      }
-      
-      // Set current step to property-details so "Continue Editing" returns here
-      if (actions.setCurrentStep) {
-        console.log('PropertyDetails: Setting currentStep to property-details');
-        actions.setCurrentStep('property-details');
-      }
-      
-      // Use custom save logic like other pages to ensure currentStep is preserved
-      if (actions.saveDraft) {
-        console.log('PropertyDetails: Calling custom saveDraft with forced currentStep');
-        
-        // Create modified state data with forced currentStep and property type
-        const { user, isLoading, ...dataToSave } = state;
-        dataToSave.currentStep = 'property-details'; // Force the currentStep
-        if (selectedType) {
-          dataToSave.propertyType = selectedType; // Ensure property type is saved
-        }
-        
-        console.log('PropertyDetails: Data to save with forced currentStep and property type:', dataToSave);
-        
-        // Import the draftService directly and save with our custom data
-        const { saveDraft } = await import('@/pages/Host/services/draftService');
-        const draftId = await saveDraft(dataToSave, state.draftId);
-        
-        // Update the draftId in context
-        if (actions.setDraftId) {
-          actions.setDraftId(draftId);
-        }
-        
-        // Navigate to dashboard
-        navigate('/host/hostdashboard', { 
-          state: { 
-            message: 'Draft saved successfully!',
-            draftSaved: true 
-          }
-        });
-      } else {
-        // Fallback to normal saveAndExit
-        console.log('Calling saveAndExit...');
-        await actions.saveAndExit();
-        console.log('Save and exit completed!');
-        
-        // Show success message before navigating
-        alert('Draft saved successfully!');
-      }
+      console.log('Calling saveAndExit...');
+      await actions.saveAndExit();
+      console.log('Save and exit completed!');
     } catch (error) {
       console.error('Error saving draft:', error);
       alert('Failed to save draft: ' + error.message);
-    } finally {
-      setIsSaving(false);
     }
   };
 
@@ -234,9 +153,9 @@ const PropertyDetails = () => {
             <button 
               onClick={handleSaveAndExit}
               className="hover:underline"
-              disabled={state.isLoading || isSaving}
+              disabled={state.isLoading}
             >
-              {state.isLoading || isSaving ? 'Saving...' : 'Save & exit'}
+              {state.isLoading ? 'Saving...' : 'Save & exit'}
             </button>
           </div>
         </div>

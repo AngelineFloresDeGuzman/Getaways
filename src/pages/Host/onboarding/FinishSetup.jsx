@@ -1,12 +1,107 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
+import { useSaveAndExitWithContext } from './hooks/useSaveAndExit';
+import { auth } from '@/lib/firebase';
 
 const FinishSetup = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  
+  // OnboardingContext integration
+  const { state, actions } = useOnboarding();
+  const { handleSaveAndExit } = useSaveAndExitWithContext(actions);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Ref to track initialization
+  const hasInitialized = useRef(false);
 
   // Debug: Log the location state
   console.log('FinishSetup - location.state:', location.state);
+
+  // Load draft data when navigating from "Continue Editing"
+  useEffect(() => {
+    const loadDraftData = async () => {
+      // Only load draft if user is authenticated and we have a draftId
+      if (location.state?.draftId && !hasInitialized.current && actions.loadDraft && state.user) {
+        console.log('FinishSetup - Loading draft with ID:', location.state.draftId);
+        try {
+          await actions.loadDraft(location.state.draftId);
+          hasInitialized.current = true;
+          console.log('FinishSetup - Draft loaded successfully');
+        } catch (error) {
+          console.error('FinishSetup - Error loading draft:', error);
+        }
+      }
+    };
+
+    loadDraftData();
+  }, [location.state?.draftId, state.user]);
+
+  // Set current step when component mounts
+  useEffect(() => {
+    if (actions.setCurrentStep) {
+      actions.setCurrentStep('finish-setup');
+    }
+  }, []);
+
+  // Custom Save & Exit handler
+  const handleSaveAndExitClick = async () => {
+    console.log('FinishSetup Save & Exit clicked');
+    
+    if (!auth.currentUser) {
+      console.error('FinishSetup: No authenticated user');
+      alert('Please log in to save your progress');
+      return;
+    }
+    
+    setIsSaving(true);
+    
+    try {
+      // Set current step before saving so "Continue Editing" returns to this page
+      if (actions.setCurrentStep) {
+        console.log('FinishSetup: Setting currentStep to finish-setup');
+        actions.setCurrentStep('finish-setup');
+      }
+      
+      // Override the saveDraft to ensure currentStep is saved correctly
+      if (actions.saveDraft) {
+        console.log('FinishSetup: Calling custom saveDraft with forced currentStep');
+        
+        // Create modified state data with forced currentStep
+        const { user: contextUser, isLoading, ...dataToSave } = state;
+        dataToSave.currentStep = 'finish-setup'; // Force the currentStep
+        
+        console.log('FinishSetup: Data to save with forced currentStep:', dataToSave);
+        
+        // Import the draftService directly and save with our custom data
+        const { saveDraft } = await import('@/pages/Host/services/draftService');
+        const draftId = await saveDraft(dataToSave, state.draftId);
+        
+        // Update the draftId in context
+        if (actions.setDraftId) {
+          actions.setDraftId(draftId);
+        }
+        
+        // Navigate to dashboard
+        navigate('/host/hostdashboard', { 
+          state: { 
+            message: 'Draft saved successfully!',
+            draftSaved: true 
+          }
+        });
+      } else {
+        // Fallback to normal save
+        await handleSaveAndExit();
+      }
+      
+    } catch (error) {
+      console.error('Error in FinishSetup save:', error);
+      alert('Failed to save progress: ' + error.message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-white">
@@ -18,7 +113,13 @@ const FinishSetup = () => {
           </svg>
           <div className="flex items-center gap-6">
             <button className="font-medium text-sm hover:underline">Questions?</button>
-            <button className="font-medium text-sm hover:underline">Save & exit</button>
+            <button 
+              onClick={handleSaveAndExitClick}
+              className="font-medium text-sm hover:underline"
+              disabled={state.isLoading || isSaving}
+            >
+              {state.isLoading || isSaving ? 'Saving...' : 'Save & exit'}
+            </button>
           </div>
         </div>
       </header>

@@ -2,7 +2,6 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Plus, X, MoreHorizontal, GripVertical } from 'lucide-react';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
-import { useSaveAndExitWithContext } from './hooks/useSaveAndExit.js';
 
 const PhotosPreview = () => {
   const navigate = useNavigate();
@@ -10,7 +9,6 @@ const PhotosPreview = () => {
 
   // OnboardingContext integration
   const { state, actions } = useOnboarding();
-  const { handleSaveAndExit } = useSaveAndExitWithContext(actions);
   const draftLoaded = useRef(false);
 
   // Get photos from navigation state, context, or use default empty array
@@ -30,6 +28,33 @@ const PhotosPreview = () => {
     }
   }, [state.photos?.length, photos.length]); // Use length instead of full arrays
 
+  // Auto-save photos to context whenever they change
+  useEffect(() => {
+    if (photos.length > 0 && actions.updatePhotos) {
+      // Convert photos to context-compatible format with base64
+      const photosForContext = photos.map(photo => ({
+        id: photo.id,
+        name: photo.name,
+        base64: photo.base64 || photo.url,
+        url: photo.url
+      }));
+      
+      // Auto-save to context
+      actions.updatePhotos(photosForContext);
+      console.log('PhotosPreview - Auto-saved photos to context:', photosForContext.length);
+    }
+  }, [photos, actions.updatePhotos]); // Trigger when photos array changes
+
+  // Helper to convert File to base64
+  const fileToBase64 = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = error => reject(error);
+    });
+  };
+
   // Handle file selection for adding more photos
   const handleFileSelect = async (event) => {
     const files = Array.from(event.target.files);
@@ -41,6 +66,9 @@ const PhotosPreview = () => {
       for (const file of files) {
         // Create a preview URL for the file
         const url = URL.createObjectURL(file);
+        
+        // Convert to base64 for context storage
+        const base64 = await fileToBase64(file);
 
         // Generate a unique ID for the photo
         const photoId = `photo-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -48,6 +76,7 @@ const PhotosPreview = () => {
         const newPhoto = {
           id: photoId,
           url: url,
+          base64: base64, // Add base64 for context storage
           file: file,
           name: file.name,
           size: file.size,
@@ -61,12 +90,8 @@ const PhotosPreview = () => {
       const updatedPhotos = [...photos, ...newPhotos];
       setPhotos(updatedPhotos);
 
-      // Update context
-      if (actions.updatePhotos) {
-        await actions.updatePhotos(updatedPhotos);
-      }
-
-      console.log(`Added ${newPhotos.length} new photos. Total: ${updatedPhotos.length}`);
+      console.log(`PhotosPreview - Added ${newPhotos.length} new photos. Total: ${updatedPhotos.length}`);
+      console.log('PhotosPreview - Auto-save will trigger via useEffect');
 
     } catch (error) {
       console.error('Error adding photos:', error);
@@ -82,31 +107,26 @@ const PhotosPreview = () => {
     fileInputRef.current?.click();
   };
 
-  // Save photos and navigate
+  // Navigate back (photos are auto-saved via useEffect)
   const saveAndNavigate = async (route) => {
     try {
-      // Update context with current photos
-      if (actions.updatePhotos) {
-        await actions.updatePhotos(photos);
-      }
-
       // Update current step in context
-      if (actions.updateStep) {
-        await actions.updateStep('photos-preview');
+      if (actions.setCurrentStep) {
+        await actions.setCurrentStep('photos');
       }
 
-      console.log('Photos saved successfully:', photos.length);
+      console.log('PhotosPreview - Navigating to:', route, 'with', photos.length, 'photos');
 
-      // Navigate to the specified route
+      // Navigate to the specified route with current photos
       navigate(route, {
         state: {
           ...location.state,
-          photos: photos
+          photos: photos // Pass all photos including newly added ones
         }
       });
     } catch (error) {
-      console.error('Error saving photos:', error);
-      alert('Error saving progress. Please try again.');
+      console.error('Error navigating:', error);
+      alert('Error navigating. Please try again.');
     }
   };
 
@@ -274,174 +294,7 @@ const PhotosPreview = () => {
     }
   }, [state.photos?.length, location.state?.photos?.length, photos.length]); // Stable dependencies
 
-  // Save & Exit handler
-  const handleSaveAndExitClick = async () => {
-    console.log('PhotosPreview Save & Exit clicked');
-    console.log('Current photos:', photos);
 
-    try {
-      // Set current step before saving so "Continue Editing" returns to this page
-      if (actions.setCurrentStep) {
-        console.log('PhotosPreview: Setting currentStep to photos-preview');
-        actions.setCurrentStep('photos-preview');
-      }
-
-      // Ensure photos are updated in context
-      if (actions.updatePhotos && photos.length > 0) {
-        actions.updatePhotos(photos);
-      }
-
-      // Override the saveDraft to ensure currentStep and photos are saved correctly
-      if (actions.saveDraft) {
-        console.log('PhotosPreview: Calling enhanced saveDraft with essential progress data');
-
-        // Convert current photos to Firestore-compatible format
-        let photosBase64Array = [];
-        let photoMetadata = [];
-        if (photos.length > 0) {
-          try {
-            photos.forEach((photo, index) => {
-              const base64Data = photo.base64 || photo.url || '';
-              if (base64Data) {
-                photosBase64Array.push(base64Data);
-                photoMetadata.push({
-                  index: index,
-                  name: photo.name || `photo_${index}`,
-                  id: photo.id || `photo_${index}_${Date.now()}`
-                });
-              }
-            });
-          } catch (error) {
-            console.error('PhotosPreview: Error preparing photos for save:', error);
-            photosBase64Array = [];
-            photoMetadata = [];
-          }
-        }
-
-        // ✅ Create dataToSave after preparing photos
-        const dataToSave = {
-          ...state, // keep other progress info
-          photos: photos.map(photo => ({
-            id: photo.id || `photo_${Date.now()}`,
-            name: photo.name || "untitled",
-            base64:
-              typeof photo.base64 === "string"
-                ? photo.base64
-                : photo.base64?.base64 || null,
-            url: photo.url || null,
-          })),
-          currentStep: "photos-preview",
-        };
-
-        // ✅ Cleanup / normalize dataToSave before saving
-        if (dataToSave.photos && Array.isArray(dataToSave.photos)) {
-          dataToSave.photos = dataToSave.photos.map(photo => ({
-            id: photo.id,
-            name: photo.name,
-            base64: photo.base64,
-            url: photo.url,
-          }));
-        }
-
-        console.log("Cleaned dataToSave ready for Firestore:", dataToSave);
-
-        // Create data structure with essential fields for proper draft resumption
-        const essentialDataToSave = {
-          // Essential for navigation and progress tracking
-          currentStep: 'photos-preview',
-
-          // Basic property info (needed for draft resumption)
-          propertyType: String(state.propertyType || ''),
-          propertyStructure: String(state.propertyStructure || ''),
-          privacyType: String(state.privacyType || ''),
-
-          // Property basics (core data)
-          guestCapacity: Number(state.guestCapacity || 1),
-          bedrooms: Number(state.bedrooms || 1),
-          beds: Number(state.beds || 1),
-          bathrooms: Number(state.bathrooms || 1),
-
-          // Photos data (Firestore-compatible)
-          photosBase64: photosBase64Array, // Array of base64 strings
-          photoMetadata: photoMetadata, // Array of simple objects with metadata
-          photoCount: Number(photos.length),
-          hasPhotos: photos.length > 0,
-
-          // Title and description
-          title: String(state.title || ''),
-          description: String(state.description || ''),
-
-          // Pricing
-          weekdayPrice: Number(state.weekdayPrice || 0),
-          weekendPrice: Number(state.weekendPrice || 0),
-
-          // Location (flatten completely to avoid nested objects)
-          locationCity: String((state.locationData && state.locationData.city) || ''),
-          locationProvince: String((state.locationData && state.locationData.province) || ''),
-          locationCountry: String((state.locationData && state.locationData.country) || ''),
-          locationLatitude: Number((state.locationData && state.locationData.latitude) || 0),
-          locationLongitude: Number((state.locationData && state.locationData.longitude) || 0),
-
-          // Amenities as simple array of strings (avoid any complex objects)
-          selectedAmenities: Array.isArray(state.selectedAmenities) ?
-            state.selectedAmenities.filter(a => a && typeof a === 'string') : []
-        };
-
-        console.log('PhotosPreview: Essential data to save:', essentialDataToSave);
-
-        // Validate no nested objects exist
-        function validateFlat(arr) {
-          console.log("validateFlat check skipped for debugging");
-          return true;
-        }
-
-        validateFlat(essentialDataToSave);
-        console.log('PhotosPreview: Flat data validation passed');
-
-        // Import the draftService directly and save with essential data
-        const { saveDraft } = await import('@/pages/Host/services/draftService');
-
-        console.log("Before saving, dataToSave.photos:", dataToSave.photos);
-
-        // Clean up photo data
-        if (dataToSave.photos && Array.isArray(dataToSave.photos)) {
-          dataToSave.photos = dataToSave.photos.map(photo => ({
-            id: photo.id,
-            name: photo.name || "untitled",
-            base64:
-              typeof photo.base64 === "string"
-                ? photo.base64
-                : photo.base64?.base64 || null,
-            url: photo.url || null
-          }));
-        }
-
-        console.log("After cleanup, photos to save:", dataToSave.photos);
-
-        const draftId = await saveDraft(essentialDataToSave, state.draftId);
-
-        // Update the draftId in context
-        if (actions.setDraftId) {
-          actions.setDraftId(draftId);
-        }
-
-        // Navigate to dashboard
-        navigate('/host/hostdashboard', {
-          state: {
-            message: 'Draft saved successfully!',
-            draftSaved: true
-          }
-        });
-      } else {
-        // Fallback to normal save
-        await handleSaveAndExit();
-      }
-
-    } catch (error) {
-      console.error('Error in PhotosPreview save:', error);
-      alert('Failed to save progress: ' + error.message);
-    }
-  };
 
   // Handle redirect if no photos - use useEffect to avoid setState during render
   useEffect(() => {
@@ -466,13 +319,6 @@ const PhotosPreview = () => {
           </svg>
           <div className="flex items-center gap-6">
             <button className="font-medium text-sm hover:underline">Questions?</button>
-            <button
-              onClick={handleSaveAndExitClick}
-              disabled={state.isLoading}
-              className="font-medium text-sm hover:underline disabled:opacity-50"
-            >
-              {state.isLoading ? 'Saving...' : 'Save & exit'}
-            </button>
           </div>
         </div>
       </header>
@@ -915,7 +761,7 @@ const PhotosPreview = () => {
       <footer className="fixed bottom-0 left-0 right-0 bg-white border-t">
         <div className="max-w-none">
           <div className="px-8 py-6">
-            <div className="flex justify-start items-center">
+            <div className="flex justify-between items-center">
               <button
                 onClick={async (e) => {
                   e.preventDefault();
@@ -924,6 +770,17 @@ const PhotosPreview = () => {
                 className="text-gray-900 font-medium underline hover:no-underline"
               >
                 Back
+              </button>
+              
+              <button
+                onClick={async (e) => {
+                  e.preventDefault();
+                  await saveAndNavigate('/pages/title-description');
+                }}
+                disabled={photos.length === 0}
+                className="bg-gray-900 text-white px-6 py-3 rounded-lg hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Next
               </button>
             </div>
           </div>

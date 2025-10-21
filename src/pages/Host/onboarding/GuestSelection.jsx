@@ -1,11 +1,22 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
+import { useSaveAndExitWithContext } from './hooks/useSaveAndExit';
+import { auth } from '@/lib/firebase';
 
 const GuestSelection = () => {
   const navigate = useNavigate();
   const location = useLocation();
   
+  // OnboardingContext integration
+  const { state, actions } = useOnboarding();
+  const { handleSaveAndExit } = useSaveAndExitWithContext(actions);
+  const [isSaving, setIsSaving] = useState(false);
+  
   const [selectedOption, setSelectedOption] = useState('any-guest');
+
+  // Ref to track initialization
+  const hasInitialized = useRef(false);
 
   const guestOptions = [
     {
@@ -25,6 +36,123 @@ const GuestSelection = () => {
   // Debug: Log the location state
   console.log('GuestSelection - location.state:', location.state);
 
+  // Load draft data when navigating from "Continue Editing"
+  useEffect(() => {
+    const loadDraftData = async () => {
+      // Only load draft if user is authenticated and we have a draftId
+      if (location.state?.draftId && !hasInitialized.current && actions.loadDraft && state.user) {
+        console.log('GuestSelection - Loading draft with ID:', location.state.draftId);
+        try {
+          await actions.loadDraft(location.state.draftId);
+          hasInitialized.current = true;
+          console.log('GuestSelection - Draft loaded successfully');
+        } catch (error) {
+          console.error('GuestSelection - Error loading draft:', error);
+        }
+      }
+    };
+
+    loadDraftData();
+  }, [location.state?.draftId, state.user]);
+
+  // Set current step when component mounts
+  useEffect(() => {
+    if (actions.setCurrentStep) {
+      actions.setCurrentStep('guest-selection');
+    }
+  }, []);
+
+  // Initialize from context if available (after draft loading or direct navigation)
+  useEffect(() => {
+    if (state.guestSelection && (hasInitialized.current || !location.state?.draftId)) {
+      console.log('GuestSelection - Initializing from context:', state.guestSelection);
+      setSelectedOption(state.guestSelection);
+      if (!hasInitialized.current) {
+        hasInitialized.current = true;
+      }
+    }
+  }, [state.guestSelection, hasInitialized.current, location.state?.draftId]);
+
+  // Real-time context updates
+  const updateGuestSelectionContext = (selection) => {
+    console.log('GuestSelection - Updating context with:', selection);
+    if (actions.updateGuestSelection) {
+      actions.updateGuestSelection(selection);
+    }
+    if (actions.setCurrentStep) {
+      actions.setCurrentStep('guest-selection');
+    }
+  };
+
+  // Handle option selection with context update
+  const handleOptionSelect = (optionId) => {
+    setSelectedOption(optionId);
+    updateGuestSelectionContext(optionId);
+  };
+
+  // Custom Save & Exit handler
+  const handleSaveAndExitClick = async () => {
+    console.log('GuestSelection Save & Exit clicked');
+    console.log('Current guest selection:', selectedOption);
+    
+    if (!auth.currentUser) {
+      console.error('GuestSelection: No authenticated user');
+      alert('Please log in to save your progress');
+      return;
+    }
+    
+    setIsSaving(true);
+    
+    try {
+      // Set current step before saving so "Continue Editing" returns to this page
+      if (actions.setCurrentStep) {
+        console.log('GuestSelection: Setting currentStep to guest-selection');
+        actions.setCurrentStep('guest-selection');
+      }
+      
+      // Ensure guest selection is updated in context
+      updateGuestSelectionContext(selectedOption);
+      
+      // Override the saveDraft to ensure currentStep and guest selection are saved correctly
+      if (actions.saveDraft) {
+        console.log('GuestSelection: Calling custom saveDraft with forced currentStep and guest selection');
+        
+        // Create modified state data with forced currentStep and guest selection
+        const { user: contextUser, isLoading, ...dataToSave } = state;
+        dataToSave.currentStep = 'guest-selection'; // Force the currentStep
+        dataToSave.guestSelection = selectedOption; // Save the current guest selection
+        
+        console.log('GuestSelection: Data to save with forced currentStep and guest selection:', dataToSave);
+        
+        // Import the draftService directly and save with our custom data
+        const { saveDraft } = await import('@/pages/Host/services/draftService');
+        const draftId = await saveDraft(dataToSave, state.draftId);
+        
+        // Update the draftId in context
+        if (actions.setDraftId) {
+          actions.setDraftId(draftId);
+        }
+        
+        // Navigate to dashboard
+        navigate('/host/hostdashboard', { 
+          state: { 
+            message: 'Draft saved successfully!',
+            draftSaved: true 
+          }
+        });
+      } else {
+        // Fallback to normal save
+        await handleSaveAndExit();
+      }
+      
+    } catch (error) {
+      console.error('Error in GuestSelection save:', error);
+      alert('Failed to save progress: ' + error.message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-white">
       {/* Header */}
@@ -35,7 +163,13 @@ const GuestSelection = () => {
           </svg>
           <div className="flex items-center gap-6">
             <button className="font-medium text-sm hover:underline">Questions?</button>
-            <button className="font-medium text-sm hover:underline">Save & exit</button>
+            <button 
+              onClick={handleSaveAndExitClick}
+              className="font-medium text-sm hover:underline"
+              disabled={state.isLoading || isSaving}
+            >
+              {state.isLoading || isSaving ? 'Saving...' : 'Save & exit'}
+            </button>
           </div>
         </div>
       </header>
@@ -74,7 +208,7 @@ const GuestSelection = () => {
             {guestOptions.map((option) => (
               <button
                 key={option.id}
-                onClick={() => setSelectedOption(option.id)}
+                onClick={() => handleOptionSelect(option.id)}
                 className={`w-full p-6 rounded-xl border-2 text-left transition-all hover:border-gray-400 ${
                   selectedOption === option.id
                     ? 'border-black bg-gray-50'
@@ -130,6 +264,9 @@ const GuestSelection = () => {
                 }`}
                 onClick={() => {
                   if (canProceed) {
+                    // Update context before navigation
+                    updateGuestSelectionContext(selectedOption);
+                    
                     // Continue to pricing setup
                     navigate('/pages/pricing', { 
                       state: { 

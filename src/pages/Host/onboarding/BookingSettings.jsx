@@ -1,12 +1,23 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Calendar, Zap } from 'lucide-react';
+import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
+import { useSaveAndExitWithContext } from './hooks/useSaveAndExit';
+import { auth } from '@/lib/firebase';
 
 const BookingSettings = () => {
   const navigate = useNavigate();
   const location = useLocation();
   
+  // OnboardingContext integration
+  const { state, actions } = useOnboarding();
+  const { handleSaveAndExit } = useSaveAndExitWithContext(actions);
+  const [isSaving, setIsSaving] = useState(false);
+  
   const [selectedOption, setSelectedOption] = useState('approve-first-5');
+
+  // Ref to track initialization
+  const hasInitialized = useRef(false);
 
   const bookingOptions = [
     {
@@ -29,6 +40,123 @@ const BookingSettings = () => {
   // Debug: Log the location state
   console.log('BookingSettings - location.state:', location.state);
 
+  // Load draft data when navigating from "Continue Editing"
+  useEffect(() => {
+    const loadDraftData = async () => {
+      // Only load draft if user is authenticated and we have a draftId
+      if (location.state?.draftId && !hasInitialized.current && actions.loadDraft && state.user) {
+        console.log('BookingSettings - Loading draft with ID:', location.state.draftId);
+        try {
+          await actions.loadDraft(location.state.draftId);
+          hasInitialized.current = true;
+          console.log('BookingSettings - Draft loaded successfully');
+        } catch (error) {
+          console.error('BookingSettings - Error loading draft:', error);
+        }
+      }
+    };
+
+    loadDraftData();
+  }, [location.state?.draftId, state.user]);
+
+  // Set current step when component mounts
+  useEffect(() => {
+    if (actions.setCurrentStep) {
+      actions.setCurrentStep('booking-settings');
+    }
+  }, []);
+
+  // Initialize from context if available (after draft loading or direct navigation)
+  useEffect(() => {
+    if (state.bookingSettings && (hasInitialized.current || !location.state?.draftId)) {
+      console.log('BookingSettings - Initializing from context:', state.bookingSettings);
+      setSelectedOption(state.bookingSettings);
+      if (!hasInitialized.current) {
+        hasInitialized.current = true;
+      }
+    }
+  }, [state.bookingSettings, hasInitialized.current, location.state?.draftId]);
+
+  // Real-time context updates
+  const updateBookingSettingsContext = (settings) => {
+    console.log('BookingSettings - Updating context with:', settings);
+    if (actions.updateBookingSettings) {
+      actions.updateBookingSettings(settings);
+    }
+    if (actions.setCurrentStep) {
+      actions.setCurrentStep('booking-settings');
+    }
+  };
+
+  // Handle option selection with context update
+  const handleOptionSelect = (optionId) => {
+    setSelectedOption(optionId);
+    updateBookingSettingsContext(optionId);
+  };
+
+  // Custom Save & Exit handler
+  const handleSaveAndExitClick = async () => {
+    console.log('BookingSettings Save & Exit clicked');
+    console.log('Current booking settings:', selectedOption);
+    
+    if (!auth.currentUser) {
+      console.error('BookingSettings: No authenticated user');
+      alert('Please log in to save your progress');
+      return;
+    }
+    
+    setIsSaving(true);
+    
+    try {
+      // Set current step before saving so "Continue Editing" returns to this page
+      if (actions.setCurrentStep) {
+        console.log('BookingSettings: Setting currentStep to booking-settings');
+        actions.setCurrentStep('booking-settings');
+      }
+      
+      // Ensure booking settings are updated in context
+      updateBookingSettingsContext(selectedOption);
+      
+      // Override the saveDraft to ensure currentStep and booking settings are saved correctly
+      if (actions.saveDraft) {
+        console.log('BookingSettings: Calling custom saveDraft with forced currentStep and booking settings');
+        
+        // Create modified state data with forced currentStep and booking settings
+        const { user: contextUser, isLoading, ...dataToSave } = state;
+        dataToSave.currentStep = 'booking-settings'; // Force the currentStep
+        dataToSave.bookingSettings = selectedOption; // Save the current booking settings
+        
+        console.log('BookingSettings: Data to save with forced currentStep and booking settings:', dataToSave);
+        
+        // Import the draftService directly and save with our custom data
+        const { saveDraft } = await import('@/pages/Host/services/draftService');
+        const draftId = await saveDraft(dataToSave, state.draftId);
+        
+        // Update the draftId in context
+        if (actions.setDraftId) {
+          actions.setDraftId(draftId);
+        }
+        
+        // Navigate to dashboard
+        navigate('/host/hostdashboard', { 
+          state: { 
+            message: 'Draft saved successfully!',
+            draftSaved: true 
+          }
+        });
+      } else {
+        // Fallback to normal save
+        await handleSaveAndExit();
+      }
+      
+    } catch (error) {
+      console.error('Error in BookingSettings save:', error);
+      alert('Failed to save progress: ' + error.message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-white">
       {/* Header */}
@@ -39,7 +167,13 @@ const BookingSettings = () => {
           </svg>
           <div className="flex items-center gap-6">
             <button className="font-medium text-sm hover:underline">Questions?</button>
-            <button className="font-medium text-sm hover:underline">Save & exit</button>
+            <button 
+              onClick={handleSaveAndExitClick}
+              className="font-medium text-sm hover:underline"
+              disabled={state.isLoading || isSaving}
+            >
+              {state.isLoading || isSaving ? 'Saving...' : 'Save & exit'}
+            </button>
           </div>
         </div>
       </header>
@@ -80,7 +214,7 @@ const BookingSettings = () => {
               return (
                 <button
                   key={option.id}
-                  onClick={() => setSelectedOption(option.id)}
+                  onClick={() => handleOptionSelect(option.id)}
                   className={`w-full p-6 rounded-xl border-2 text-left transition-all hover:border-gray-400 ${
                     selectedOption === option.id
                       ? 'border-black bg-gray-50'
@@ -133,6 +267,9 @@ const BookingSettings = () => {
                 }`}
                 onClick={() => {
                   if (canProceed) {
+                    // Update context before navigation
+                    updateBookingSettingsContext(selectedOption);
+                    
                     // Continue to guest selection
                     navigate('/pages/guest-selection', { 
                       state: { 

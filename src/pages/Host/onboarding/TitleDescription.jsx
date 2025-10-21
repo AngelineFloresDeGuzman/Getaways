@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
 import { useSaveAndExitWithContext } from './hooks/useSaveAndExit';
+import { auth } from '@/lib/firebase';
 
 const TitleDescription = () => {
   const navigate = useNavigate();
@@ -9,6 +10,7 @@ const TitleDescription = () => {
   
   // OnboardingContext integration
   const { state, actions } = useOnboarding();
+  const [isSaving, setIsSaving] = useState(false);
   
   // Get property type from navigation state, default to 'place'
   // Try multiple fallbacks to get property type
@@ -31,14 +33,50 @@ const TitleDescription = () => {
 
   const canProceed = title.trim().length > 0;
 
-  // Initialize from context if available
+  // Load draft data when navigating from "Continue Editing"
   useEffect(() => {
-    if (!hasInitialized.current && state.title) {
+    const loadDraftData = async () => {
+      // Only load draft if user is authenticated and we have a draftId
+      if (location.state?.draftId && !hasInitialized.current && actions.loadDraft && state.user) {
+        console.log('TitleDescription - Loading draft with ID:', location.state.draftId);
+        try {
+          await actions.loadDraft(location.state.draftId);
+          hasInitialized.current = true;
+          console.log('TitleDescription - Draft loaded successfully');
+        } catch (error) {
+          console.error('TitleDescription - Error loading draft:', error);
+        }
+      }
+    };
+
+    loadDraftData();
+  }, [location.state?.draftId, state.user]); // Added state.user dependency
+
+  // Set current step when component mounts
+  useEffect(() => {
+    if (actions.setCurrentStep) {
+      actions.setCurrentStep('title-description');
+    }
+  }, []);
+
+  // Debug logging for title state changes
+  useEffect(() => {
+    console.log('TitleDescription - title state changed:', title);
+    console.log('TitleDescription - context title:', state.title);
+    console.log('TitleDescription - hasInitialized:', hasInitialized.current);
+    console.log('TitleDescription - location draftId:', location.state?.draftId);
+  }, [title, state.title, hasInitialized.current, location.state?.draftId]);
+
+  // Initialize from context if available (after draft loading or direct navigation)
+  useEffect(() => {
+    if (state.title && (hasInitialized.current || !location.state?.draftId)) {
       console.log('TitleDescription - Initializing from context:', state.title);
       setTitle(state.title);
-      hasInitialized.current = true;
+      if (!hasInitialized.current) {
+        hasInitialized.current = true;
+      }
     }
-  }, [state.title]);
+  }, [state.title, hasInitialized.current, location.state?.draftId]);
 
   // Real-time context updates
   const updateTitleContext = (newTitle) => {
@@ -57,17 +95,66 @@ const TitleDescription = () => {
     }
   };
 
-  // Save & Exit handler
+  // Custom Save & Exit handler
   const handleSaveAndExitClick = async () => {
     console.log('TitleDescription Save & Exit clicked');
+    console.log('Current title:', title);
+    
+    if (!auth.currentUser) {
+      console.error('TitleDescription: No authenticated user');
+      alert('Please log in to save your progress');
+      return;
+    }
+    
+    setIsSaving(true);
+    
     try {
-      // Ensure context is up to date
+      // Set current step before saving so "Continue Editing" returns to this page
+      if (actions.setCurrentStep) {
+        console.log('TitleDescription: Setting currentStep to title-description');
+        actions.setCurrentStep('title-description');
+      }
+      
+      // Ensure title is updated in context
       updateTitleContext(title);
       
-      // Use the hook's save and exit functionality
-      await handleSaveAndExit();
+      // Override the saveDraft to ensure currentStep and title are saved correctly
+      if (actions.saveDraft) {
+        console.log('TitleDescription: Calling custom saveDraft with forced currentStep and title');
+        
+        // Create modified state data with forced currentStep and title
+        const { user: contextUser, isLoading, ...dataToSave } = state;
+        dataToSave.currentStep = 'title-description'; // Force the currentStep
+        dataToSave.title = title.trim(); // Save the current title
+        
+        console.log('TitleDescription: Data to save with forced currentStep and title:', dataToSave);
+        
+        // Import the draftService directly and save with our custom data
+        const { saveDraft } = await import('@/pages/Host/services/draftService');
+        const draftId = await saveDraft(dataToSave, state.draftId);
+        
+        // Update the draftId in context
+        if (actions.setDraftId) {
+          actions.setDraftId(draftId);
+        }
+        
+        // Navigate to dashboard
+        navigate('/host/hostdashboard', { 
+          state: { 
+            message: 'Draft saved successfully!',
+            draftSaved: true 
+          }
+        });
+      } else {
+        // Fallback to normal save
+        await handleSaveAndExit();
+      }
+      
     } catch (error) {
-      console.error('Error during save and exit:', error);
+      console.error('Error in TitleDescription save:', error);
+      alert('Failed to save progress: ' + error.message);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -84,9 +171,9 @@ const TitleDescription = () => {
             <button 
               onClick={handleSaveAndExitClick}
               className="font-medium text-sm hover:underline"
-              disabled={state.isLoading}
+              disabled={state.isLoading || isSaving}
             >
-              {state.isLoading ? 'Saving...' : 'Save & exit'}
+              {state.isLoading || isSaving ? 'Saving...' : 'Save & exit'}
             </button>
           </div>
         </div>
