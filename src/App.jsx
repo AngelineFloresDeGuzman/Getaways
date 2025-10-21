@@ -22,7 +22,7 @@ import HostDashboard from "@/pages/Host/HostDashboard";
 import AdminDashboard from "@/pages/Admin/AdminDashboard";
 import Profile from "@/pages/Common/Profile";
 import AccountSettings from "@/pages/Common/AccountSettings";
-import HostingSteps from './components/HostingSteps';
+import HostingSteps from './pages/Host/onboarding/HostingSteps.jsx';
 import PropertyDetails from "./pages/Host/onboarding/PropertyDetails";
 import PropertyStructure from "./pages/Host/onboarding/PropertyStructure";
 import PrivacyType from "./pages/Host/onboarding/PrivacyType";
@@ -44,6 +44,7 @@ import WeekendPricing from "./pages/Host/onboarding/WeekendPricing";
 import Discounts from "./pages/Host/onboarding/Discounts";
 import SafetyDetails from "./pages/Host/onboarding/SafetyDetails";
 import FinalDetails from "./pages/Host/onboarding/FinalDetails";
+import ResetPassword from "./pages/Auth/ResetPassword.jsx";
 
 const queryClient = new QueryClient();
 
@@ -78,6 +79,7 @@ const App = () => {
             <Route path="/experiences" element={<Experiences darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/experiences/:id" element={<ExperiencesDetails darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/login" element={<Login darkMode={darkMode} setDarkMode={setDarkMode} />} />
+            <Route path="/reset-password" element={<ResetPassword darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/signup" element={<SignUp darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/guest/index" element={<GuestIndex darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/bookings" element={<Bookings darkMode={darkMode} setDarkMode={setDarkMode} />} />
@@ -86,12 +88,12 @@ const App = () => {
             <Route path="/admin/admindashboard" element={<AdminDashboard darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/profile" element={<Profile darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/accountsettings" element={<AccountSettings darkMode={darkMode} setDarkMode={setDarkMode} />} />
-            <Route path="/become-host/steps" element={<HostingSteps />} />
             
             {/* Onboarding Routes with Context */}
             <Route path="/pages/*" element={
               <OnboardingProvider>
                 <Routes>
+                  <Route path="/hosting-steps" element={<HostingSteps />} />
                   <Route path="propertydetails" element={<PropertyDetails />} />
                   <Route path="propertystructure" element={<PropertyStructure />} />
                   <Route path="privacy-type" element={<PrivacyType />} />

@@ -226,7 +226,7 @@ const PropertyDetails = () => {
           <div className="px-8 py-6 border-t">
             <div className="flex justify-between items-center">
               <button
-                onClick={() => navigate('/become-host/steps')}
+                onClick={() => navigate('/pages/hosting-steps')}
                 className="hover:underline"
               >
                 Back

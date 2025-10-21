@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { X } from "lucide-react";
 
-const TermsModal = ({ isOpen, onClose, onScrollComplete }) => {
+const TermsModal = ({ isOpen, onClose, onAgree }) => {
     const [hasScrolledToBottom, setHasScrolledToBottom] = useState(false);
     const contentRef = useRef(null);
 
@@ -9,14 +9,15 @@ const TermsModal = ({ isOpen, onClose, onScrollComplete }) => {
         const element = contentRef.current;
         if (element) {
             const { scrollTop, scrollHeight, clientHeight } = element;
-            const isAtBottom = scrollTop + clientHeight >= scrollHeight - 10; // 10px threshold
-            
-            if (isAtBottom && !hasScrolledToBottom) {
-                setHasScrolledToBottom(true);
-                onScrollComplete?.();
+            const isAtBottom = scrollTop + clientHeight >= scrollHeight - 10;
+            setHasScrolledToBottom(isAtBottom); // dynamically update on scroll
+            if (isAtBottom) {
             }
         }
     };
+
+    const [agreedTerms, setAgreedTerms] = useState(false);
+    const [agreedPrivacy, setAgreedPrivacy] = useState(false);
 
     useEffect(() => {
         if (!isOpen) {
@@ -28,7 +29,10 @@ const TermsModal = ({ isOpen, onClose, onScrollComplete }) => {
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] relative">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] relative"
+            onClick={(e) => e.stopPropagation()} 
+            >
+                {/* Header */}
                 <div className="flex items-center justify-between p-6 border-b">
                     <h2 className="text-2xl font-bold text-foreground">Terms & Conditions</h2>
                     <button
@@ -38,8 +42,9 @@ const TermsModal = ({ isOpen, onClose, onScrollComplete }) => {
                         <X className="w-6 h-6" />
                     </button>
                 </div>
-                
-                <div 
+
+                {/* Scrollable Content */}
+                <div
                     ref={contentRef}
                     onScroll={handleScroll}
                     className="p-6 overflow-y-auto max-h-[60vh] space-y-4 text-sm text-foreground leading-relaxed"
@@ -105,33 +110,21 @@ const TermsModal = ({ isOpen, onClose, onScrollComplete }) => {
                                 <li>Terms may be updated. Continued use constitutes acceptance of any updates.</li>
                             </ul>
                         </div>
-                        
-                        {/* Scroll indicator */}
-                        {!hasScrolledToBottom && (
-                            <div className="text-center py-4">
-                                <p className="text-primary font-medium">↓ Please scroll to read all terms ↓</p>
-                            </div>
-                        )}
-                        
-                        {hasScrolledToBottom && (
-                            <div className="text-center py-4">
-                                <p className="text-green-600 font-medium">✓ You have read the complete Terms & Conditions</p>
-                            </div>
-                        )}
+
                     </div>
                 </div>
-                
+
+                {/* Agree Button */}
                 <div className="p-6 border-t">
                     <button
-                        onClick={onClose}
-                        className={`w-full py-3 px-4 rounded-xl font-medium transition-all ${
-                            hasScrolledToBottom 
-                                ? "bg-primary text-white hover:bg-primary/90" 
+                        onClick={onAgree}
+                        className={`w-full py-3 px-4 rounded-xl font-medium transition-all ${hasScrolledToBottom
+                                ? "bg-primary text-white hover:bg-primary/90"
                                 : "bg-muted text-muted-foreground cursor-not-allowed"
-                        }`}
+                            }`}
                         disabled={!hasScrolledToBottom}
                     >
-                        {hasScrolledToBottom ? "Close" : "Please read all terms to continue"}
+                        I Agree
                     </button>
                 </div>
             </div>

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { X } from "lucide-react";
 
-const PrivacyModal = ({ isOpen, onClose, onScrollComplete }) => {
+const PrivacyModal = ({ isOpen, onClose, onAgree }) => {
     const [hasScrolledToBottom, setHasScrolledToBottom] = useState(false);
     const contentRef = useRef(null);
 
@@ -9,26 +9,25 @@ const PrivacyModal = ({ isOpen, onClose, onScrollComplete }) => {
         const element = contentRef.current;
         if (element) {
             const { scrollTop, scrollHeight, clientHeight } = element;
-            const isAtBottom = scrollTop + clientHeight >= scrollHeight - 10; // 10px threshold
-            
-            if (isAtBottom && !hasScrolledToBottom) {
-                setHasScrolledToBottom(true);
-                onScrollComplete?.();
+            const isAtBottom = scrollTop + clientHeight >= scrollHeight - 10;
+            setHasScrolledToBottom(isAtBottom); // dynamically update on scroll
+            if (isAtBottom) {
             }
         }
     };
 
     useEffect(() => {
-        if (!isOpen) {
-            setHasScrolledToBottom(false);
-        }
+        if (!isOpen) setHasScrolledToBottom(false);
     }, [isOpen]);
 
     if (!isOpen) return null;
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] relative">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] relative"
+            onClick={(e) => e.stopPropagation()}
+            >
+                {/* Header */}
                 <div className="flex items-center justify-between p-6 border-b">
                     <h2 className="text-2xl font-bold text-foreground">Privacy Policy</h2>
                     <button
@@ -38,8 +37,9 @@ const PrivacyModal = ({ isOpen, onClose, onScrollComplete }) => {
                         <X className="w-6 h-6" />
                     </button>
                 </div>
-                
-                <div 
+
+                {/* Scrollable content */}
+                <div
                     ref={contentRef}
                     onScroll={handleScroll}
                     className="p-6 overflow-y-auto max-h-[60vh] space-y-4 text-sm text-foreground leading-relaxed"
@@ -106,33 +106,21 @@ const PrivacyModal = ({ isOpen, onClose, onScrollComplete }) => {
                                 <li>This Privacy Policy may be updated. Continued use of Getaways after updates means you accept the changes.</li>
                             </ul>
                         </div>
-                        
-                        {/* Scroll indicator */}
-                        {!hasScrolledToBottom && (
-                            <div className="text-center py-4">
-                                <p className="text-primary font-medium">↓ Please scroll to read the complete policy ↓</p>
-                            </div>
-                        )}
-                        
-                        {hasScrolledToBottom && (
-                            <div className="text-center py-4">
-                                <p className="text-green-600 font-medium">✓ You have read the complete Privacy Policy</p>
-                            </div>
-                        )}
+
                     </div>
                 </div>
-                
+
+                {/* Agree Button */}
                 <div className="p-6 border-t">
                     <button
-                        onClick={onClose}
-                        className={`w-full py-3 px-4 rounded-xl font-medium transition-all ${
-                            hasScrolledToBottom 
-                                ? "bg-primary text-white hover:bg-primary/90" 
+                        onClick={onAgree}
+                        className={`w-full py-3 px-4 rounded-xl font-medium transition-all ${hasScrolledToBottom
+                                ? "bg-primary text-white hover:bg-primary/90"
                                 : "bg-muted text-muted-foreground cursor-not-allowed"
-                        }`}
+                            }`}
                         disabled={!hasScrolledToBottom}
                     >
-                        {hasScrolledToBottom ? "Close" : "Please read the complete policy to continue"}
+                        I Agree
                     </button>
                 </div>
             </div>

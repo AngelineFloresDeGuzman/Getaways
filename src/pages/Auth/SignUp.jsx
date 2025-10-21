@@ -27,13 +27,28 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
     const [hasReadPrivacy, setHasReadPrivacy] = useState(false);
     const [toast, setToast] = useState({ message: "", type: "" });
     const [showVerifyPopup, setShowVerifyPopup] = useState(false);
+    const [agreedTerms, setAgreedTerms] = useState(false);
+    const [agreedPrivacy, setAgreedPrivacy] = useState(false);
+    const allAgreed = agreedTerms && agreedPrivacy;
+
+    const handleAgreeTerms = () => {
+        setAgreedTerms(true);
+        setShowTermsModal(false);
+    };
+
+    const handleAgreePrivacy = () => {
+        setAgreedPrivacy(true);
+        setShowPrivacyModal(false);
+    };
 
     // Auto-check the checkbox when both documents are read
     React.useEffect(() => {
-        if (hasReadTerms && hasReadPrivacy && !acceptTerms) {
+        if (agreedTerms && agreedPrivacy) {
             setAcceptTerms(true);
+        } else {
+            setAcceptTerms(false); // auto-uncheck if either is unchecked
         }
-    }, [hasReadTerms, hasReadPrivacy, acceptTerms]);
+    }, [agreedTerms, agreedPrivacy]);
 
     const showToast = (message, type = "info") => {
         setToast({ message, type });
@@ -45,7 +60,7 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
         try {
             const usersCollection = collection(db, 'users');
             const usersSnapshot = await getDocs(usersCollection);
-            
+
             for (const userDoc of usersSnapshot.docs) {
                 const userData = userDoc.data();
                 if (userData.email === email) {
@@ -63,21 +78,14 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
         e.preventDefault();
 
         // Validate terms and conditions
-        if (!acceptTerms) {
+        if (!agreedTerms || !agreedPrivacy) {
             showToast("You must accept the terms and conditions to create an account.", "error");
             return;
         }
 
-        // Validate that both documents have been read
-        if (!hasReadTerms) {
-            showToast("Please read the complete Terms & Conditions before creating an account.", "error");
-            setShowTermsModal(true);
-            return;
-        }
-
-        if (!hasReadPrivacy) {
-            showToast("Please read the complete Privacy Policy before creating an account.", "error");
-            setShowPrivacyModal(true);
+        // User trying to check without reading both documents
+        if (!acceptTerms || !agreedTerms || !agreedPrivacy) {
+            showToast("Please read both the Terms & Conditions and Privacy Policy first.", "error");
             return;
         }
 
@@ -94,7 +102,7 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
         }
 
         let connectionTestPassed = false; // Declare outside try block for catch access
-        
+
         try {
             // Create new account directly - let Firebase handle email conflicts
             console.log("🟡 Creating new user...");
@@ -123,17 +131,17 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
 
             // Now attempt the write
             console.log("🟡 Saving to Firestore...");
-            
+
             // Prepare user data with proper role structure
             const userData = {
                 firstName,
                 lastName,
                 email,
-                role: accountType === "host" ? "guest" : accountType, // Primary role is guest for hosts
+                roles: accountType === "host" ? "guest" : accountType, // Primary role is guest for hosts
                 createdAt: new Date().toISOString(),
                 emailVerified: false,
             };
-            
+
             // If signing up as host, add both guest and host roles
             if (accountType === "host") {
                 userData.roles = ["guest", "host"];
@@ -142,8 +150,16 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
                 userData.roles = ["guest"];
                 console.log("🟡 Creating guest account");
             }
-            
-            await setDoc(doc(db, "users", user.uid), userData);
+
+            await setDoc(doc(db, "users", user.uid), {
+                firstName,
+                lastName,
+                email,
+                emailVerified: false,
+                roles: accountType === "host" ? ["guest", "host"] : ["guest"],
+                createdAt: new Date().toISOString(),
+            });
+
             console.log("✅ User saved to Firestore with roles:", userData.roles);
 
             // Send verification email
@@ -235,11 +251,10 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
 
     return (
         <div
-            className={`${
-                isModal
-                    ? "fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-                    : "min-h-screen bg-background"
-            }`}
+            className={`${isModal
+                ? "fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+                : "min-h-screen bg-background"
+                }`}
             onClick={isModal ? handleOverlayClick : undefined}
         >
             {isModal && (
@@ -255,244 +270,10 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
                     </button>
 
                     <section className="py-8 px-6">
-                <div className="max-w-md mx-auto">
-                    <div className="text-center mb-8 animate-fade-in">
-                        <h1 className="font-heading text-3xl font-bold text-foreground mb-4">Join Havenly</h1>
-                        <p className="font-body text-muted-foreground">Create your account and start exploring</p>
-                        {defaultAccountType === "host" && (
-                            <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                                <p className="text-sm text-amber-700">
-                                    ⚠️ <strong>Have a guest account already?</strong> You can either:
-                                    <br />• Use a <strong>different email</strong> to create a new host account
-                                    <br />• Or <strong>log in</strong> with your existing credentials to upgrade your account
-                                </p>
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="card-listing animate-scale-in">
-                        <div className="p-8">
-                            {/* Account Type Switch */}
-                            <div className="flex rounded-xl bg-muted p-1 mb-6">
-                                <button
-                                    onClick={() => setAccountType("guest")}
-                                    className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-lg font-medium transition-all ${accountType === "guest"
-                                        ? "bg-background text-foreground shadow-sm"
-                                        : "text-muted-foreground hover:text-foreground"
-                                        }`}
-                                >
-                                    <User className="w-4 h-4" />
-                                    Guest
-                                </button>
-                                <button
-                                    onClick={() => setAccountType("host")}
-                                    className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-lg font-medium transition-all ${accountType === "host"
-                                        ? "bg-background text-foreground shadow-sm"
-                                        : "text-muted-foreground hover:text-foreground"
-                                        }`}
-                                >
-                                    <Mail className="w-4 h-4" />
-                                    Host
-                                </button>
-                            </div>
-
-                            {/* Signup Form */}
-                            <form className="space-y-6" onSubmit={handleSignUp}>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block font-medium text-foreground mb-2">First name</label>
-                                        <input
-                                            type="text"
-                                            placeholder="First name"
-                                            value={firstName}
-                                            onChange={(e) => setFirstName(e.target.value)}
-                                            className="w-full p-4 border border-border rounded-xl bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
-                                            required
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block font-medium text-foreground mb-2">Last name</label>
-                                        <input
-                                            type="text"
-                                            placeholder="Last name"
-                                            value={lastName}
-                                            onChange={(e) => setLastName(e.target.value)}
-                                            className="w-full p-4 border border-border rounded-xl bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
-                                            required
-                                        />
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <label className="block font-medium text-foreground mb-2">Email address</label>
-                                    <input
-                                        type="email"
-                                        placeholder="Enter your email address"
-                                        value={email}
-                                        onChange={(e) => setEmail(e.target.value)}
-                                        className="w-full p-4 border border-border rounded-xl bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
-                                        required
-                                    />
-                                </div>
-
-                                <div>
-                                    <label className="block font-medium text-foreground mb-2">Password</label>
-                                    <div className="relative">
-                                        <input
-                                            type={showPassword ? "text" : "password"}
-                                            placeholder="Create a password"
-                                            value={password}
-                                            onChange={(e) => setPassword(e.target.value)}
-                                            className="w-full p-4 pr-12 border border-border rounded-xl bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
-                                            required
-                                        />
-                                        <button
-                                            type="button"
-                                            onClick={() => setShowPassword(!showPassword)}
-                                            className="absolute right-4 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                                        >
-                                            {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                                        </button>
-                                    </div>
-                                    <p className="mt-2 text-xs text-muted-foreground">
-                                        Must be at least 8 characters with letters, numbers, and special characters (@$!%*#?&)
-                                    </p>
-                                </div>
-
-                                <div>
-                                    <label className="block font-medium text-foreground mb-2">Confirm Password</label>
-                                    <div className="relative">
-                                        <input
-                                            type={showConfirmPassword ? "text" : "password"}
-                                            placeholder="Confirm your password"
-                                            value={confirmPassword}
-                                            onChange={(e) => setConfirmPassword(e.target.value)}
-                                            className="w-full p-4 pr-12 border border-border rounded-xl bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
-                                            required
-                                        />
-                                        <button
-                                            type="button"
-                                            onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                                            className="absolute right-4 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                                        >
-                                            {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                                        </button>
-                                    </div>
-                                </div>
-
-                                <div className="flex items-start space-x-3">
-                                    <Checkbox
-                                        id="terms-modal"
-                                        checked={acceptTerms && hasReadTerms && hasReadPrivacy}
-                                        onCheckedChange={(checked) => {
-                                            if (!checked) {
-                                                // Allow unchecking
-                                                setAcceptTerms(false);
-                                            } else if (hasReadTerms && hasReadPrivacy) {
-                                                // Allow checking only if both documents are read
-                                                setAcceptTerms(true);
-                                            } else {
-                                                // User trying to check without reading documents
-                                                if (!hasReadTerms) {
-                                                    showToast("Please read the Terms & Conditions first.", "error");
-                                                    setShowTermsModal(true);
-                                                } else if (!hasReadPrivacy) {
-                                                    showToast("Please read the Privacy Policy first.", "error");
-                                                    setShowPrivacyModal(true);
-                                                }
-                                            }
-                                        }}
-                                        className="mt-1"
-                                        required
-                                    />
-                                    <label htmlFor="terms-modal" className="text-sm text-foreground leading-relaxed">
-                                        I agree to the{" "}
-                                        <button
-                                            type="button"
-                                            onClick={() => setShowTermsModal(true)}
-                                            className={`text-primary hover:text-primary/80 underline font-medium ${hasReadTerms ? 'text-green-600' : ''}`}
-                                        >
-                                            Terms of Service {hasReadTerms && '✓'}
-                                        </button>
-                                        {" "}and{" "}
-                                        <button
-                                            type="button"
-                                            onClick={() => setShowPrivacyModal(true)}
-                                            className={`text-primary hover:text-primary/80 underline font-medium ${hasReadPrivacy ? 'text-green-600' : ''}`}
-                                        >
-                                            Privacy Policy {hasReadPrivacy && '✓'}
-                                        </button>
-                                        {hasReadTerms && hasReadPrivacy ? (
-                                            <span className="block text-xs text-green-600 mt-1">✓ Both documents read - Agreement automatically accepted</span>
-                                        ) : (
-                                            <span className="block text-xs text-muted-foreground mt-1">
-                                                Please read both documents to automatically accept the agreement
-                                            </span>
-                                        )}
-                                    </label>
-                                </div>
-
-                                <button type="submit" className="w-full btn-primary text-lg py-4">
-                                    Create Account
-                                </button>
-
-                                {defaultAccountType === "host" && onSwitchToLogin && (
-                                    <div className="mt-3">
-                                        <button
-                                            type="button"
-                                            onClick={onSwitchToLogin}
-                                            className="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white py-3 px-4 rounded-xl font-medium hover:from-green-600 hover:to-emerald-700 transition-all text-sm"
-                                        >
-                                            🔄 Upgrade Existing Account to Host
-                                        </button>
-                                    </div>
-                                )}
-
-                                <div className="mt-2 text-center">
-                                    <p className="text-muted-foreground">
-                                        Already have an account?{" "}
-                                        {isModal && onSwitchToLogin ? (
-                                            <button
-                                                onClick={onSwitchToLogin}
-                                                className="text-primary hover:text-primary/80 font-medium transition-colors"
-                                            >
-                                                Login
-                                            </button>
-                                        ) : (
-                                            <a
-                                                href="/login"
-                                                className="text-primary hover:text-primary/80 font-medium transition-colors"
-                                            >
-                                                Login
-                                            </a>
-                                        )}
-                                    </p>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                </div>
-            </section>
-                </div>
-            )}
-
-            {!isModal && (
-                <>
-                    <Navigation />
-                    <section className="pt-40 pb-20 px-6">
                         <div className="max-w-md mx-auto">
                             <div className="text-center mb-8 animate-fade-in">
-                                <h1 className="font-heading text-3xl font-bold text-foreground mb-4">Join Havenly</h1>
+                                <h1 className="font-heading text-3xl font-bold text-foreground mb-4">Join Getaways</h1>
                                 <p className="font-body text-muted-foreground">Create your account and start exploring</p>
-                                {defaultAccountType === "host" && (
-                                    <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                                        <p className="text-sm text-amber-700">
-                                            ⚠️ <strong>Have a guest account already?</strong> You can either:
-                                            <br />• Use a <strong>different email</strong> to create a new host account
-                                            <br />• Or <strong>log in</strong> with your existing credentials to upgrade your account
-                                        </p>
-                                    </div>
-                                )}
                             </div>
 
                             <div className="card-listing animate-scale-in">
@@ -579,9 +360,6 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
                                                     {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                                                 </button>
                                             </div>
-                                            <p className="mt-2 text-xs text-muted-foreground">
-                                                Must be at least 8 characters with letters, numbers, and special characters (@$!%*#?&)
-                                            </p>
                                         </div>
 
                                         <div>
@@ -607,53 +385,240 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
 
                                         <div className="flex items-start space-x-3">
                                             <Checkbox
-                                                id="terms"
-                                                checked={acceptTerms && hasReadTerms && hasReadPrivacy}
+                                                id="terms-modal"
+                                                checked={agreedTerms && agreedPrivacy} // checkbox reflects both states
                                                 onCheckedChange={(checked) => {
                                                     if (!checked) {
-                                                        // Allow unchecking
-                                                        setAcceptTerms(false);
-                                                    } else if (hasReadTerms && hasReadPrivacy) {
-                                                        // Allow checking only if both documents are read
-                                                        setAcceptTerms(true);
+                                                        // allow unchecking manually
+                                                        setAgreedTerms(false);
+                                                        setAgreedPrivacy(false);
                                                     } else {
-                                                        // User trying to check without reading documents
-                                                        if (!hasReadTerms) {
-                                                            showToast("Please read the Terms & Conditions first.", "error");
-                                                            setShowTermsModal(true);
-                                                        } else if (!hasReadPrivacy) {
-                                                            showToast("Please read the Privacy Policy first.", "error");
-                                                            setShowPrivacyModal(true);
+                                                        // only allow checking if both were already agreed
+                                                        if (agreedTerms && agreedPrivacy) {
+                                                            // nothing needed, checkbox is already checked
+                                                        } else {
+                                                            showToast(
+                                                                "Please read and agree to both the Terms of Service and Privacy Policy first.",
+                                                                "error"
+                                                            );
                                                         }
                                                     }
                                                 }}
                                                 className="mt-1"
                                                 required
                                             />
-                                            <label htmlFor="terms" className="text-sm text-foreground leading-relaxed">
+
+                                            <label htmlFor="terms-modal" className="text-sm text-foreground leading-relaxed">
                                                 I agree to the{" "}
                                                 <button
                                                     type="button"
                                                     onClick={() => setShowTermsModal(true)}
-                                                    className={`text-primary hover:text-primary/80 underline font-medium ${hasReadTerms ? 'text-green-600' : ''}`}
+                                                    className={`text-primary hover:text-primary/80 underline font-medium ${agreedTerms ? 'text-green-600' : ''}`}
                                                 >
-                                                    Terms of Service {hasReadTerms && '✓'}
-                                                </button>
-                                                {" "}and{" "}
+                                                    Terms of Service {agreedTerms && '✓'}
+                                                </button>{" "}
+                                                and{" "}
                                                 <button
                                                     type="button"
                                                     onClick={() => setShowPrivacyModal(true)}
-                                                    className={`text-primary hover:text-primary/80 underline font-medium ${hasReadPrivacy ? 'text-green-600' : ''}`}
+                                                    className={`text-primary hover:text-primary/80 underline font-medium ${agreedPrivacy ? 'text-green-600' : ''}`}
                                                 >
-                                                    Privacy Policy {hasReadPrivacy && '✓'}
+                                                    Privacy Policy {agreedPrivacy && '✓'}
                                                 </button>
-                                                {hasReadTerms && hasReadPrivacy ? (
-                                                    <span className="block text-xs text-green-600 mt-1">✓ Both documents read - Agreement automatically accepted</span>
+                                            </label>
+                                        </div>
+
+                                        <button type="submit" className="w-full btn-primary text-lg py-4">
+                                            Create Account
+                                        </button>
+
+                                                                                <div className="mt-2 text-center">
+                                            <p className="text-muted-foreground">
+                                                Already have an account?{" "}
+                                                {isModal && onSwitchToLogin ? (
+                                                    <button
+                                                        onClick={onSwitchToLogin}
+                                                        className="text-primary hover:text-primary/80 font-medium transition-colors"
+                                                    >
+                                                        Login
+                                                    </button>
                                                 ) : (
-                                                    <span className="block text-xs text-muted-foreground mt-1">
-                                                        Please read both documents to automatically accept the agreement
-                                                    </span>
+                                                    <a
+                                                        href="/login"
+                                                        className="text-primary hover:text-primary/80 font-medium transition-colors"
+                                                    >
+                                                        Login
+                                                    </a>
                                                 )}
+                                            </p>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            )}
+
+            {!isModal && (
+                <>
+                    <Navigation />
+                    <section className="pt-40 pb-20 px-6">
+                        <div className="max-w-md mx-auto">
+                            <div className="text-center mb-8 animate-fade-in">
+                                <h1 className="font-heading text-3xl font-bold text-foreground mb-4">Join Getaways</h1>
+                                <p className="font-body text-muted-foreground">Create your account and start exploring</p>
+                            </div>
+
+                            <div className="card-listing animate-scale-in">
+                                <div className="p-8">
+                                    {/* Account Type Switch */}
+                                    <div className="flex rounded-xl bg-muted p-1 mb-6">
+                                        <button
+                                            onClick={() => setAccountType("guest")}
+                                            className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-lg font-medium transition-all ${accountType === "guest"
+                                                ? "bg-background text-foreground shadow-sm"
+                                                : "text-muted-foreground hover:text-foreground"
+                                                }`}
+                                        >
+                                            <User className="w-4 h-4" />
+                                            Guest
+                                        </button>
+                                        <button
+                                            onClick={() => setAccountType("host")}
+                                            className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-lg font-medium transition-all ${accountType === "host"
+                                                ? "bg-background text-foreground shadow-sm"
+                                                : "text-muted-foreground hover:text-foreground"
+                                                }`}
+                                        >
+                                            <Mail className="w-4 h-4" />
+                                            Host
+                                        </button>
+                                    </div>
+
+                                    {/* Signup Form */}
+                                    <form className="space-y-6" onSubmit={handleSignUp}>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="block font-medium text-foreground mb-2">First name</label>
+                                                <input
+                                                    type="text"
+                                                    placeholder="First name"
+                                                    value={firstName}
+                                                    onChange={(e) => setFirstName(e.target.value)}
+                                                    className="w-full p-4 border border-border rounded-xl bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                                                    required
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block font-medium text-foreground mb-2">Last name</label>
+                                                <input
+                                                    type="text"
+                                                    placeholder="Last name"
+                                                    value={lastName}
+                                                    onChange={(e) => setLastName(e.target.value)}
+                                                    className="w-full p-4 border border-border rounded-xl bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                                                    required
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <label className="block font-medium text-foreground mb-2">Email address</label>
+                                            <input
+                                                type="email"
+                                                placeholder="Enter your email address"
+                                                value={email}
+                                                onChange={(e) => setEmail(e.target.value)}
+                                                className="w-full p-4 border border-border rounded-xl bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                                                required
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label className="block font-medium text-foreground mb-2">Password</label>
+                                            <div className="relative">
+                                                <input
+                                                    type={showPassword ? "text" : "password"}
+                                                    placeholder="Create a password"
+                                                    value={password}
+                                                    onChange={(e) => setPassword(e.target.value)}
+                                                    className="w-full p-4 pr-12 border border-border rounded-xl bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                                                    required
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowPassword(!showPassword)}
+                                                    className="absolute right-4 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                                                >
+                                                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <label className="block font-medium text-foreground mb-2">Confirm Password</label>
+                                            <div className="relative">
+                                                <input
+                                                    type={showConfirmPassword ? "text" : "password"}
+                                                    placeholder="Confirm your password"
+                                                    value={confirmPassword}
+                                                    onChange={(e) => setConfirmPassword(e.target.value)}
+                                                    className="w-full p-4 pr-12 border border-border rounded-xl bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                                                    required
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                                                    className="absolute right-4 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                                                >
+                                                    {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-start space-x-3">
+                                            <Checkbox
+                                                id="terms-modal"
+                                                checked={agreedTerms && agreedPrivacy} // checkbox reflects both states
+                                                onCheckedChange={(checked) => {
+                                                    if (!checked) {
+                                                        // allow unchecking manually
+                                                        setAgreedTerms(false);
+                                                        setAgreedPrivacy(false);
+                                                    } else {
+                                                        // only allow checking if both were already agreed
+                                                        if (agreedTerms && agreedPrivacy) {
+                                                            // nothing needed, checkbox is already checked
+                                                        } else {
+                                                            showToast(
+                                                                "Please read and agree to both the Terms of Service and Privacy Policy first.",
+                                                                "error"
+                                                            );
+                                                        }
+                                                    }
+                                                }}
+                                                className="mt-1"
+                                                required
+                                            />
+
+                                            <label htmlFor="terms-modal" className="text-sm text-foreground leading-relaxed">
+                                                I agree to the{" "}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowTermsModal(true)}
+                                                    className={`text-primary hover:text-primary/80 underline font-medium ${agreedTerms ? 'text-green-600' : ''}`}
+                                                >
+                                                    Terms of Service {agreedTerms && '✓'}
+                                                </button>{" "}
+                                                and{" "}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowPrivacyModal(true)}
+                                                    className={`text-primary hover:text-primary/80 underline font-medium ${agreedPrivacy ? 'text-green-600' : ''}`}
+                                                >
+                                                    Privacy Policy {agreedPrivacy && '✓'}
+                                                </button>
                                             </label>
                                         </div>
 
@@ -742,13 +707,19 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
             <TermsModal
                 isOpen={showTermsModal}
                 onClose={() => setShowTermsModal(false)}
-                onScrollComplete={() => setHasReadTerms(true)}
+                onAgree={() => {
+                    setAgreedTerms(true);
+                    setShowTermsModal(false);
+                }}
             />
-            
+
             <PrivacyModal
                 isOpen={showPrivacyModal}
                 onClose={() => setShowPrivacyModal(false)}
-                onScrollComplete={() => setHasReadPrivacy(true)}
+                onAgree={() => {
+                    setAgreedPrivacy(true);
+                    setShowPrivacyModal(false);
+                }}
             />
         </div>
     );
