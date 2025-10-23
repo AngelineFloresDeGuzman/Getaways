@@ -6,7 +6,7 @@ import TermsModal from "@/components/TermsModal";
 import PrivacyModal from "@/components/PrivacyModal";
 import { Eye, EyeOff, Mail, User, X } from "lucide-react";
 import { createUserWithEmailAndPassword, sendEmailVerification, signOut, signInWithEmailAndPassword } from "firebase/auth";
-import { auth, db } from "@/lib/firebase";
+import { auth, db, app } from "@/lib/firebase";
 import { doc, setDoc, collection, getDocs, getDoc, updateDoc } from "firebase/firestore";  // Add collection, getDocs if missing
 import { Checkbox } from "@/components/ui/checkbox";
 
@@ -107,9 +107,9 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
             // Create new account directly - let Firebase handle email conflicts
             console.log("🟡 Creating new user...");
             const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-            const user = userCredential.user;
-            console.log("✅ User created:", user.uid);
-            console.log("🔍 Current auth state:", auth.currentUser?.uid);  // Should match user.uid
+            const users = userCredential.user;
+            console.log("✅ User created:", users.uid);
+            console.log("🔍 Current auth state:", auth.currentUser?.uid);  // Should match users.uid
 
             // Quick connection test before write (skips gracefully if Firestore helpers unavailable)
             console.log("🧪 Testing Firestore connection...");
@@ -151,7 +151,7 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
                 console.log("🟡 Creating guest account");
             }
 
-            await setDoc(doc(db, "users", user.uid), {
+            await setDoc(doc(db, "users", users.uid), {
                 firstName,
                 lastName,
                 email,
@@ -164,7 +164,7 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
 
             // Send verification email
             console.log("🟡 Sending verification email...");
-            await sendEmailVerification(user);
+            await sendEmailVerification(users);
             console.log("📩 Verification email sent");
 
             // Success!

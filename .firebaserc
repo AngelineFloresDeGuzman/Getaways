@@ -1,5 +1,8 @@
 {
   "projects": {
-    "default": "havenly-getaways"
-  }
+    "default": "havenly-getaways",
+    "getaways": "getaways-official"
+  },
+  "targets": {},
+  "etags": {}
 }

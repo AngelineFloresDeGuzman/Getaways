@@ -243,7 +243,7 @@ const Navigation = () => {
                         </>
                       )}
                       
-                      <Link to="/favorites" className="block px-4 py-2 hover:bg-muted">Wishlists</Link>
+                      <Link to="/favorites" className="block px-4 py-2 hover:bg-muted">Favorites</Link>
                       <Link to="/bookings" className="block px-4 py-2 hover:bg-muted">Bookings</Link>
                       <Link to="/messages" className="block px-4 py-2 hover:bg-muted">Messages</Link>
                       <Link to="/profile" className="block px-4 py-2 hover:bg-muted">Profile</Link>

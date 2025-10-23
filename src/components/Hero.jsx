@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Search, MapPin, Calendar, Users } from "lucide-react";
-import heroImage from "@/assets/hero-background.jpg";
+import heroVideo from "@/assets/hero-background.mp4";
 import { ChevronDown } from "lucide-react";
 
 const Hero = ({ darkMode }) => {
@@ -53,11 +53,16 @@ const Hero = ({ darkMode }) => {
     return (
         <div id="hero-section" className="relative min-h-screen flex items-center overflow-hidden">
             {/* Background */}
-            <div
-                className="absolute inset-0 bg-cover bg-center bg-no-repeat"
-                style={{ backgroundImage: `url(${heroImage})` }}
-            >
-                <div className="absolute inset-0 bg-black/50" />
+            <div className="absolute inset-0 overflow-hidden">
+                <video
+                    className="w-full h-full object-cover"
+                    src={heroVideo}
+                    autoPlay
+                    loop
+                    muted
+                    playsInline
+                />
+                <div className="absolute inset-0 bg-black/50" /> {/* dark overlay */}
             </div>
 
             {/* Content */}
