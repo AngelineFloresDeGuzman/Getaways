@@ -23,4 +23,6 @@ dist-ssr
 *.sln
 *.sw?
 
+# Ignore videos
 src/assets/hero-background.mp4
+src/assets/hero-background1.mp4
