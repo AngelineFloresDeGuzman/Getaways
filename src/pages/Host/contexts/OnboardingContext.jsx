@@ -6,6 +6,8 @@ import { onAuthStateChanged } from 'firebase/auth';
 
 // Initial state for onboarding
 const initialState = {
+  // Hosting Category (accommodation, experience, service)
+  category: null,
   // Property Details
   propertyType: null,
   
@@ -92,6 +94,7 @@ const initialState = {
 
 // Action types
 const ACTIONS = {
+  UPDATE_CATEGORY: 'UPDATE_CATEGORY',
   SET_USER: 'SET_USER',
   SET_LOADING: 'SET_LOADING',
   SET_CURRENT_STEP: 'SET_CURRENT_STEP',
@@ -119,6 +122,8 @@ const ACTIONS = {
 // Reducer function
 const onboardingReducer = (state, action) => {
   switch (action.type) {
+    case ACTIONS.UPDATE_CATEGORY:
+      return { ...state, category: action.payload };
     case ACTIONS.SET_USER:
       return { ...state, user: action.payload };
     
@@ -305,6 +310,10 @@ export const OnboardingProvider = ({ children }) => {
       
       // Remove user and isLoading from the data to save
       const { user, isLoading, ...dataToSave } = state;
+      // Always include category for Firestore
+      if (state.category) {
+        dataToSave.category = state.category;
+      }
       
       // If user is not authenticated, save to localStorage temporarily
       if (!state.user) {
@@ -435,6 +444,9 @@ export const OnboardingProvider = ({ children }) => {
 
   // Memoized actions to prevent unnecessary re-renders
   const actions = useMemo(() => ({
+    updateCategory: (category) => {
+      dispatch({ type: ACTIONS.UPDATE_CATEGORY, payload: category });
+    },
     // Generic state update function for auto-save hooks
     updateState: (updates) => {
       Object.keys(updates).forEach(key => {

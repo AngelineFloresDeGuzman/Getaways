@@ -26,10 +26,11 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
     const [hasReadTerms, setHasReadTerms] = useState(false);
     const [hasReadPrivacy, setHasReadPrivacy] = useState(false);
     const [toast, setToast] = useState({ message: "", type: "" });
-    const [showVerifyPopup, setShowVerifyPopup] = useState(false);
     const [agreedTerms, setAgreedTerms] = useState(false);
     const [agreedPrivacy, setAgreedPrivacy] = useState(false);
     const allAgreed = agreedTerms && agreedPrivacy;
+    const [showVerifyPopup, setShowVerifyPopup] = useState(false);
+    const [passwordMatch, setPasswordMatch] = useState(true);
 
     const handleAgreeTerms = () => {
         setAgreedTerms(true);
@@ -49,6 +50,15 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
             setAcceptTerms(false); // auto-uncheck if either is unchecked
         }
     }, [agreedTerms, agreedPrivacy]);
+
+    // Real-time password match validation
+    React.useEffect(() => {
+        if (confirmPassword.length === 0) {
+            setPasswordMatch(true);
+        } else {
+            setPasswordMatch(password === confirmPassword);
+        }
+    }, [password, confirmPassword]);
 
     const showToast = (message, type = "info") => {
         setToast({ message, type });
@@ -167,7 +177,7 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
             await sendEmailVerification(users);
             console.log("📩 Verification email sent");
 
-            // Success!
+            // After sendEmailVerification(users);
             setShowVerifyPopup(true);
 
             // Clear form
@@ -370,7 +380,7 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
                                                     placeholder="Confirm your password"
                                                     value={confirmPassword}
                                                     onChange={(e) => setConfirmPassword(e.target.value)}
-                                                    className="w-full p-4 pr-12 border border-border rounded-xl bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                                                    className={`w-full p-4 pr-12 border border-border rounded-xl bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all ${confirmPassword && !passwordMatch ? 'border-red-500' : ''}`}
                                                     required
                                                 />
                                                 <button
@@ -381,6 +391,9 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
                                                     {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                                                 </button>
                                             </div>
+                                            {confirmPassword && !passwordMatch && (
+                                                <p className="text-red-500 text-sm mt-1">Passwords do not match.</p>
+                                            )}
                                         </div>
 
                                         <div className="flex items-start space-x-3">
@@ -432,7 +445,7 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
                                             Create Account
                                         </button>
 
-                                                                                <div className="mt-2 text-center">
+                                        <div className="mt-2 text-center">
                                             <p className="text-muted-foreground">
                                                 Already have an account?{" "}
                                                 {isModal && onSwitchToLogin ? (
@@ -564,7 +577,7 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
                                                     placeholder="Confirm your password"
                                                     value={confirmPassword}
                                                     onChange={(e) => setConfirmPassword(e.target.value)}
-                                                    className="w-full p-4 pr-12 border border-border rounded-xl bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                                                    className={`w-full p-4 pr-12 border border-border rounded-xl bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all ${confirmPassword && !passwordMatch ? 'border-red-500' : ''}`}
                                                     required
                                                 />
                                                 <button
@@ -575,6 +588,9 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
                                                     {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                                                 </button>
                                             </div>
+                                            {confirmPassword && !passwordMatch && (
+                                                <p className="text-red-500 text-sm mt-1">Passwords do not match.</p>
+                                            )}
                                         </div>
 
                                         <div className="flex items-start space-x-3">
@@ -684,13 +700,11 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
                             </button>
                             <span
                                 onClick={async () => {
+                                    setShowVerifyPopup(false); // hide popup
                                     await signOut(auth);
                                     if (isModal && onSwitchToLogin) {
-                                        // If in modal mode, switch to login modal
-                                        setShowVerifyPopup(false);
                                         onSwitchToLogin();
                                     } else {
-                                        // If not in modal mode, navigate to login page
                                         navigate("/login", { replace: true });
                                     }
                                 }}

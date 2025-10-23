@@ -44,7 +44,7 @@ const VerifyEmail = () => {
             </p>
             <button
               onClick={() => navigate("/login")}
-              className="bg-primary hover:bg-green-700 text-white px-8 py-3 rounded-lg text-lg transition transform hover:scale-105"
+              className="bg-primary text-white px-8 py-3 rounded-lg text-lg transition transform hover:scale-105"
             >
               Go to Login
             </button>
@@ -58,7 +58,7 @@ const VerifyEmail = () => {
             <p className="text-gray-700 text-lg mb-6">Something went wrong. Please try verifying your email again.</p>
             <button
               onClick={() => navigate("/")}
-              className="bg-primary hover:bg-red-700 text-white px-8 py-3 rounded-lg text-lg transition transform hover:scale-105"
+              className="bg-primary text-white px-8 py-3 rounded-lg text-lg transition transform hover:scale-105"
             >
               Back to Home
             </button>

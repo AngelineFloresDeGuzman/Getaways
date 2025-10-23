@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from "react";
 import { Moon, Sun, Menu, Home, Mountain, ConciergeBell } from "lucide-react";
 import { onAuthStateChanged, signOut } from "firebase/auth";
@@ -6,6 +7,44 @@ import { doc, getDoc } from "firebase/firestore";
 import { useLocation, Link, useNavigate } from "react-router-dom";
 import { useTheme } from "../components/ThemeContext.jsx";
 import HostTypeModal from "./HostTypeModal";
+import { OnboardingProvider } from "@/pages/Host/contexts/OnboardingContext";
+
+// Move getRoleSwitchButton above Navigation to avoid ReferenceError
+const getRoleSwitchButton = (currentUser, userRoles, isOnHostPages, hasMultipleRoles, hasHostRole, setShowHostModal, navigate) => {
+  // For logged-out users, always show "Become a host"
+  if (!currentUser) {
+    return {
+      text: "Become a host",
+      action: () => setShowHostModal(true),
+      icon: <Mountain className="w-4 h-4" />
+    };
+  }
+  // For authenticated users with multiple roles
+  if (hasMultipleRoles) {
+    if (isOnHostPages) {
+      return {
+        text: "Switch to Traveler",
+        action: () => navigate('/'),
+        icon: <Mountain className="w-4 h-4" />
+      };
+    } else {
+      return {
+        text: "Switch to Host",
+        action: () => navigate('/host/hostdashboard'),
+        icon: <Home className="w-4 h-4" />
+      };
+    }
+  } else if (!hasHostRole) {
+    // For authenticated users without host role
+    return {
+      text: "Become a host",
+      action: () => setShowHostModal(true),
+      icon: <Mountain className="w-4 h-4" />
+    };
+  }
+  return null;
+};
+
 
 const Navigation = () => {
   const [currentUser, setCurrentUser] = useState(null);
@@ -16,12 +55,39 @@ const Navigation = () => {
   const navigate = useNavigate();
   const { darkMode, setDarkMode } = useTheme();
 
+
+
+
+  // Compute role/route state for role switch button
+  const isOnHostPages = location.pathname.includes('/host/') || 
+    location.pathname.includes('/hostdashboard') ||
+    location.pathname.includes('/pages/property') ||
+    location.pathname.includes('/pages/onboarding') ||
+    (location.pathname.startsWith('/pages/') && (
+      location.pathname.includes('property') ||
+      location.pathname.includes('amenities') ||
+      location.pathname.includes('photos') ||
+      location.pathname.includes('pricing') ||
+      location.pathname.includes('description')
+    ));
+  const hasMultipleRoles = userRoles.includes('guest') && userRoles.includes('host');
+  const hasHostRole = userRoles.includes('host');
+
+  // For smooth role switch button transitions
+  const [roleSwitchButtonState, setRoleSwitchButtonState] = useState(() => getRoleSwitchButton(
+    null, [], false, false, false, setShowHostModal, navigate
+  ));
+  const [roleSwitchButtonVisible, setRoleSwitchButtonVisible] = useState(true);
+
+
+  // Track if login just completed from modal
+  const [pendingShowHostModal, setPendingShowHostModal] = useState(false);
+
   // 🔹 Firebase auth listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user && user.emailVerified) {
         setCurrentUser(user);
-        
         // Fetch user roles from Firestore
         try {
           const userDocRef = doc(db, "users", user.uid);
@@ -35,6 +101,11 @@ const Navigation = () => {
           console.error("Error fetching user roles:", error);
           setUserRoles([]);
         }
+        // If login just completed from modal, show HostTypeModal
+        if (pendingShowHostModal) {
+          setShowHostModal(true);
+          setPendingShowHostModal(false);
+        }
       } else {
         await signOut(auth);
         setCurrentUser(null);
@@ -42,7 +113,7 @@ const Navigation = () => {
       }
     });
     return () => unsubscribe();
-  }, []);
+  }, [pendingShowHostModal]);
 
   const handleLogout = async () => {
     await signOut(auth);
@@ -52,61 +123,29 @@ const Navigation = () => {
 
   const isActive = (path) => location.pathname === path || location.pathname.startsWith(path + "/");
 
-  // Determine if user is currently on host pages
-  const isOnHostPages = location.pathname.includes('/host/') || 
-                       location.pathname.includes('/hostdashboard') ||
-                       location.pathname.includes('/pages/property') ||
-                       location.pathname.includes('/pages/onboarding') ||
-                       location.pathname.startsWith('/pages/') && 
-                       (location.pathname.includes('property') || 
-                        location.pathname.includes('amenities') || 
-                        location.pathname.includes('photos') || 
-                        location.pathname.includes('pricing') || 
-                        location.pathname.includes('description'));
 
-  // Check if user has both guest and host roles
-  const hasMultipleRoles = userRoles.includes('guest') && userRoles.includes('host');
-  const hasHostRole = userRoles.includes('host');
 
-  // Determine what role switching button to show
-  const getRoleSwitchButton = () => {
-    // For logged-out users, always show "Become a host"
-    if (!currentUser) {
-      return {
-        text: "Become a host",
-        action: () => setShowHostModal(true),
-        icon: <Mountain className="w-4 h-4" />
-      };
-    }
-    
-    // For authenticated users with multiple roles
-    if (hasMultipleRoles) {
-      if (isOnHostPages) {
-        return {
-          text: "Switch to Traveler",
-          action: () => navigate('/'),
-          icon: <Mountain className="w-4 h-4" />
-        };
-      } else {
-        return {
-          text: "Switch to Host",
-          action: () => navigate('/host/hostdashboard'),
-          icon: <Home className="w-4 h-4" />
-        };
-      }
-    } else if (!hasHostRole) {
-      // For authenticated users without host role
-      return {
-        text: "Become a host",
-        action: () => setShowHostModal(true),
-        icon: <Mountain className="w-4 h-4" />
-      };
-    }
-    
-    return null;
-  };
 
-  const roleSwitchButton = getRoleSwitchButton();
+
+  // Smoothly animate role switch button changes
+  useEffect(() => {
+    setRoleSwitchButtonVisible(false);
+    const timeout = setTimeout(() => {
+      setRoleSwitchButtonState(getRoleSwitchButton(
+        currentUser,
+        userRoles,
+        isOnHostPages,
+        hasMultipleRoles,
+        hasHostRole,
+        setShowHostModal,
+        navigate
+      ));
+      setRoleSwitchButtonVisible(true);
+    }, 150); // 150ms fade out, then swap, then fade in
+    return () => clearTimeout(timeout);
+  }, [userRoles, location.pathname, currentUser, isOnHostPages, hasMultipleRoles, hasHostRole, setShowHostModal, navigate]);
+
+  const roleSwitchButton = roleSwitchButtonState;
 
   // Smooth scroll to top on route change
   useEffect(() => {
@@ -186,12 +225,20 @@ const Navigation = () => {
             {roleSwitchButton && (
               <button
                 onClick={roleSwitchButton.action}
-                className={`hidden md:flex items-center gap-2 text-sm font-medium transition-colors ${
-                  darkMode ? "text-gray-300 hover:text-white" : "hover:text-primary"
-                }`}
+                className={`hidden md:flex items-center gap-2 text-sm font-medium transition-colors transition-opacity duration-200
+                  ${roleSwitchButtonVisible
+                    ? (darkMode ? "text-gray-300 hover:text-white" : "hover:text-primary")
+                    : "text-white"
+                  }
+                  ${roleSwitchButtonVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                style={!roleSwitchButtonVisible ? { color: '#fff', fill: '#fff' } : {}}
               >
-                {roleSwitchButton.icon}
-                {roleSwitchButton.text}
+                <span className={!roleSwitchButtonVisible ? 'text-white fill-white' : ''}>
+                  {roleSwitchButton.icon}
+                </span>
+                <span className={!roleSwitchButtonVisible ? 'text-white' : ''}>
+                  {roleSwitchButton.text}
+                </span>
               </button>
             )}
 
@@ -276,7 +323,12 @@ const Navigation = () => {
                       <Link to="/find-cohost" className="block px-4 py-2 hover:bg-muted">Find a co-host</Link>
                       <Link to="/gift-cards" className="block px-4 py-2 hover:bg-muted">Gift cards</Link>
                       <hr className="my-2 mx-4 border-border" />
-                      <Link to="/login" className="block px-4 py-2 hover:bg-muted">Login / Signup</Link>
+                      <button
+                        className="block w-full text-left px-4 py-2 hover:bg-muted"
+                        onClick={() => setShowHostModal(true)}
+                      >
+                        Login / Signup
+                      </button>
                     </>
                   )}
                 </div>
@@ -286,11 +338,13 @@ const Navigation = () => {
         </div>
       </nav>
 
-      <HostTypeModal
-        isOpen={showHostModal}
-        onClose={() => setShowHostModal(false)}
-        currentUser={currentUser}
-      />
+      <OnboardingProvider>
+        <HostTypeModal
+          isOpen={showHostModal}
+          onClose={() => setShowHostModal(false)}
+          currentUser={currentUser}
+        />
+      </OnboardingProvider>
     </>
   );
 };

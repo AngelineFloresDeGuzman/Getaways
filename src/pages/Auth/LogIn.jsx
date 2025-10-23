@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from "react";
+﻿import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
@@ -15,6 +15,7 @@ const LogIn = ({ isModal = false, onClose, setUserData, onSwitchToSignup, upgrad
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(false);
   const [toast, setToast] = useState({ message: "", type: "" });
+  const toastTimeoutRef = useRef();
 
   // Load saved credentials from localStorage on mount
   useEffect(() => {
@@ -27,9 +28,16 @@ const LogIn = ({ isModal = false, onClose, setUserData, onSwitchToSignup, upgrad
     }
   }, []);
 
-  const showToast = (message, type = "info") => {
+  // Show toast with custom duration, always clear previous timeout
+  const showToast = (message, type = "info", duration = 3000) => {
     setToast({ message, type });
-    setTimeout(() => setToast({ message: "", type: "" }), 3000);
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+    toastTimeoutRef.current = setTimeout(() => {
+      setToast({ message: "", type: "" });
+      toastTimeoutRef.current = null;
+    }, duration);
   };
 
   const handleLogin = async (e) => {
@@ -41,7 +49,10 @@ const LogIn = ({ isModal = false, onClose, setUserData, onSwitchToSignup, upgrad
 
       // Sign in
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
+
+  const user = userCredential.user;
+  // Ensure emailVerified is up-to-date
+  await user.reload();
 
       const userDocRef = doc(db, "users", user.uid);
 
@@ -65,24 +76,13 @@ const LogIn = ({ isModal = false, onClose, setUserData, onSwitchToSignup, upgrad
 
       // Check email verification
       if (!user.emailVerified && !userRoles.includes("admin")) {
-        showToast("Please verify your email before logging in.", "warning");
+        // Show toast for 5 seconds in both modal and non-modal
+        showToast("Please verify your email before logging in.", "warning", 5000);
         return; // STOP here, do NOT navigate or close modal
       }
 
-      // Only now proceed to upgrade host, save data, navigate
 
-      // Upgrade to host if needed
-      if (upgradeToHost) {
-        const currentRoles = [...userRoles];
-        if (!currentRoles.includes("host")) currentRoles.push("host");
-
-        await updateDoc(userDocRef, {
-          roles: currentRoles,
-          updatedAt: new Date().toISOString(),
-        });
-        userData.roles = currentRoles;
-        showToast("Welcome! Your account now has host access.", "success");
-      }
+      // (Host role upgrade removed: now handled only after host type selection in HostTypeModal)
 
       // Store user data
       setUserData?.(userData);
@@ -243,12 +243,21 @@ const LogIn = ({ isModal = false, onClose, setUserData, onSwitchToSignup, upgrad
                 <div className="mt-6 text-center">
                   <p className="text-muted-foreground">
                     Don't have an account?{" "}
-                    {isModal && onSwitchToSignup ? (
-                      <button onClick={onSwitchToSignup} className="text-primary hover:text-primary/80 font-medium transition-colors">
+                    {isModal ? (
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault(); // prevent any default navigation
+                          onSwitchToSignup?.(); // call parent handler safely
+                        }}
+                        className="text-primary hover:text-primary/80 font-medium transition-colors"
+                      >
                         Sign up
                       </button>
                     ) : (
-                      <a href="/signup" className="text-primary hover:text-primary/80 font-medium transition-colors">
+                      <a
+                        href="/signup"
+                        className="text-primary hover:text-primary/80 font-medium transition-colors"
+                      >
                         Sign up
                       </a>
                     )}
