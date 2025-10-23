@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { experiences } from './sharedData';
 import { useParams, Link } from 'react-router-dom';
 import Navigation from '@/components/Navigation';
 import Footer from '@/components/Footer';
@@ -21,92 +22,6 @@ const ExperiencesDetails = () => {
   const shareUrl = `${window.location.origin}/experiences/${activeShare}`;
 
 
-  // Added more experiences to handle missing IDs gracefully
-  const experiences = [
-    {
-      id: 1,
-      title: "Sunset Hot Air Balloon Ride",
-      host: "Sky Adventures",
-      location: "Napa Valley, CA",
-      price: 280,
-      duration: "3 hours",
-      groupSize: "Up to 8 people",
-      rating: 4.9,
-      reviews: 234,
-      image: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=800&q=80",
-      category: "Adventure",
-      description: "Soar above the stunning vineyards of Napa Valley at sunset for a once-in-a-lifetime experience. Champagne toast included!",
-      images: [
-        "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=800&q=80",
-        "https://images.unsplash.com/photo-1491553895911-0055eca6402d?auto=format&fit=crop&w=800&q=80",
-        "https://images.unsplash.com/photo-1529070538774-1843cb3265df?auto=format&fit=crop&w=800&q=80"
-      ],
-      reviewsList: [
-        { id: 1, author: "John D.", date: "May 2024", rating: 5, comment: "Absolutely magical ride!", avatar: "https://randomuser.me/api/portraits/men/11.jpg" },
-        { id: 2, author: "Emily R.", date: "April 2024", rating: 5, comment: "The best experience in Napa!", avatar: "https://randomuser.me/api/portraits/women/44.jpg" }
-      ]
-    },
-    {
-      id: 2,
-      title: "Wine Tasting & Vineyard Tour",
-      host: "Vine & Dine Tours",
-      location: "Tuscany, Italy",
-      price: 95,
-      duration: "4 hours",
-      groupSize: "Up to 12 people",
-      rating: 4.8,
-      reviews: 187,
-      image: "https://images.unsplash.com/photo-1510312305653-8ed496efae75?auto=format&fit=crop&w=800&q=80",
-      category: "Food & Drink",
-      description: "Taste the best wines of Tuscany and enjoy a scenic walk through picturesque vineyards.",
-      images: [
-        "https://images.unsplash.com/photo-1510312305653-8ed496efae75?auto=format&fit=crop&w=800&q=80",
-        "https://images.unsplash.com/photo-1510626176961-4b37d0b9b1f4?auto=format&fit=crop&w=800&q=80",
-        "https://images.unsplash.com/photo-1510626176961-4b37d0b9b1f4?auto=format&fit=crop&w=800&q=80"
-      ],
-      reviewsList: []
-    },
-    {
-      id: 3,
-      title: "Island Escape & Snorkeling Adventure",
-      host: "Blue Horizon Travel",
-      location: "Cebu, Philippines",
-      price: 120,
-      duration: "5 hours",
-      groupSize: "Up to 10 people",
-      rating: 4.7,
-      reviews: 98,
-      image: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=800&q=80",
-      category: "Adventure",
-      description: "Enjoy a tropical escape exploring coral reefs and crystal-clear waters on this all-day snorkeling tour.",
-      images: [
-        "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=800&q=80",
-        "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=800&q=80",
-        "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=800&q=80"
-      ],
-      reviewsList: []
-    },
-    {
-      id: 4,
-      title: "City Night Lights Walking Tour",
-      host: "Urban Discovery",
-      location: "Tokyo, Japan",
-      price: 60,
-      duration: "2 hours",
-      groupSize: "Up to 15 people",
-      rating: 4.6,
-      reviews: 142,
-      image: "https://images.unsplash.com/photo-1516542076529-1ea3854896e1?auto=format&fit=crop&w=800&q=80",
-      category: "Culture",
-      description: "Experience the vibrant energy of Tokyo’s cityscape by night with a local guide.",
-      images: [
-        "https://images.unsplash.com/photo-1516542076529-1ea3854896e1?auto=format&fit=crop&w=800&q=80",
-        "https://images.unsplash.com/photo-1516542076529-1ea3854896e1?auto=format&fit=crop&w=800&q=80",
-        "https://images.unsplash.com/photo-1516542076529-1ea3854896e1?auto=format&fit=crop&w=800&q=80"
-      ],
-      reviewsList: []
-    }
-  ];
 
   const experience = experiences.find(item => item.id === Number(id));
 

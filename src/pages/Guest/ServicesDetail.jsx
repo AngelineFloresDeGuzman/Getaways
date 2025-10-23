@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { services } from './sharedData';
 import { useParams, Link } from 'react-router-dom';
 import Navigation from '@/components/Navigation';
 import Footer from '@/components/Footer';
@@ -20,91 +21,6 @@ const ServicesDetail = () => {
   const [copied, setCopied] = useState(false);
   const shareUrl = activeShare ? `${window.location.origin}/services/${activeShare}` : '';
 
-  const services = [
-    {
-      id: 1,
-      title: "Luxury Spa Treatment",
-      host: "Serenity Spa",
-      location: "Bali, Indonesia",
-      price: 150,
-      duration: "2 hours",
-      groupSize: "Up to 2 people",
-      rating: 4.9,
-      reviews: 325,
-      image: "https://images.unsplash.com/photo-1617196032811-df5e16d85a4b?auto=format&fit=crop&w=800&q=80",
-      category: "Wellness",
-      description: "Experience total relaxation with our premium full-body massage and aromatherapy session in a serene tropical setting.",
-      images: [
-        "https://images.unsplash.com/photo-1617196032811-df5e16d85a4b?auto=format&fit=crop&w=800&q=80",
-        "https://images.unsplash.com/photo-1607746882042-944635dfe10e?auto=format&fit=crop&w=800&q=80",
-        "https://images.unsplash.com/photo-1584466977777-2236c8ec3107?auto=format&fit=crop&w=800&q=80"
-      ],
-      reviewsList: [
-        { id: 1, author: "Anna M.", date: "July 2024", rating: 5, comment: "The best spa experience I've ever had!", avatar: "https://randomuser.me/api/portraits/women/68.jpg" },
-        { id: 2, author: "Jason K.", date: "June 2024", rating: 5, comment: "Truly relaxing and professional staff.", avatar: "https://randomuser.me/api/portraits/men/24.jpg" }
-      ]
-    },
-    {
-      id: 2,
-      title: "Private Chef Dining Experience",
-      host: "Gourmet at Home",
-      location: "Paris, France",
-      price: 250,
-      duration: "3 hours",
-      groupSize: "Up to 6 people",
-      rating: 4.8,
-      reviews: 210,
-      image: "https://images.unsplash.com/photo-1600891964599-f61ba0e24092?auto=format&fit=crop&w=800&q=80",
-      category: "Food & Drink",
-      description: "Enjoy a five-course meal prepared by a private chef right in your accommodation — perfect for special occasions.",
-      images: [
-        "https://images.unsplash.com/photo-1600891964599-f61ba0e24092?auto=format&fit=crop&w=800&q=80",
-        "https://images.unsplash.com/photo-1551218808-94e220e084d2?auto=format&fit=crop&w=800&q=80",
-        "https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&w=800&q=80"
-      ],
-      reviewsList: []
-    },
-    {
-      id: 3,
-      title: "Personal Yoga Session",
-      host: "ZenWell",
-      location: "Chiang Mai, Thailand",
-      price: 90,
-      duration: "1.5 hours",
-      groupSize: "Up to 4 people",
-      rating: 4.7,
-      reviews: 142,
-      image: "https://images.unsplash.com/photo-1605296867304-46d5465a13f1?auto=format&fit=crop&w=800&q=80",
-      category: "Fitness",
-      description: "A guided private yoga session focusing on mindfulness, balance, and strength in a peaceful environment.",
-      images: [
-        "https://images.unsplash.com/photo-1605296867304-46d5465a13f1?auto=format&fit=crop&w=800&q=80",
-        "https://images.unsplash.com/photo-1587049352838-456f7c1c91b6?auto=format&fit=crop&w=800&q=80",
-        "https://images.unsplash.com/photo-1587049352838-456f7c1c91b6?auto=format&fit=crop&w=800&q=80"
-      ],
-      reviewsList: []
-    },
-    {
-      id: 4,
-      title: "Luxury Airport Transfer",
-      host: "Elite Travels",
-      location: "Dubai, UAE",
-      price: 120,
-      duration: "45 minutes",
-      groupSize: "Up to 3 people",
-      rating: 4.8,
-      reviews: 98,
-      image: "https://images.unsplash.com/photo-1588050892643-47b1e1c0f6f2?auto=format&fit=crop&w=800&q=80",
-      category: "Transport",
-      description: "Arrive in style with our private airport limousine service — comfort, elegance, and punctuality guaranteed.",
-      images: [
-        "https://images.unsplash.com/photo-1588050892643-47b1e1c0f6f2?auto=format&fit=crop&w=800&q=80",
-        "https://images.unsplash.com/photo-1552519507-da3b142c6e3d?auto=format&fit=crop&w=800&q=80",
-        "https://images.unsplash.com/photo-1588050892643-47b1e1c0f6f2?auto=format&fit=crop&w=800&q=80"
-      ],
-      reviewsList: []
-    }
-  ];
 
   const service = services.find(item => item.id === Number(id));
   const storedFavorites = JSON.parse(localStorage.getItem("favorites")) || [];

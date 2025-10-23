@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { experiences } from './sharedData';
 import { useNavigate } from "react-router-dom";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
@@ -46,12 +47,6 @@ const Experiences = () => {
     }
   }, [user]);
 
-  const experiences = [
-    { id: 1, title: "Sunset Hot Air Balloon Ride", host: "Sky Adventures", location: "Napa Valley, CA", price: 280, duration: "3 hours", groupSize: "Up to 8 people", rating: 4.9, reviews: 234, image: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=800&q=80", category: "Adventure", type: "experience" },
-    { id: 2, title: "Wine Tasting & Vineyard Tour", host: "Vine & Dine Tours", location: "Tuscany, Italy", price: 95, duration: "4 hours", groupSize: "Up to 12 people", rating: 4.8, reviews: 187, image: "https://images.unsplash.com/photo-1510312305653-8ed496efae75?auto=format&fit=crop&w=800&q=80", category: "Food & Drink", type: "experience" },
-    { id: 3, title: "Traditional Cooking Class", host: "Chef Maria's Kitchen", location: "Barcelona, Spain", price: 75, duration: "2.5 hours", groupSize: "Up to 6 people", rating: 4.9, reviews: 156, image: "https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?auto=format&fit=crop&w=800&q=80", category: "Cultural", type: "experience" },
-    { id: 4, title: "Guided Mountain Hike", host: "Alpine Guides", location: "Swiss Alps, Switzerland", price: 120, duration: "6 hours", groupSize: "Up to 10 people", rating: 4.7, reviews: 289, image: "https://images.unsplash.com/photo-1551632811-561732d1e306?auto=format&fit=crop&w=800&q=80", category: "Adventure", type: "experience" },
-  ];
 
   const toggleFavorite = (item, type) => {
     if (!user) {

@@ -559,7 +559,7 @@ const Hero = ({ darkMode }) => {
                         const heroBottom = hero.offsetTop + hero.offsetHeight;
                         window.scrollTo({
                             top: heroBottom,
-                            behavior: "smooth", // smooth scrolling
+                            behmp4or: "smooth", // smooth scrolling
                         });
                     }
                 }}

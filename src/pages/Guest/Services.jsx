@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { services } from './sharedData';
 import { useNavigate } from "react-router-dom";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
@@ -28,60 +29,6 @@ const Services = () => {
     return () => unsubscribe();
   }, []);
 
-  const services = [
-    {
-      id: 1,
-      title: "Luxury Spa Treatment",
-      provider: "Serenity Wellness",
-      location: "Beverly Hills, CA",
-      price: 180,
-      duration: "90 min",
-      rating: 4.9,
-      reviews: 87,
-      image:
-        "https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&w=800&q=80",
-      category: "Wellness & Spa",
-    },
-    {
-      id: 2,
-      title: "Private Chef Service",
-      provider: "Gourmet At Home",
-      location: "Manhattan, NY",
-      price: 320,
-      duration: "3 hours",
-      rating: 4.8,
-      reviews: 156,
-      image:
-        "https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?auto=format&fit=crop&w=800&q=80",
-      category: "Dining & Culinary",
-    },
-    {
-      id: 3,
-      title: "Personal Training Session",
-      provider: "FitLife Trainers",
-      location: "Miami, FL",
-      price: 95,
-      duration: "60 min",
-      rating: 4.7,
-      reviews: 203,
-      image:
-        "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?auto=format&fit=crop&w=800&q=80",
-      category: "Fitness & Health",
-    },
-    {
-      id: 4,
-      title: "Photography Session",
-      provider: "Moment Capture Studio",
-      location: "San Francisco, CA",
-      price: 250,
-      duration: "2 hours",
-      rating: 4.9,
-      reviews: 124,
-      image:
-        "https://images.unsplash.com/photo-1606983340126-99ab4feaa64a?auto=format&fit=crop&w=800&q=80",
-      category: "Photography",
-    },
-  ];
 
   const categories = [
     "All Services",
