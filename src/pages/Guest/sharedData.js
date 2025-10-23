@@ -1,5 +1,3 @@
-// src/pages/Guest/sharedData.js
-
 import { Wifi, Car, Coffee, Waves, Mountain } from 'lucide-react';
 
 export const accommodations = [
