@@ -45,6 +45,7 @@ import Discounts from "./pages/Host/onboarding/Discounts";
 import SafetyDetails from "./pages/Host/onboarding/SafetyDetails";
 import FinalDetails from "./pages/Host/onboarding/FinalDetails";
 import ResetPassword from "./pages/Auth/ResetPassword.jsx";
+import VerifyEmail from "./pages/Auth/VerifyEmail";
 
 const queryClient = new QueryClient();
 
@@ -67,7 +68,7 @@ const App = () => {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         {/* ✅ Only Sonner toaster here */}
-        <Sonner richColors position="top-center" />
+  <Sonner richColors position="top-right" />
 
         <BrowserRouter>
           <Routes>
@@ -81,6 +82,7 @@ const App = () => {
             <Route path="/login" element={<Login darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/reset-password" element={<ResetPassword darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/signup" element={<SignUp darkMode={darkMode} setDarkMode={setDarkMode} />} />
+            <Route path="/verify-email" element={<VerifyEmail darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/guest/index" element={<GuestIndex darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/bookings" element={<Bookings darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/favorites" element={<Favorites darkMode={darkMode} setDarkMode={setDarkMode} />} />

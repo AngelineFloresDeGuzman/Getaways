@@ -71,17 +71,34 @@ export const saveDraft = async (draftData, draftId = null) => {
     console.log('draftService: Input data:', draftData);
     console.log('draftService: Existing draft ID:', draftId);
 
-    const draftWithMetadata = {
-      ...draftData,
-      userId: user.uid,
-      userEmail: user.email,
-      lastModified: serverTimestamp(),
-      // Fix: Only use draftData.createdAt if it exists and is valid, otherwise use serverTimestamp
-      createdAt: (draftId && draftData.createdAt) ? draftData.createdAt : serverTimestamp(),
-      status: 'draft',
-      currentStep: draftData.currentStep || 'property-details',
-      id: docId
-    };
+    // Only include minimal fields at first creation
+    let draftWithMetadata;
+    const isNewDraft = !draftId || !(await getDoc(draftRef)).exists();
+    if (isNewDraft) {
+      draftWithMetadata = {
+        userId: user.uid,
+        userEmail: user.email,
+        status: 'draft',
+        currentStep: draftData.currentStep ?? null,
+        category: draftData.category || null,
+        createdAt: serverTimestamp(),
+        lastModified: serverTimestamp(),
+        id: docId,
+        data: draftData.data || {},
+      };
+    } else {
+      // For updates, merge new data into existing, but never overwrite createdAt, category, or currentStep unless explicitly changed
+      const existing = (await getDoc(draftRef)).data() || {};
+      draftWithMetadata = {
+        ...existing,
+        ...draftData,
+        category: draftData.category ?? existing.category ?? null,
+        currentStep: draftData.currentStep ?? existing.currentStep ?? null,
+        createdAt: existing.createdAt,
+        lastModified: serverTimestamp(),
+        data: draftData.data || existing.data || {},
+      };
+    }
 
     console.log('draftService: Final data structure:', Object.keys(draftWithMetadata));
     console.log('draftService: createdAt value:', draftWithMetadata.createdAt);

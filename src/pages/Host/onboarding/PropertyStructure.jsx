@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useOnboardingAutoSave, useOnboardingNavigation } from './hooks/useOnboardingAutoSave';
+import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
+import { db } from '@/lib/firebase';
+import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import {
   Home,
   Building2 as Building,
@@ -53,33 +55,32 @@ const PropertyStructure = () => {
   const navigate = useNavigate();
   const location = useLocation();
   
-  // Enhanced auto-save and state management
-  const { 
-    state, 
-    actions, 
-    loadDraftIfNeeded, 
-    saveAndExit, 
-    isLoading 
-  } = useOnboardingAutoSave('property-structure', []);
-
-  const { navigateNext, navigateBack } = useOnboardingNavigation('property-structure');
-  
+  const { state, actions } = useOnboarding();
+  const [isLoading, setIsLoading] = useState(false);
+  const [draftRef, setDraftRef] = useState(null);
   const [selectedType, setSelectedType] = useState(state.propertyStructure || '');
 
-  // Load draft if continuing from saved progress
+  // Create or get draft on mount
   useEffect(() => {
-    const initializePage = async () => {
-      if (location.state?.draftId) {
-        try {
-          await loadDraftIfNeeded(location.state.draftId);
-        } catch (error) {
-          console.error('Error loading draft in PropertyStructure:', error);
-        }
+    async function getOrCreateDraft(userId) {
+      const ref = doc(db, 'listings', userId);
+      const snap = await getDoc(ref);
+      if (!snap.exists()) {
+        await setDoc(ref, {
+          hostId: userId,
+          status: 'draft',
+          step: 'property-structure',
+          data: {},
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
       }
-    };
-
-    initializePage();
-  }, [location.state, loadDraftIfNeeded]);
+      return ref;
+    }
+    if (state.user?.uid) {
+      getOrCreateDraft(state.user.uid).then(setDraftRef);
+    }
+  }, [state.user]);
 
   // Update selectedType when state changes (after loading draft)
   useEffect(() => {
@@ -97,25 +98,48 @@ const PropertyStructure = () => {
 
   // Enhanced navigation functions
   const handleNext = async () => {
-    try {
-      // Ensure latest selection is saved
-      actions.updateState({ propertyStructure: selectedType });
-      await navigateNext(navigate, '/pages/privacytype', 'privacy-type');
-    } catch (error) {
-      console.error('Error navigating to next step:', error);
-      // Continue navigation even if save fails
-      navigate('/pages/privacytype');
+    if (selectedType && draftRef) {
+      setIsLoading(true);
+      try {
+        await updateDoc(draftRef, {
+          data: {
+            ...state,
+            propertyStructure: selectedType,
+          },
+          step: 'privacy-type',
+          status: 'draft',
+          updatedAt: new Date(),
+        });
+        navigate('/pages/privacytype');
+      } catch (error) {
+        console.error('Error saving draft:', error);
+        navigate('/pages/privacytype');
+      } finally {
+        setIsLoading(false);
+      }
     }
   };
 
   const handleSaveAndExit = async () => {
-    try {
-      // Pass current page data to ensure it's saved
-      const currentPageData = selectedType ? { propertyStructure: selectedType } : null;
-      await saveAndExit(currentPageData);
-    } catch (error) {
-      console.error('Error saving and exiting:', error);
-      alert('Error saving progress: ' + error.message);
+    if (draftRef) {
+      setIsLoading(true);
+      try {
+        await updateDoc(draftRef, {
+          data: {
+            ...state,
+            propertyStructure: selectedType,
+          },
+          step: 'property-structure',
+          status: 'draft',
+          updatedAt: new Date(),
+        });
+        alert('Draft saved successfully.');
+      } catch (error) {
+        console.error('Error saving and exiting:', error);
+        alert('Error saving progress: ' + error.message);
+      } finally {
+        setIsLoading(false);
+      }
     }
   };
 

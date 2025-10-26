@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useOnboardingAutoSave, useOnboardingNavigation } from './hooks/useOnboardingAutoSave';
+import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
+import { db } from '@/lib/firebase';
+import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 
 const privacyOptions = [
   {
@@ -24,33 +26,32 @@ const PrivacyType = () => {
   const navigate = useNavigate();
   const location = useLocation();
   
-  // Enhanced auto-save and state management
-  const { 
-    state, 
-    actions, 
-    loadDraftIfNeeded, 
-    saveAndExit, 
-    isLoading 
-  } = useOnboardingAutoSave('privacy-type', []);
-
-  const { navigateNext, navigateBack } = useOnboardingNavigation('privacy-type');
-  
+  const { state, actions } = useOnboarding();
+  const [isLoading, setIsLoading] = useState(false);
+  const [draftRef, setDraftRef] = useState(null);
   const [selectedOption, setSelectedOption] = useState(state.privacyType || '');
 
-  // Load draft if continuing from saved progress
+  // Create or get draft on mount
   useEffect(() => {
-    const initializePage = async () => {
-      if (location.state?.draftId) {
-        try {
-          await loadDraftIfNeeded(location.state.draftId);
-        } catch (error) {
-          console.error('Error loading draft in PrivacyType:', error);
-        }
+    async function getOrCreateDraft(userId) {
+      const ref = doc(db, 'listings', userId);
+      const snap = await getDoc(ref);
+      if (!snap.exists()) {
+        await setDoc(ref, {
+          hostId: userId,
+          status: 'draft',
+          step: 'privacy-type',
+          data: {},
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
       }
-    };
-
-    initializePage();
-  }, [location.state, loadDraftIfNeeded]);
+      return ref;
+    }
+    if (state.user?.uid) {
+      getOrCreateDraft(state.user.uid).then(setDraftRef);
+    }
+  }, [state.user]);
 
   // Update selectedOption when state changes (after loading draft)
   useEffect(() => {
@@ -67,35 +68,52 @@ const PrivacyType = () => {
 
   // Enhanced navigation functions
   const handleNext = async () => {
-    if (!selectedOption) {
+    if (!selectedOption || !draftRef) {
       alert('Please select a privacy type before continuing.');
       return;
     }
-    
+    setIsLoading(true);
     try {
-      // Ensure latest selection is saved
-      actions.updateState({ privacyType: selectedOption });
-      await navigateNext(navigate, '/pages/location', 'location');
-    } catch (error) {
-      console.error('Error navigating to next step:', error);
-      // Continue navigation even if save fails
+      await updateDoc(draftRef, {
+        data: {
+          ...state,
+          privacyType: selectedOption,
+        },
+        step: 'location',
+        status: 'draft',
+        updatedAt: new Date(),
+      });
       navigate('/pages/location');
+    } catch (error) {
+      console.error('Error saving draft:', error);
+      navigate('/pages/location');
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleSaveAndExit = async () => {
-    if (!selectedOption) {
+    if (!selectedOption || !draftRef) {
       alert('Please select a privacy type before saving.');
       return;
     }
-    
+    setIsLoading(true);
     try {
-      // Pass current page data to ensure it's saved
-      const currentPageData = { privacyType: selectedOption };
-      await saveAndExit(currentPageData);
+      await updateDoc(draftRef, {
+        data: {
+          ...state,
+          privacyType: selectedOption,
+        },
+        step: 'privacy-type',
+        status: 'draft',
+        updatedAt: new Date(),
+      });
+      alert('Draft saved successfully.');
     } catch (error) {
       console.error('Error saving and exiting:', error);
       alert('Error saving progress: ' + error.message);
+    } finally {
+      setIsLoading(false);
     }
   };
 

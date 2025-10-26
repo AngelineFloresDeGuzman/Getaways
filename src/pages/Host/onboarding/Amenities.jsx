@@ -124,7 +124,7 @@ const Amenities = () => {
     try {
       // Ensure latest amenities are saved
       actions.updateState({ selectedAmenities });
-      await navigateNext(navigate, '/pages/photos', 'photos');
+  await navigateNext(navigate, '/pages/photos', 'photos', state.draftId);
     } catch (error) {
       console.error('Error navigating to next step:', error);
       // Continue navigation even if save fails

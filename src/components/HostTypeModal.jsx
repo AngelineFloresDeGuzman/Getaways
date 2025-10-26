@@ -10,7 +10,7 @@ import { db } from '@/lib/firebase';
 import LogIn from '@/pages/Auth/LogIn';
 import SignUp from '@/pages/Auth/SignUp';
 
-const HostTypeModal = ({ isOpen, onClose, currentUser }) => {
+const HostTypeModal = ({ isOpen, onClose, currentUser, forceHostTypeSelection }) => {
 
   const onboardingContext = useOnboarding();
   const { actions, state } = onboardingContext;
@@ -43,13 +43,16 @@ const HostTypeModal = ({ isOpen, onClose, currentUser }) => {
       // Always show signup modal first for logged out users
       setShowHostTypeSelection(false);
       setShowSignUpModal(true);
+    } else if (forceHostTypeSelection) {
+      // If forced, show host type selection directly
+      setShowHostTypeSelection(true);
     } else {
       // Always show 'Continue as Host' modal first for logged-in users
       setShowHostTypeSelection(false);
       // Do NOT update roles here; only after host type selection
     }
     // eslint-disable-next-line
-  }, [modalSession, currentUser]);
+  }, [modalSession, currentUser, forceHostTypeSelection]);
 
 
   // Only show the modal overlay if one of the modals or host type selection or continue-as-host is visible
@@ -61,17 +64,23 @@ const HostTypeModal = ({ isOpen, onClose, currentUser }) => {
 
   const handleHostTypeClick = async (hostType) => {
     setSelectedHostType(hostType);
-    let category = 'accommodation';
-    if (hostType === 'experience') category = 'experience';
-    if (hostType === 'service') category = 'service';
+    let category = hostType;
+    if (hostType === 'accommodation' || hostType === 'experience' || hostType === 'service') {
+      category = hostType;
+    } else {
+      category = 'accommodation';
+    }
     setPendingCategory(category);
     if (actions.updateCategory) actions.updateCategory(category);
+    if (actions.setCurrentStep) actions.setCurrentStep('hosting-steps');
     // Only after host type is chosen, update roles and save draft
     if (currentUser) {
       try {
         // Remove non-serializable fields from state
         const { user, isLoading, ...rest } = state;
-        const draftData = { ...rest, category };
+        const draftData = { ...rest, category, currentStep: 'hosting-steps' };
+        // Ensure category is never null
+        if (!draftData.category) draftData.category = category;
         await saveDraft(draftData, state.draftId);
         // Update user roles in Firestore only now
         const userDocRef = doc(db, 'users', currentUser.uid);

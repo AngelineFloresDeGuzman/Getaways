@@ -422,14 +422,8 @@ const LocationConfirmation = () => {
         
         console.log('LocationConfirmation: Data to save with forced currentStep:', dataToSave);
         
-        // Import the draftService directly and save with our custom data
-        const { saveDraft } = await import('@/pages/Host/services/draftService');
-        const draftId = await saveDraft(dataToSave, state.draftId);
-        
-        // Update the draftId in context
-        if (actions.setDraftId) {
-          actions.setDraftId(draftId);
-        }
+        // Use context saveDraft to ensure only one draft per session
+        const draftId = await actions.saveDraft();
         
         // Navigate to dashboard
         navigate('/host/hostdashboard', { 

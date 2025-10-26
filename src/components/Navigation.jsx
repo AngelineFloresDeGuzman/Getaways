@@ -325,7 +325,7 @@ const Navigation = () => {
                       <hr className="my-2 mx-4 border-border" />
                       <button
                         className="block w-full text-left px-4 py-2 hover:bg-muted"
-                        onClick={() => setShowHostModal(true)}
+                        onClick={() => navigate('/login')}
                       >
                         Login / Signup
                       </button>

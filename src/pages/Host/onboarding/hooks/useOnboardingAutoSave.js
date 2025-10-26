@@ -212,16 +212,17 @@ export const useOnboardingNavigation = (stepName, currentPath) => {
   const { saveNow, saveAndExit } = useOnboardingAutoSave(stepName);
 
   // Navigate to next step with auto-save
-  const navigateNext = useCallback(async (navigate, nextPath, nextStep) => {
+  const navigateNext = useCallback(async (navigate, nextPath, nextStep, draftId) => {
     try {
       // Save current progress
       await saveNow();
       
-      // Navigate to next step
+      // Navigate to next step, always pass draftId
       navigate(nextPath, {
         state: {
           fromStep: stepName,
-          currentStep: nextStep
+          currentStep: nextStep,
+          draftId
         }
       });
     } catch (error) {
@@ -231,6 +232,7 @@ export const useOnboardingNavigation = (stepName, currentPath) => {
         state: {
           fromStep: stepName,
           currentStep: nextStep,
+          draftId,
           saveError: error.message
         }
       });
@@ -238,7 +240,7 @@ export const useOnboardingNavigation = (stepName, currentPath) => {
   }, [stepName, saveNow]);
 
   // Navigate to previous step
-  const navigateBack = useCallback(async (navigate, backPath, backStep) => {
+  const navigateBack = useCallback(async (navigate, backPath, backStep, draftId) => {
     try {
       // Save current progress before going back
       await saveNow();
@@ -246,7 +248,8 @@ export const useOnboardingNavigation = (stepName, currentPath) => {
       navigate(backPath, {
         state: {
           fromStep: stepName,
-          currentStep: backStep
+          currentStep: backStep,
+          draftId
         }
       });
     } catch (error) {
@@ -256,6 +259,7 @@ export const useOnboardingNavigation = (stepName, currentPath) => {
         state: {
           fromStep: stepName,
           currentStep: backStep,
+          draftId,
           saveError: error.message
         }
       });

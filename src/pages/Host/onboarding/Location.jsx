@@ -177,7 +177,7 @@ const Location = () => {
       };
       
       actions.updateState({ locationData: locationWithCoordinates });
-      await navigateNext(navigate, '/pages/locationconfirmation', 'location-confirmation');
+  await navigateNext(navigate, '/pages/locationconfirmation', 'location-confirmation', state.draftId);
     } catch (error) {
       console.error('Error navigating to next step:', error);
       // Continue navigation even if save fails

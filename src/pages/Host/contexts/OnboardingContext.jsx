@@ -263,36 +263,8 @@ export const OnboardingProvider = ({ children }) => {
         const parsedData = JSON.parse(tempDraftData);
         console.log('Loading temporary draft from localStorage:', parsedData);
         
-        // Dispatch actions to restore the state
-        Object.keys(parsedData).forEach(key => {
-          if (key !== 'savedAt' && key !== 'tempId') {
-            // Map the data back to state using appropriate actions
-            switch (key) {
-              case 'propertyType':
-                dispatch({ type: ACTIONS.UPDATE_PROPERTY_TYPE, payload: parsedData[key] });
-                break;
-              case 'propertyStructure':
-                dispatch({ type: ACTIONS.UPDATE_PROPERTY_STRUCTURE, payload: parsedData[key] });
-                break;
-              case 'privacyType':
-                dispatch({ type: ACTIONS.UPDATE_PRIVACY_TYPE, payload: parsedData[key] });
-                break;
-              case 'locationData':
-                dispatch({ type: ACTIONS.UPDATE_LOCATION_DATA, payload: parsedData[key] });
-                break;
-              case 'selectedAmenities':
-                dispatch({ type: ACTIONS.UPDATE_AMENITIES, payload: parsedData[key] });
-                break;
-              case 'currentStep':
-                dispatch({ type: ACTIONS.SET_CURRENT_STEP, payload: parsedData[key] });
-                break;
-              case 'draftId':
-                dispatch({ type: ACTIONS.SET_DRAFT_ID, payload: parsedData.tempId });
-                break;
-              // Add more cases as needed for other state properties
-            }
-          }
-        });
+        // Restore all fields from localStorage draft
+        dispatch({ type: ACTIONS.LOAD_DRAFT, payload: parsedData });
       } catch (error) {
         console.error('Error loading temporary draft from localStorage:', error);
         // Clear corrupted data
@@ -302,59 +274,44 @@ export const OnboardingProvider = ({ children }) => {
   }, []);
 
   // Individual callbacks for functions that depend on state
-  const saveDraftCallback = useCallback(async () => {
+  const saveDraftCallback = useCallback(async (partialData = {}) => {
     try {
       console.log('OnboardingContext: Starting saveDraft...');
-      
       dispatch({ type: ACTIONS.SET_LOADING, payload: true });
-      
-      // Remove user and isLoading from the data to save
-      const { user, isLoading, ...dataToSave } = state;
-      // Always include category for Firestore
-      if (state.category) {
-        dataToSave.category = state.category;
-      }
-      
-      // If user is not authenticated, save to localStorage temporarily
+
+      // Always save the full onboarding state to localStorage if unauthenticated
+      let dataToSave = { ...initialState, ...state, ...partialData };
+      // Remove non-serializable fields (functions, etc.)
+      Object.keys(dataToSave).forEach(key => {
+        if (typeof dataToSave[key] === 'function') {
+          delete dataToSave[key];
+        }
+      });
       if (!state.user) {
-        console.log('User not authenticated, saving to localStorage...');
-        
-        // Save to localStorage with a temporary draft key
+        console.log('User not authenticated, saving full onboarding state to localStorage...');
         const tempDraftKey = 'getaways_temp_onboarding_draft';
         const tempDraftData = {
           ...dataToSave,
           savedAt: new Date().toISOString(),
           tempId: 'temp_' + Date.now()
         };
-        
         localStorage.setItem(tempDraftKey, JSON.stringify(tempDraftData));
-        console.log('Temporary draft saved to localStorage');
-        
-        // Set a temporary draft ID for UI consistency
+        console.log('Temporary draft saved to localStorage:', tempDraftData);
         dispatch({ type: ACTIONS.SET_DRAFT_ID, payload: tempDraftData.tempId });
-        
         return tempDraftData.tempId;
       }
-      
+
       // User is authenticated, save to Firebase
       console.log('User authenticated, saving to Firebase...');
       console.log('Saving draft with ID:', state.draftId);
       console.log('Current step:', state.currentStep);
-      
-      // Ensure currentStep is set if not already
       if (!dataToSave.currentStep) {
-        dataToSave.currentStep = 'property-details';
+  dataToSave.currentStep = state.currentStep || 'property-details';
       }
-      
       console.log('Full data being saved:', dataToSave);
-      
       const draftId = await saveDraft(dataToSave, state.draftId);
       console.log('Received draftId from service:', draftId);
-      
-      // Always update the draftId in state, even if it was the same
-      // This ensures the context knows about the draft for future saves
       dispatch({ type: ACTIONS.SET_DRAFT_ID, payload: draftId });
-      
       console.log('OnboardingContext: saveDraft completed successfully');
       return draftId;
     } catch (error) {

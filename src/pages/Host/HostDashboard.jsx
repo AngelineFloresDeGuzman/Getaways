@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import Navigation from '@/components/Navigation';
 import Footer from '@/components/Footer';
+import { toast } from '@/components/ui/sonner';
 import { getUserDrafts, deleteDraft, getDraftSummary } from '@/pages/Host/services/draftService';
 import { auth } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -11,28 +12,32 @@ import {
   Bed, Bath, Edit, Check, X
 } from 'lucide-react';
 
+import { Home as HomeIcon, Grid, List } from 'lucide-react';
+import HostTypeModal from '@/components/HostTypeModal';
+import { OnboardingProvider } from '@/pages/Host/contexts/OnboardingContext';
+
+const TABS = [
+  { key: 'all', label: 'All' },
+  { key: 'accommodation', label: 'Accommodations' },
+  { key: 'experience', label: 'Experiences' },
+  { key: 'service', label: 'Services' },
+];
+
 const HostDashboard = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const [drafts, setDrafts] = useState([]);
+  const [listings, setListings] = useState([]); // TODO: fetch listings
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(null);
-  const [showDraftSuccess, setShowDraftSuccess] = useState(false);
+  const [draftTab, setDraftTab] = useState('all');
+  const [listingTab, setListingTab] = useState('all');
+  const [draftView, setDraftView] = useState('grid');
+  const [listingView, setListingView] = useState('grid');
+  const [showHostTypeModal, setShowHostTypeModal] = useState(false);
+  const [forceHostTypeSelection, setForceHostTypeSelection] = useState(false);
 
-  const listingData = location.state || {};
-  const propertyType = listingData.propertyType || '';
-  const title = listingData.title || '';
-  const description = listingData.description || '';
-  const locationData = listingData.locationData || {};
-  const weekdayPrice = listingData.weekdayPrice || null;
-  const weekendPrice = listingData.weekendPrice || null;
-  const photos = listingData.photos || [];
-  const amenities = listingData.selectedAmenities || [];
-  const highlights = listingData.highlights || [];
-  const guestCapacity = listingData.guestCapacity || null;
-  const bedrooms = listingData.bedrooms || null;
-  const bathrooms = listingData.bathrooms || null;
-
+  // ...existing code...
   const stats = [
     { icon: Home, label: "Active Listings", value: "", change: "" },
     { icon: Calendar, label: "Bookings", value: "", change: "" },
@@ -55,13 +60,29 @@ const HostDashboard = () => {
     return () => unsubscribe();
   }, []);
 
+  const [draftToastShown, setDraftToastShown] = useState(false);
   useEffect(() => {
-    if (location.state?.draftSaved) {
-      setShowDraftSuccess(true);
-      setTimeout(() => setShowDraftSuccess(false), 5000);
-      window.history.replaceState({}, document.title);
+    if (location.state?.draftSaved && !draftToastShown) {
+      toast('Draft saved successfully!');
+      setDraftToastShown(true);
+      // Remove draftSaved from state so toast only shows once
+      const { draftSaved, ...rest } = location.state;
+      window.history.replaceState({ ...rest }, document.title);
     }
-  }, [location.state]);
+  }, [location.state, toast, draftToastShown]);
+  const draftToastShownRef = useRef(false);
+  useEffect(() => {
+    if (location.state?.draftSaved && !draftToastShownRef.current) {
+      toast('Draft saved successfully!');
+      draftToastShownRef.current = true;
+      // Remove draftSaved from state so toast only shows once
+      const { draftSaved, ...rest } = location.state;
+      window.history.replaceState({ ...rest }, document.title);
+    }
+    return () => {
+      draftToastShownRef.current = false;
+    };
+  }, [location.state, toast]);
 
   const loadDrafts = async () => {
     try {
@@ -167,48 +188,135 @@ const HostDashboard = () => {
           </div>
         </div>
 
-        {/* Draft Success Message */}
-        {showDraftSuccess && (
-          <div className="max-w-7xl mx-auto px-6 mb-6">
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-6 h-6 bg-green-600 rounded-full flex items-center justify-center">
-                  <Check className="w-4 h-4 text-white" />
-                </div>
-                <div>
-                  <p className="font-medium text-green-800">Draft saved successfully!</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Draft Success Message replaced by toast */}
 
-        {/* Saved Drafts Section */}
+        {/* Saved Drafts Container with Tabs */}
         {user && (
           <div className="max-w-7xl mx-auto px-6 mb-12">
-            <div className="card-listing p-6">
+            <div className="mb-2">
+              <h2 className="text-xl font-bold text-foreground mb-2">Saved Drafts</h2>
+            </div>
+            <div className="bg-white rounded-xl shadow p-8 mb-8">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="font-heading text-2xl font-bold text-foreground">
-                  {drafts.length > 0 ? 'Saved Drafts' : 'Your Listings'}
-                </h2>
-                <button
-                  onClick={() => navigate('/pages/hosting-steps')}
-                  className="btn-primary flex items-center gap-2"
-                >
-                  <Plus className="w-4 h-4" />
-                  Start New Listing
-                </button>
+                <div className="flex gap-8">
+                  {TABS.map(tab => {
+                    let count = tab.key === 'all'
+                      ? drafts.length
+                      : drafts.filter(d => d.category === tab.key).length;
+                    return (
+                      <button
+                        key={tab.key}
+                        className={`relative pb-2 text-base font-medium border-b-2 transition-colors ${draftTab === tab.key ? 'border-primary text-primary' : 'border-transparent text-gray-700 hover:text-primary'}`}
+                        onClick={() => setDraftTab(tab.key)}
+                      >
+                        {tab.label} <span className="text-sm text-muted-foreground">({count})</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="flex gap-2">
+                  <button className={`p-2 rounded ${draftView === 'grid' ? 'bg-gray-100' : ''}`} onClick={() => setDraftView('grid')}><Grid className="w-5 h-5" /></button>
+                  <button className={`p-2 rounded ${draftView === 'list' ? 'bg-gray-100' : ''}`} onClick={() => setDraftView('list')}><List className="w-5 h-5" /></button>
+                  <button
+                    onClick={() => {
+                      setForceHostTypeSelection(true);
+                      setShowHostTypeModal(true);
+                    }}
+                    className="btn-primary flex items-center gap-2 ml-4"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Start New Listing
+                  </button>
+                </div>
               </div>
-              {/* Drafts grid will be rendered here dynamically */}
+              <div className="flex flex-col items-center justify-center min-h-[260px]">
+                {/* Filter and render drafts by category */}
+                {(draftTab === 'all' ? drafts : drafts.filter(d => d.category === draftTab)).length === 0 ? (
+                  <>
+                    <HomeIcon className="w-16 h-16 text-gray-400 mb-4" strokeWidth={2} />
+                    <div className="text-lg font-medium mb-2">No drafts yet.</div>
+                    <div className="text-gray-500 text-center">Start creating and save your drafts for accommodations, services, and experiences.</div>
+                  </>
+                ) : (
+                  <ul className="w-full">
+                    {(draftTab === 'all' ? drafts : drafts.filter(d => d.category === draftTab)).map((draft, idx) => (
+                      <li key={draft.id || idx} className="mb-4 p-4 border rounded-lg flex justify-between items-center">
+                        <span>{draft.title || 'Untitled Draft'}</span>
+                        <div className="flex gap-2">
+                          <button className="btn-primary px-3 py-1 text-sm" onClick={() => handleContinueDraft(draft)}>Continue</button>
+                          <button className="btn-outline px-3 py-1 text-sm" onClick={() => handleDeleteDraft(draft.id)}>Delete</button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+
+            {/* Listings Container with Tabs */}
+            <div className="mb-2">
+              <h2 className="text-xl font-bold text-foreground mb-2">Listings</h2>
+            </div>
+            <div className="bg-white rounded-xl shadow p-8">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex gap-8">
+                  {TABS.map(tab => {
+                    let count = tab.key === 'all'
+                      ? listings.length
+                      : listings.filter(l => l.category === tab.key).length;
+                    return (
+                      <button
+                        key={tab.key}
+                        className={`relative pb-2 text-base font-medium border-b-2 transition-colors ${listingTab === tab.key ? 'border-primary text-primary' : 'border-transparent text-gray-700 hover:text-primary'}`}
+                        onClick={() => setListingTab(tab.key)}
+                      >
+                        {tab.label} <span className="text-sm text-muted-foreground">({count})</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="flex gap-2">
+                  <button className={`p-2 rounded ${listingView === 'grid' ? 'bg-gray-100' : ''}`} onClick={() => setListingView('grid')}><Grid className="w-5 h-5" /></button>
+                  <button className={`p-2 rounded ${listingView === 'list' ? 'bg-gray-100' : ''}`} onClick={() => setListingView('list')}><List className="w-5 h-5" /></button>
+                </div>
+              </div>
+              <div className="flex flex-col items-center justify-center min-h-[260px]">
+                {(listingTab === 'all' ? listings : listings.filter(l => l.category === listingTab)).length === 0 ? (
+                  <>
+                    <HomeIcon className="w-16 h-16 text-gray-400 mb-4" strokeWidth={2} />
+                    <div className="text-lg font-medium mb-2">No listings yet.</div>
+                    <div className="text-gray-500 text-center">Start exploring and publish your accommodations, services, and experiences.</div>
+                  </>
+                ) : (
+                  <ul className="w-full">
+                    {(listingTab === 'all' ? listings : listings.filter(l => l.category === listingTab)).map((listing, idx) => (
+                      <li key={listing.id || idx} className="mb-4 p-4 border rounded-lg flex justify-between items-center">
+                        <span>{listing.title || 'Untitled Listing'}</span>
+                        {/* Add actions for listings if needed */}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </div>
           </div>
         )}
-
-        {/* Other sections kept as containers for dynamic content */}
       </div>
 
       <Footer />
-    </div>
+    {/* HostTypeModal for choosing category before starting new listing */}
+    <OnboardingProvider>
+      <HostTypeModal
+        isOpen={showHostTypeModal}
+        onClose={() => {
+          setShowHostTypeModal(false);
+          setForceHostTypeSelection(false);
+        }}
+        currentUser={user}
+        forceHostTypeSelection={forceHostTypeSelection}
+      />
+    </OnboardingProvider>
+  </div>
   );
 };
 

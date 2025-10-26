@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
-import { useOnboardingAutoSave, useOnboardingNavigation } from './hooks/useOnboardingAutoSave';
+import { db } from '@/lib/firebase';
+import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
 import { Home, Building2, TreePine } from 'lucide-react';
 
 const PropertyDetails = () => {
@@ -9,41 +10,34 @@ const PropertyDetails = () => {
   const location = useLocation();
   
   // Enhanced auto-save and state management
-  const { 
-    state, 
-    actions, 
-    loadDraftIfNeeded, 
-    saveAndExit, 
-    isLoading 
-  } = useOnboardingAutoSave('property-details', []);
-  
-  const { navigateNext } = useOnboardingNavigation('property-details');
+  const { state, actions } = useOnboarding();
+  const [isLoading, setIsLoading] = useState(false);
+  const [draftRef, setDraftRef] = useState(null);
   
   const [selectedType, setSelectedType] = useState(state.propertyType || null);
   const [saveError, setSaveError] = useState(null);
 
-  // Load draft if continuing from saved progress
+  // Create or get draft on mount
   useEffect(() => {
-    const initializePage = async () => {
-      if (location.state?.draftId) {
-        try {
-          await loadDraftIfNeeded(location.state.draftId);
-        } catch (error) {
-          console.error('Error loading draft in PropertyDetails:', error);
-          setSaveError('Failed to load saved progress. Starting fresh.');
-        }
+    async function getOrCreateDraft(userId) {
+      const ref = doc(db, 'listings', userId);
+      const snap = await getDoc(ref);
+      if (!snap.exists()) {
+        await setDoc(ref, {
+          hostId: userId,
+          status: 'draft',
+          step: 'property-details',
+          data: {},
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
       }
-      
-      // Show any save error from previous navigation
-      if (location.state?.saveError) {
-        setSaveError(location.state.saveError);
-        // Clear error after 5 seconds
-        setTimeout(() => setSaveError(null), 5000);
-      }
-    };
-
-    initializePage();
-  }, [location.state, loadDraftIfNeeded]);
+      return ref;
+    }
+    if (state.user?.uid) {
+      getOrCreateDraft(state.user.uid).then(setDraftRef);
+    }
+  }, [state.user]);
 
   // Update selectedType when state changes (after loading draft)
   useEffect(() => {
@@ -90,34 +84,55 @@ const PropertyDetails = () => {
   };
 
   const handleNext = async () => {
-    if (selectedType) {
+    if (selectedType && draftRef) {
+      setIsLoading(true);
       try {
-        await navigateNext(navigate, '/pages/propertystructure', 'property-structure');
+        // Save draft with recommended structure
+        await updateDoc(draftRef, {
+          data: {
+            ...state,
+            propertyType: selectedType,
+          },
+          step: 'propertystructure',
+          status: 'draft',
+          updatedAt: new Date(),
+        });
+        navigate('/pages/propertystructure');
       } catch (error) {
-        console.error('Error navigating to next step:', error);
+        console.error('Error saving draft:', error);
         setSaveError('Failed to save progress. Continuing anyway...');
-        // Continue navigation even if save fails
         setTimeout(() => {
           navigate('/pages/propertystructure');
         }, 1000);
+      } finally {
+        setIsLoading(false);
       }
     }
   };
 
   const handleSaveAndExit = async () => {
-    try {
+    if (draftRef) {
+      setIsLoading(true);
       setSaveError(null);
-      
-      // Pass current page data to ensure it's saved
-      const currentPageData = selectedType ? { propertyType: selectedType } : null;
-      await saveAndExit(currentPageData);
-    } catch (error) {
-      console.error('Error saving and exiting:', error);
-      setSaveError(error.message);
-      
-      // If it's an auth error, redirect to login
-      if (error.message.includes('authenticated')) {
-        setTimeout(() => navigate('/login'), 2000);
+      try {
+        await updateDoc(draftRef, {
+          data: {
+            ...state,
+            propertyType: selectedType,
+          },
+          step: 'property-details',
+          status: 'draft',
+          updatedAt: new Date(),
+        });
+        setSaveError('Draft saved successfully.');
+      } catch (error) {
+        console.error('Error saving and exiting:', error);
+        setSaveError(error.message);
+        if (error.message.includes('authenticated')) {
+          setTimeout(() => navigate('/login'), 2000);
+        }
+      } finally {
+        setIsLoading(false);
       }
     }
   };

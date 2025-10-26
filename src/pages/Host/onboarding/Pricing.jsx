@@ -109,15 +109,8 @@ const Pricing = () => {
           draftId: state.draftId
         });
         
-        // Import the draftService directly and save with our custom data
-        const { saveDraft } = await import('@/pages/Host/services/draftService');
-        const draftId = await saveDraft(dataToSave, state.draftId);
-        
-        console.log('Pricing: Draft saved successfully with ID:', draftId);
-        
-        // Verify what was actually saved by loading it back
-        const { loadDraft } = await import('@/pages/Host/services/draftService');
-        const savedDraft = await loadDraft(draftId);
+  // Use context saveDraft to ensure only one draft per session
+  const draftId = await actions.saveDraft();
         console.log('Pricing: Verification - what was actually saved:', {
           currentStep: savedDraft?.currentStep,
           weekdayPrice: savedDraft?.weekdayPrice
