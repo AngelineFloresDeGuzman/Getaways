@@ -1,41 +1,37 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { MapContainer, TileLayer, Marker, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, LayersControl, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L, { DragEndEvent } from 'leaflet';
+import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
+import markerIcon from 'leaflet/dist/images/marker-icon.png';
+import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 import { useOnboardingAutoSave, useOnboardingNavigation } from './hooks/useOnboardingAutoSave';
+import OnboardingHeader from './components/OnboardingHeader';
 
 // Fix marker icon issue
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
-  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+  iconRetinaUrl: markerIcon2x,
+  iconUrl: markerIcon,
+  shadowUrl: markerShadow,
 });
 
-// Map position updater component
 function MapUpdater({ center, onClick }) {
   const map = useMap();
-  
-  React.useEffect(() => {
+  useEffect(() => {
     map.on('click', onClick);
-    
     return () => {
       map.off('click', onClick);
     };
   }, [map, onClick]);
-
-  // Only update map view when center actually changes and it's different from current center
-  React.useEffect(() => {
+  useEffect(() => {
     const currentCenter = map.getCenter();
     const [lat, lng] = center;
-    
-    // Only pan to new location if it's significantly different
     if (Math.abs(currentCenter.lat - lat) > 0.001 || Math.abs(currentCenter.lng - lng) > 0.001) {
       map.panTo([lat, lng]);
     }
   }, [map, center]);
-
   return null;
 }
 
@@ -54,584 +50,318 @@ const Location = () => {
 
   const { navigateNext, navigateBack } = useOnboardingNavigation('location');
   
-  const [selectedLocation, setSelectedLocation] = useState(() => {
-    const defaultLocation = {
-      country: '',
-      unit: '',
-      building: '',
-      street: '',
-      barangay: '',
-      city: '',
-      zipCode: '',
-      province: '',
-      showPreciseLocation: false,
-      latitude: null,
-      longitude: null
-    };
-    
-    // Merge with state data if available
-    return { ...defaultLocation, ...(state.locationData || {}) };
+  const [selectedLocation, setSelectedLocation] = useState({
+    street: '',
+    barangay: '',
+    city: '',
+    province: '',
+    country: '',
+    zipCode: '',
+    unit: '',
+    level: '',
+    building: '',
+    latitude: null,
+    longitude: null
   });
   const [position, setPosition] = useState([14.5995, 120.9842]); // Default to Manila, Philippines
-
-  // Load draft if continuing from saved progress
-  useEffect(() => {
-    const initializePage = async () => {
-      if (location.state?.draftId) {
-        try {
-          await loadDraftIfNeeded(location.state.draftId);
-        } catch (error) {
-          console.error('Error loading draft in Location:', error);
-        }
-      }
-    };
-
-    initializePage();
-  }, [location.state, loadDraftIfNeeded]);
-
-  // Update selectedLocation when state changes (after loading draft)
-  useEffect(() => {
-    if (state.locationData) {
-      setSelectedLocation(state.locationData);
-      if (state.locationData.latitude && state.locationData.longitude) {
-        setPosition([state.locationData.latitude, state.locationData.longitude]);
-      }
-    }
-  }, [state.locationData]);
-
-  // Initialize location on component mount
-  const [hasInitialized, setHasInitialized] = useState(false);
-
-
-  
-  React.useEffect(() => {
-    if (hasInitialized) return; // Prevent multiple initializations
-    
-    const initializeLocation = async () => {
-      const [lat, lng] = position;
-      
-      try {
-        // Try BigDataCloud first as it's CORS-enabled and reliable
-        const response = await fetch(
-          `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`
-        );
-        const data = await response.json();
-        
-        if (data && data.countryName) {
-          const locationData = {
-            country: data.countryName ? `${data.countryName} - ${data.countryCode}` : '',
-            city: data.city || data.localityInfo?.administrative?.[2]?.name || data.localityInfo?.administrative?.[1]?.name || '',
-            province: data.principalSubdivision && data.principalSubdivision !== 'region' ? data.principalSubdivision :
-                     (data.localityInfo?.administrative?.[1]?.name && data.localityInfo.administrative[1].name !== 'region') ? data.localityInfo.administrative[1].name :
-                     (data.localityInfo?.administrative?.[0]?.name && data.localityInfo.administrative[0].name !== 'region') ? data.localityInfo.administrative[0].name : '',
-            street: data.locality || data.localityInfo?.informative?.[0]?.name || '',
-            barangay: data.localityInfo?.administrative?.[4]?.name || data.localityInfo?.administrative?.[3]?.name || '',
-            zipCode: data.postcode || '',
-            building: '',
-            unit: '',
-            showPreciseLocation: false,
-            latitude: lat,
-            longitude: lng
-          };
-          
-          setSelectedLocation(prev => ({ ...prev, ...locationData }));
-          setHasInitialized(true);
-          return;
-        }
-      } catch (error) {
-        console.log('Failed to initialize location:', error);
-        // Fallback to Philippines
-        setSelectedLocation(prev => ({
-          ...prev,
-          country: 'Philippines - PH'
-        }));
-        setHasInitialized(true);
-      }
-    };
-
-    initializeLocation();
-  }, [hasInitialized, position]);
-
-  const handleLocationChange = (field, value) => {
-    const updatedLocation = {
-      ...selectedLocation,
-      [field]: value,
-      latitude: position[0],
-      longitude: position[1]
-    };
-    
-    setSelectedLocation(updatedLocation);
-    
-    // Also update the context in real-time
-    actions.updateState({ locationData: updatedLocation });
-  };
-
-  // Enhanced navigation functions
-  const handleNext = async () => {
-    try {
-      // Update location data with coordinates before saving
-      const locationWithCoordinates = {
-        ...selectedLocation,
-        latitude: position[0],
-        longitude: position[1]
-      };
-      
-      actions.updateState({ locationData: locationWithCoordinates });
-  await navigateNext(navigate, '/pages/locationconfirmation', 'location-confirmation', state.draftId);
-    } catch (error) {
-      console.error('Error navigating to next step:', error);
-      // Continue navigation even if save fails
-      navigate('/pages/locationconfirmation');
-    }
-  };
-
-  const handleSaveAndExit = async () => {
-    try {
-      // Update location data with coordinates before saving
-      const locationWithCoordinates = {
-        ...selectedLocation,
-        latitude: position[0],
-        longitude: position[1]
-      };
-      
-      // Pass current page data to ensure it's saved
-      const currentPageData = { locationData: locationWithCoordinates };
-      await saveAndExit(currentPageData);
-    } catch (error) {
-      console.error('Error saving and exiting:', error);
-      alert('Error saving progress: ' + error.message);
-    }
-  };
-
-  const handleContinue = async () => {
-    try {
-      // Update location data in context before navigating
-      const locationWithCoordinates = {
-        ...selectedLocation,
-        latitude: position[0],
-        longitude: position[1]
-      };
-      
-      await actions.updateLocationData(locationWithCoordinates);
-      
-      navigate('/pages/location-confirmation', { 
-        state: { 
-          ...location.state,
-          locationData: locationWithCoordinates, 
-          position 
-        } 
-      });
-    } catch (error) {
-      console.error('Error saving location data:', error);
-      // Still navigate even if save fails
-      navigate('/pages/location-confirmation', { 
-        state: { 
-          ...location.state,
-          locationData: { ...selectedLocation, latitude: position[0], longitude: position[1] }, 
-          position 
-        } 
-      });
-    }
-  };
-
-  // Add reverse geocoding function with multiple reliable services
+  const [searchValue, setSearchValue] = useState('');
+  const [locationFilled, setLocationFilled] = useState(false);
+  const [suggestions, setSuggestions] = useState([]);
+  const [isGeocoding, setIsGeocoding] = useState(false);
+  const [searchFocused, setSearchFocused] = useState(false);
   const handleMapClick = async (e) => {
     const { lat, lng } = e.latlng;
-    console.log('Map clicked at:', lat, lng);
     setPosition([lat, lng]);
-    
-    // Update context with new coordinates
-    const updatedLocation = {
-      ...selectedLocation,
-      latitude: lat,
-      longitude: lng
-    };
-    actions.updateState({ locationData: updatedLocation });
+    // Reverse geocode to fill building, unit, level, etc.
+    try {
+      const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
+      const data = await response.json();
+      setSelectedLocation(prev => ({
+        ...prev,
+        barangay: data.address.suburb || data.address.village || data.address.neighbourhood || '',
+        zipCode: data.address.postcode || '',
+        street: data.address.road || prev.street,
+        city: data.address.city || data.address.town || data.address.municipality || prev.city,
+        province: data.address.state || data.address.region || data.address.county || data.address.state_district || '',
+        unit: data.address.unit || data.address.level || data.address.apartment || data.address.flat || '',
+        level: data.address.level || '',
+        building: data.address.building || data.address.public_building || data.address.commercial || data.address.residential || data.address.apartment || data.address.house || data.address.hotel || '',
+        latitude: lat,
+        longitude: lng,
+        country: data.address.country || prev.country
+      }));
+    } catch {}
+  };
 
-    // Try multiple geocoding services in order of preference
-    const geocodingServices = [
-      // Service 1: BigDataCloud (free, CORS-enabled, no API key required)
-      async () => {
-        console.log('Trying BigDataCloud...');
-        const response = await fetch(
-          `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`
-        );
-        const data = await response.json();
-        console.log('BigDataCloud response:', data);
-        
-        if (data && (data.locality || data.city || data.countryName)) {
-          // Map to proper address structure with actual country detected
-          
-          // Construct street address from available data
-          let streetAddress = '';
-          if (data.localityInfo?.informative) {
-            // Try to get the most specific street information
-            const streetInfo = data.localityInfo.informative.find(item => 
-              item.description?.includes('road') || 
-              item.description?.includes('street') ||
-              item.name
-            );
-            streetAddress = streetInfo?.name || '';
-          }
-          if (!streetAddress && data.locality) {
-            streetAddress = data.locality;
-          }
-          
-          return {
-            street: streetAddress,
-            building: '',
-            barangay: data.localityInfo?.administrative?.[4]?.name || data.localityInfo?.administrative?.[3]?.name || '',
-            city: data.city || data.localityInfo?.administrative?.[2]?.name || data.localityInfo?.administrative?.[1]?.name || '',
-            zipCode: data.postcode || '',
-            province: data.principalSubdivision && data.principalSubdivision !== 'region' ? data.principalSubdivision :
-                     (data.localityInfo?.administrative?.[1]?.name && data.localityInfo.administrative[1].name !== 'region') ? data.localityInfo.administrative[1].name :
-                     (data.localityInfo?.administrative?.[0]?.name && data.localityInfo.administrative[0].name !== 'region') ? data.localityInfo.administrative[0].name : '',
-            country: data.countryName ? `${data.countryName} - ${data.countryCode}` : '',
-          };
-        }
-        return null;
-      },
-      
-      // Service 2: LocationIQ (CORS-enabled, backup service)
-      async () => {
-        console.log('Trying alternative geocoding...');
-        const response = await fetch(
-          `https://api.bigdatacloud.net/data/reverse-geocode?latitude=${lat}&longitude=${lng}&key=bdc_geocoding`
-        );
-        const data = await response.json();
-        console.log('Alternative geocoding response:', data);
-        
-        if (data && !data.error) {
-          return {
-            street: data.locality || '',
-            building: '',
-            barangay: '',
-            city: data.city || data.principalSubdivision || '',
-            zipCode: data.postcode || '',
-            province: data.principalSubdivision || '',
-            country: data.countryName ? `${data.countryName} - ${data.countryCode}` : '',
-          };
-        }
-        return null;
-      },
-    ];
-
-    // Try each service until one succeeds
-    for (let i = 0; i < geocodingServices.length; i++) {
-      try {
-        const result = await geocodingServices[i]();
-        if (result && Object.values(result).some(val => val && val.trim())) {
-          console.log(`Service ${i + 1} succeeded:`, result);
-          setSelectedLocation(prev => ({
-            ...prev,
-            ...result
-          }));
-          return; // Success, exit function
-        }
-      } catch (error) {
-        console.log(`Service ${i + 1} failed:`, error);
-        continue; // Try next service
-      }
-    }
-    
-    // All services failed, use smart fallback with location description
-    console.log('All geocoding services failed, using coordinates fallback');
-    setSelectedLocation(prev => ({
-      ...prev,
-      street: `Location at ${lat.toFixed(4)}°N, ${lng.toFixed(4)}°E`,
-      building: '',
-      barangay: '',
-      city: 'Unknown City',
-      zipCode: '',
-      province: 'Unknown Province',
-      country: 'Unknown Country',
-    }));
+  const handleSaveAndExit = () => {
+    // TODO: Implement save and exit logic
+    alert('Save & exit clicked');
   };
 
   const handleMarkerDragEnd = async (e) => {
     const { lat, lng } = e.target.getLatLng();
-    console.log('Marker dragged to:', lat, lng);
     setPosition([lat, lng]);
-    
-    // Update context with new coordinates
-    const updatedLocation = {
-      ...selectedLocation,
-      latitude: lat,
-      longitude: lng
-    };
-    actions.updateState({ locationData: updatedLocation });
-
-    // Use the same reliable geocoding services
-    const geocodingServices = [
-      // Service 1: BigDataCloud (CORS-enabled)
-      async () => {
-        console.log('Trying BigDataCloud (drag)...');
-        const response = await fetch(
-          `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`
-        );
-        const data = await response.json();
-        console.log('BigDataCloud response (drag):', data);
-        
-        if (data && (data.locality || data.city || data.countryName)) {
-          // Map to proper address structure with actual country detected
-          
-          // Construct street address from available data
-          let streetAddress = '';
-          if (data.localityInfo?.informative) {
-            // Try to get the most specific street information
-            const streetInfo = data.localityInfo.informative.find(item => 
-              item.description?.includes('road') || 
-              item.description?.includes('street') ||
-              item.name
-            );
-            streetAddress = streetInfo?.name || '';
-          }
-          if (!streetAddress && data.locality) {
-            streetAddress = data.locality;
-          }
-          
-          return {
-            street: streetAddress,
-            building: '',
-            barangay: data.localityInfo?.administrative?.[4]?.name || data.localityInfo?.administrative?.[3]?.name || '',
-            city: data.city || data.localityInfo?.administrative?.[2]?.name || data.localityInfo?.administrative?.[1]?.name || '',
-            zipCode: data.postcode || '',
-            province: data.principalSubdivision && data.principalSubdivision !== 'region' ? data.principalSubdivision :
-                     (data.localityInfo?.administrative?.[1]?.name && data.localityInfo.administrative[1].name !== 'region') ? data.localityInfo.administrative[1].name :
-                     (data.localityInfo?.administrative?.[0]?.name && data.localityInfo.administrative[0].name !== 'region') ? data.localityInfo.administrative[0].name : '',
-            country: data.countryName ? `${data.countryName} - ${data.countryCode}` : '',
-          };
-        }
-        return null;
-      }
-    ];
-
-    // Try each service until one succeeds
-    for (let i = 0; i < geocodingServices.length; i++) {
-      try {
-        const result = await geocodingServices[i]();
-        if (result && Object.values(result).some(val => val && val.trim())) {
-          console.log(`Service ${i + 1} succeeded (drag):`, result);
-          setSelectedLocation(prev => ({
-            ...prev,
-            ...result
-          }));
-          return; // Success, exit function
-        }
-      } catch (error) {
-        console.log(`Service ${i + 1} failed (drag):`, error);
-        continue; // Try next service
-      }
-    }
-    
-    // All services failed, use smart fallback
-    console.log('All geocoding services failed (drag), using coordinates fallback');
-    setSelectedLocation(prev => ({
-      ...prev,
-      street: `Location at ${lat.toFixed(4)}°N, ${lng.toFixed(4)}°E`,
-      building: '',
-      barangay: '',
-      city: 'Unknown City',
-      zipCode: '',
-      province: 'Unknown Province',
-      country: 'Unknown Country',
-    }));
+    // Reverse geocode to fill building, unit, level, etc.
+    try {
+      const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
+      const data = await response.json();
+      setSelectedLocation(prev => ({
+        ...prev,
+        barangay: data.address.suburb || data.address.village || data.address.neighbourhood || '',
+        zipCode: data.address.postcode || '',
+        street: data.address.road || prev.street,
+        city: data.address.city || data.address.town || data.address.municipality || prev.city,
+        province: data.address.state || data.address.region || data.address.county || data.address.state_district || '',
+        unit: data.address.unit || data.address.level || data.address.apartment || data.address.flat || '',
+        level: data.address.level || '',
+        building: data.address.building || data.address.public_building || data.address.commercial || data.address.residential || data.address.apartment || data.address.house || data.address.hotel || '',
+        latitude: lat,
+        longitude: lng,
+        country: data.address.country || prev.country
+      }));
+    } catch {}
   };
 
+  const handleNext = () => {
+    // TODO: Implement next step logic
+    alert('Next clicked');
+  };
+
+  // Geocode address and update pin
+  const geocodeAddress = async (query) => {
+    if (!query) return;
+    try {
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`);
+      const results = await response.json();
+      if (results && results[0]) {
+        setPosition([parseFloat(results[0].lat), parseFloat(results[0].lon)]);
+        setSelectedLocation(prev => ({
+          ...prev,
+          latitude: parseFloat(results[0].lat),
+          longitude: parseFloat(results[0].lon)
+        }));
+        setLocationFilled(true);
+      }
+    } catch {}
+  };
+
+  // Fetch suggestions as user types
+  useEffect(() => {
+    if (searchValue.length < 3) {
+      setSuggestions([]);
+      return;
+    }
+    const fetchSuggestions = async () => {
+      try {
+        const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchValue)}&addressdetails=1&limit=5`);
+        const results = await response.json();
+        setSuggestions(results);
+      } catch {
+        setSuggestions([]);
+      }
+    };
+    fetchSuggestions();
+  }, [searchValue]);
+
+  // Handle search bar input
+  const handleSearchChange = (e) => {
+    setSearchValue(e.target.value);
+    setLocationFilled(false);
+  };
+
+  // When a suggestion is clicked
+  const handleSuggestionClick = (suggestion) => {
+    setSearchValue(suggestion.display_name);
+    setPosition([parseFloat(suggestion.lat), parseFloat(suggestion.lon)]);
+    setLocationFilled(true);
+    setSuggestions([]);
+  };
+
+  // Use current location
+  const handleUseCurrentLocation = () => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(async (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        setPosition([lat, lng]);
+        // Reverse geocode to get address
+        try {
+          const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
+          const data = await response.json();
+          const addressString = data.display_name || '';
+          setSearchValue(addressString);
+          setSuggestions([]);
+          setLocationFilled(true);
+          setSelectedLocation(prev => ({
+            ...prev,
+            barangay: data.address.suburb || data.address.village || data.address.neighbourhood || '',
+            zipCode: data.address.postcode || '',
+            street: data.address.road || prev.street,
+            city: data.address.city || data.address.town || data.address.municipality || prev.city,
+            province: data.address.state || data.address.region || data.address.county || data.address.state_district || '',
+            unit: data.address.unit || data.address.level || data.address.apartment || data.address.flat || '',
+            level: data.address.level || '',
+            building: data.address.building || data.address.public_building || data.address.commercial || data.address.residential || data.address.apartment || data.address.house || data.address.hotel || '',
+            latitude: lat,
+            longitude: lng,
+            country: data.address.country || prev.country
+          }));
+        } catch {}
+      });
+    }
+  };
+
+  const handleLocationChange = (field, value) => {
+    const updated = { ...selectedLocation, [field]: value };
+    setSelectedLocation(updated);
+    // Geocode and update map pin in real time
+    geocodeAddress(updated);
+  };
+
+  const handlePreciseLocationToggle = async (checked) => {
+    setSelectedLocation(prev => ({ ...prev, showPreciseLocation: checked }));
+    if (checked && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(async (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        setPosition([lat, lng]);
+        // Reverse geocode to fill address fields
+        try {
+          const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
+          const data = await response.json();
+          setSelectedLocation(prev => ({
+            ...prev,
+            barangay: data.address.suburb || data.address.village || data.address.neighbourhood || '',
+            zipCode: data.address.postcode || '',
+            street: data.address.road || prev.street,
+            city: data.address.city || data.address.town || data.address.municipality || prev.city,
+            province: data.address.state || data.address.region || data.address.county || data.address.state_district || '',
+            unit: data.address.unit || data.address.level || data.address.apartment || data.address.flat || '',
+            level: data.address.level || '',
+            building: data.address.building || data.address.public_building || data.address.commercial || data.address.residential || data.address.apartment || data.address.house || data.address.hotel || '',
+            latitude: lat,
+            longitude: lng,
+            country: data.address.country || prev.country
+          }));
+        } catch {}
+      });
+    }
+  };
+
+  const handleSearchSubmit = (e) => {
+    e.preventDefault();
+    if (searchValue) {
+      geocodeAddress(searchValue);
+    }
+  };
+
+  const showDetails = locationFilled || position;
+  const canProceed = !!position;
+
   return (
-    <div className="min-h-screen bg-white">
-      {/* Header */}
-      <header className="fixed top-0 left-0 right-0 bg-white z-50 border-b">
-        <div className="py-4 px-8 flex justify-between items-center">
-          <svg viewBox="0 0 32 32" className="h-8 w-8">
-            <path d="m16 1c2.008 0 3.978.378 5.813 1.114 1.837.736 3.525 1.798 4.958 3.138 1.433 1.34 2.56 2.92 3.355 4.628.795 1.709 1.2 3.535 1.2 5.394 0 1.859-.405 3.685-1.2 5.394-.795 1.708-1.922 3.288-3.355 4.628-1.433 1.34-3.121 2.402-4.958 3.138-1.835.736-3.805 1.114-5.813 1.114s-3.978-.378-5.813-1.114c-1.837-.736-3.525-1.798-4.958-3.138-1.433-1.34-2.56-2.92-3.355-4.628-.795-1.709-1.2-3.535-1.2-5.394 0-1.859.405-3.685 1.2-5.394.795-1.708 1.922-3.288 3.355-4.628 1.433-1.34 3.121-2.402 4.958-3.138 1.835-.736 3.805-1.114 5.813-1.114z" fill="rgb(255, 56, 92)"/>
-          </svg>
-          <div className="flex items-center gap-6">
-            <button className="font-medium text-sm hover:underline">Questions?</button>
-            <button 
-              onClick={handleSaveAndExit}
-              className="font-medium text-sm hover:underline"
-            >
-              Save & exit
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* Progress Bar */}
-      <div className="w-full">
-        <div className="h-1 w-full flex space-x-2">
-          <div className="h-full bg-gray-200 flex-1 relative">
-            <div className="absolute left-0 top-0 h-full bg-[#FF385C] w-full"></div>
-          </div>
-          <div className="h-full bg-gray-200 flex-1"></div>
-          <div className="h-full bg-gray-200 flex-1"></div>
-        </div>
-      </div>
-
-      {/* Main Content */}
-      <main className="pt-20 px-8 pb-32">
-        <div className="max-w-[640px] mx-auto">
-          <h1 className="text-[32px] font-medium text-gray-900 mb-4">
-            Confirm your address
-          </h1>
-          <p className="text-gray-600 mb-8">
-            Your address is only shared with guests after they've made a reservation.
-          </p>
-
-          <div className="space-y-6">
-            {/* Country Selection */}
-            <div className="relative">
-              <input
-                type="text"
-                placeholder="Country"
-                value={selectedLocation.country || ''}
-                onChange={(e) => handleLocationChange('country', e.target.value)}
-                className="w-full p-4 border border-gray-300 rounded-lg focus:outline-none focus:border-black"
-                readOnly
-              />
+  <div className="min-h-screen bg-white flex flex-col items-center" style={{ overflow: 'hidden', height: '100vh' }}>
+      <OnboardingHeader />
+      {/* Onboarding header text */}
+      <div className="w-full max-w-2xl mx-auto flex flex-col items-center mt-32">
+  <h1 className="text-[32px] font-semibold text-gray-900 mb-2 text-center">Where's your place located?</h1>
+  <p className="text-gray-600 mb-8 text-center">Your address is only shared with guests after they've made a reservation.</p>
+  <div className="w-full mt-2 flex justify-center">
+          <div className="relative rounded-2xl overflow-hidden shadow-lg" style={{ width: 520, height: 'calc(100vh - 320px)' }}>
+            {/* Sticky search bar */}
+            <div className="sticky top-0 left-0 w-full z-30 flex justify-center" style={{ pointerEvents: 'auto' }}>
+              <form onSubmit={handleSearchSubmit} className="w-[90%] mt-6">
+                <div className="flex flex-col gap-2 bg-white rounded-2xl shadow-lg p-2 w-full relative">
+                  <div className="flex items-center border border-gray-300 rounded-2xl px-4 py-3 bg-white">
+                    <span className="mr-2 text-xl">📍</span>
+                    <input
+                      type="text"
+                      placeholder="Enter your address"
+                      value={searchValue}
+                      onChange={handleSearchChange}
+                      onFocus={() => setSearchFocused(true)}
+                      onBlur={() => setTimeout(() => setSearchFocused(false), 200)}
+                      className="flex-1 p-2 border-none focus:outline-none bg-transparent text-lg"
+                      autoComplete="off"
+                    />
+                    {searchValue && (
+                      <button type="button" onClick={() => setSearchValue('')} className="ml-2 text-gray-400 text-xl">✕</button>
+                    )}
+                  </div>
+                  {searchFocused && (
+                    <div className="mt-2 rounded-2xl shadow bg-white border border-gray-200 flex items-center px-4 py-3 cursor-pointer" onMouseDown={e => e.preventDefault()} onClick={handleUseCurrentLocation}>
+                      <span className="mr-3 text-2xl">&#x1F4CD;</span>
+                      <span className="text-gray-800 text-base">Use my current location</span>
+                    </div>
+                  )}
+                  {suggestions.length > 0 && (
+                    <ul className="absolute top-20 left-0 right-0 bg-white border border-gray-200 rounded-xl shadow-lg z-40 max-h-72 overflow-y-auto">
+                      {suggestions.map((s, idx) => (
+                        <li
+                          key={s.place_id}
+                          className="flex items-start gap-3 p-4 cursor-pointer hover:bg-gray-100 border-b last:border-b-0"
+                          onClick={() => handleSuggestionClick(s)}
+                        >
+                          <span className="text-xl mt-1">📍</span>
+                          <div>
+                            <div className="font-semibold text-base">{s.display_name.split(',')[0]}</div>
+                            <div className="text-gray-600 text-sm">{s.display_name.replace(s.display_name.split(',')[0] + ',', '').trim()}</div>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </form>
             </div>
-
-            {/* Unit/Level */}
-            <input
-              type="text"
-              placeholder="Unit, level, etc. (if applicable)"
-              value={selectedLocation.unit || ''}
-              onChange={(e) => handleLocationChange('unit', e.target.value)}
-              className="w-full p-4 border border-gray-300 rounded-lg focus:outline-none focus:border-black"
-            />
-
-            {/* Building Name */}
-            <input
-              type="text"
-              placeholder="Building name (if applicable)"
-              value={selectedLocation.building || ''}
-              onChange={(e) => handleLocationChange('building', e.target.value)}
-              className="w-full p-4 border border-gray-300 rounded-lg focus:outline-none focus:border-black"
-            />
-
-            {/* Street Address */}
-            <input
-              type="text"
-              placeholder="Street address"
-              value={selectedLocation.street || ''}
-              onChange={(e) => handleLocationChange('street', e.target.value)}
-              className="w-full p-4 border border-gray-300 rounded-lg focus:outline-none focus:border-black"
-            />
-
-            {/* Barangay */}
-            <input
-              type="text"
-              placeholder="Barangay / district (if applicable)"
-              value={selectedLocation.barangay || ''}
-              onChange={(e) => handleLocationChange('barangay', e.target.value)}
-              className="w-full p-4 border border-gray-300 rounded-lg focus:outline-none focus:border-black"
-            />
-
-            {/* City */}
-            <input
-              type="text"
-              placeholder="City / municipality"
-              value={selectedLocation.city || ''}
-              onChange={(e) => handleLocationChange('city', e.target.value)}
-              className="w-full p-4 border border-gray-300 rounded-lg focus:outline-none focus:border-black"
-            />
-
-            {/* ZIP Code */}
-            <input
-              type="text"
-              placeholder="ZIP code"
-              value={selectedLocation.zipCode || ''}
-              onChange={(e) => handleLocationChange('zipCode', e.target.value)}
-              className="w-full p-4 border border-gray-300 rounded-lg focus:outline-none focus:border-black"
-            />
-
-            {/* Province */}
-            <input
-              type="text"
-              placeholder="Province"
-              value={selectedLocation.province || ''}
-              onChange={(e) => handleLocationChange('province', e.target.value)}
-              className="w-full p-4 border border-gray-300 rounded-lg focus:outline-none focus:border-black"
-            />
-
-            {/* Precise Location Toggle */}
-            <div className="flex items-center justify-between py-4">
-              <div>
-                <h3 className="font-medium">Show your home's precise location</h3>
-                <p className="text-gray-600 text-sm">
-                  Make it clear to guests where your place is located. We'll only share your address after they've made a reservation.{' '}
-                  <button className="text-black underline">Learn more</button>
-                </p>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={selectedLocation.showPreciseLocation}
-                  onChange={(e) => handleLocationChange('showPreciseLocation', e.target.checked)}
-                  className="sr-only peer"
-                />
-                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
-              </label>
-            </div>
-
-            {/* Map */}
-            <div className="rounded-lg overflow-hidden border border-gray-200 h-[400px]">
+            {/* Map below search bar */}
+            <div className="w-full h-full">
+              {/* Always show map, but only show pin/details if locationFilled */}
               <MapContainer
                 center={position}
                 zoom={15}
-                style={{ height: '100%', width: '100%' }}
-                // Add these props to maintain zoom level
+                style={{ height: '300px', width: '100%' }}
                 zoomControl={true}
                 doubleClickZoom={true}
                 scrollWheelZoom={true}
               >
                 <TileLayer
                   url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                  attribution="&copy; OpenStreetMap contributors"
                 />
-                <Marker 
-                  position={position}
-                  draggable={true}
-                  eventHandlers={{
-                    dragend: handleMarkerDragEnd
-                  }}
-                />
+                {locationFilled && (
+                  <Marker position={position}>
+                    <Popup>
+                      {searchValue || 'Current location'}
+                    </Popup>
+                  </Marker>
+                )}
                 <MapUpdater center={position} onClick={handleMapClick} />
               </MapContainer>
             </div>
           </div>
         </div>
-      </main>
-
-      {/* Footer */}
-      <footer className="fixed bottom-0 left-0 right-0 bg-white border-t">
-        <div className="max-w-none">
-          <div className="px-8 py-6">
-            <div className="flex justify-between items-center">
-              <button
-                onClick={() => navigateBack(navigate, '/pages/privacytype')}
-                className="hover:underline"
-              >
-                Back
-              </button>
-              <button 
-                className={`rounded-lg px-8 py-3.5 text-base font-medium ${
-                  selectedLocation.street && selectedLocation.city
-                    ? 'bg-black text-white hover:bg-gray-800'
-                    : 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                }`}
-                onClick={handleNext}
-                disabled={!selectedLocation.street || !selectedLocation.city}
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        </div>
-      </footer>
+      </div>
+      <div className="fixed bottom-0 left-0 w-full flex justify-between items-center px-16 py-6 bg-white border-t" style={{ zIndex: 20 }}>
+        <button 
+          onClick={() => navigate('/pages/privacytype')}
+          className="text-gray-600 px-6 py-2 rounded-lg hover:bg-gray-100"
+        >
+          Back
+        </button>
+        <button
+          onClick={() => {
+            if (canProceed) {
+              navigate('/pages/locationconfirmation');
+            }
+          }}
+          className={`px-8 py-3 rounded-lg text-white font-semibold ${canProceed ? 'bg-black hover:bg-gray-900' : 'bg-gray-300 cursor-not-allowed'}`}
+          disabled={!canProceed}
+        >
+          Next
+        </button>
+      </div>
     </div>
   );
-};
+}
 
 export default Location;

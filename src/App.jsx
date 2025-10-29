@@ -19,6 +19,7 @@ import SignUp from "./pages/Auth/SignUp";
 import GuestIndex from "./pages/Guest/Index";
 import Favorites from "@/pages/Guest/Favorites";
 import HostDashboard from "@/pages/Host/HostDashboard";
+import Wishlists from "@/pages/Host/Wishlists";
 import AdminDashboard from "@/pages/Admin/AdminDashboard";
 import Profile from "@/pages/Common/Profile";
 import AccountSettings from "@/pages/Common/AccountSettings";
@@ -87,6 +88,7 @@ const App = () => {
             <Route path="/bookings" element={<Bookings darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/favorites" element={<Favorites darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/host/hostdashboard" element={<HostDashboard darkMode={darkMode} setDarkMode={setDarkMode} />} />
+            <Route path="/host/wishlists" element={<Wishlists darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/admin/admindashboard" element={<AdminDashboard darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/profile" element={<Profile darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/accountsettings" element={<AccountSettings darkMode={darkMode} setDarkMode={setDarkMode} />} />
@@ -95,12 +97,12 @@ const App = () => {
             <Route path="/pages/*" element={
               <OnboardingProvider>
                 <Routes>
-                  <Route path="/hosting-steps" element={<HostingSteps />} />
+                  <Route path="/hostingsteps" element={<HostingSteps />} />
                   <Route path="propertydetails" element={<PropertyDetails />} />
                   <Route path="propertystructure" element={<PropertyStructure />} />
-                  <Route path="privacy-type" element={<PrivacyType />} />
+                  <Route path="privacytype" element={<PrivacyType />} />
                   <Route path="location" element={<Location />} />
-                  <Route path="location-confirmation" element={<LocationConfirmation />} />
+                  <Route path="locationconfirmation" element={<LocationConfirmation />} />
                   <Route path="property-basics" element={<PropertyBasics />} />
                   <Route path="make-it-stand-out" element={<MakeItStandOut />} />
                   <Route path="amenities" element={<Amenities />} />

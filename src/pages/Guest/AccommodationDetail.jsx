@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import Navigation from '@/components/Navigation';
 import Footer from '@/components/Footer';
+import WishlistSection from '@/components/WishlistSection';
 import {
   MapPin, Star, Heart, Share2, Check, X, ArrowLeft
 } from 'lucide-react';
@@ -271,6 +272,14 @@ const AccommodationDetail = () => {
                 )) : <p className="text-muted-foreground">No reviews yet.</p>}
               </div>
             </div>
+
+            {/* Wishlist Section */}
+            <WishlistSection
+              listingId={accommodation.id}
+              listingTitle={accommodation.title}
+              listingType="accommodation"
+              hostName={accommodation.host}
+            />
           </div>
 
           {/* Right Column */}

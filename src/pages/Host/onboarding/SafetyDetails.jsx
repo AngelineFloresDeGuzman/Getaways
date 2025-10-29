@@ -23,6 +23,13 @@ const SafetyDetails = () => {
   // Save and Exit hook integration
   const { handleSaveAndExit } = useSaveAndExitWithContext(actions);
 
+  // Set current step when component mounts
+  useEffect(() => {
+    if (actions.setCurrentStep) {
+      actions.setCurrentStep('safety-details');
+    }
+  }, [actions]);
+
   // Initialize from context if available
   useEffect(() => {
     if (!hasInitialized.current && state.safetyAmenities?.length > 0) {
@@ -52,7 +59,7 @@ const SafetyDetails = () => {
     const selectedFeatures = Object.keys(features).filter(key => features[key]);
     console.log('SafetyDetails - Updating context with:', selectedFeatures);
     actions.updateSafetyDetails(selectedFeatures);
-    actions.setCurrentStep('safety-details');
+    // Removed actions.setCurrentStep from here to prevent setState during render
   };
 
   const safetyOptions = [

@@ -270,7 +270,7 @@ const PhotosPreview = () => {
     if (actions.setCurrentStep) {
       actions.setCurrentStep('photos-preview');
     }
-  }, []); // Remove actions dependency to prevent re-renders
+  }, [actions]);
 
   // Update photos when state changes (after loading draft)
   useEffect(() => {

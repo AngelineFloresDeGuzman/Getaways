@@ -112,10 +112,10 @@ const LocationConfirmation = () => {
 
   // Set current step when component mounts
   useEffect(() => {
-    if (actionsRef.current.setCurrentStep) {
+    if (actionsRef.current?.setCurrentStep) {
       actionsRef.current.setCurrentStep('location-confirmation');
     }
-  }, []);
+  }, [actionsRef]);
 
   // Sync initial location data with context (from navigation state or default)
   useEffect(() => {

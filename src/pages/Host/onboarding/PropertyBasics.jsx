@@ -237,7 +237,7 @@ const PropertyBasics = () => {
           <div className="px-8 py-6">
             <div className="flex justify-between items-center">
               <button
-                onClick={() => navigate('/pages/location-confirmation')}
+                onClick={() => navigate('/pages/locationconfirmation')}
                 className="hover:underline"
               >
                 Back

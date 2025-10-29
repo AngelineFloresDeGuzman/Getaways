@@ -677,8 +677,8 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
             )}
 
             {showVerifyPopup && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-fade-in">
-                    <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full text-center space-y-4 relative">
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-fade-in" onClick={(e) => e.stopPropagation()}>
+                    <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full text-center space-y-4 relative" onClick={(e) => e.stopPropagation()}>
                         {/* Email Icon at top center */}
                         <div className="absolute -top-6 left-1/2 transform -translate-x-1/2 bg-primary p-4 rounded-full">
                             <Mail className="w-8 h-8 text-white" />
@@ -690,7 +690,8 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
                         </p>
                         <div className="flex flex-col gap-3 mt-6">
                             <button
-                                onClick={() => {
+                                onClick={(e) => {
+                                    e.stopPropagation(); // Prevent click from bubbling up
                                     // Open Gmail by default; user can switch to their email provider
                                     window.open("https://mail.google.com/", "_blank");
                                 }}
@@ -699,12 +700,20 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
                                 Verify Email Address
                             </button>
                             <span
-                                onClick={async () => {
-                                    setShowVerifyPopup(false); // hide popup
-                                    await signOut(auth);
+                                onClick={async (e) => {
+                                    e.stopPropagation(); // Prevent click from bubbling up to HostTypeModal overlay
+                                    setShowVerifyPopup(false); // Hide popup immediately
+                                    // Call onSwitchToLogin FIRST to set modal state
                                     if (isModal && onSwitchToLogin) {
-                                        onSwitchToLogin();
+                                        // Use setTimeout to ensure it runs after current render cycle
+                                        setTimeout(async () => {
+                                            onSwitchToLogin(); // This will hide SignUp modal and show Login modal
+                                            // Give time for the modal to switch before signout
+                                            await new Promise(resolve => setTimeout(resolve, 100));
+                                            await signOut(auth); // Then sign out (after modal switch is rendered)
+                                        }, 50);
                                     } else {
+                                        await signOut(auth);
                                         navigate("/login", { replace: true });
                                     }
                                 }}

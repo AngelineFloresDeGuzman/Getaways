@@ -64,7 +64,7 @@ const BookingSettings = () => {
     if (actions.setCurrentStep) {
       actions.setCurrentStep('booking-settings');
     }
-  }, []);
+  }, [actions]);
 
   // Initialize from context if available (after draft loading or direct navigation)
   useEffect(() => {
@@ -83,9 +83,7 @@ const BookingSettings = () => {
     if (actions.updateBookingSettings) {
       actions.updateBookingSettings(settings);
     }
-    if (actions.setCurrentStep) {
-      actions.setCurrentStep('booking-settings');
-    }
+    // Removed setCurrentStep from here to prevent setState during render
   };
 
   // Handle option selection with context update

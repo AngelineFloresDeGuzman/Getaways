@@ -73,31 +73,52 @@ export const saveDraft = async (draftData, draftId = null) => {
 
     // Only include minimal fields at first creation
     let draftWithMetadata;
-    const isNewDraft = !draftId || !(await getDoc(draftRef)).exists();
+    const existingSnap = await getDoc(draftRef);
+    const isNewDraft = !existingSnap.exists();
+
+    // Remove top-level privacyType/propertyStructure from draftData before merging
+    const { privacyType, propertyStructure, ...cleanDraftData } = draftData;
+
     if (isNewDraft) {
+      // Create new draft
       draftWithMetadata = {
         userId: user.uid,
         userEmail: user.email,
         status: 'draft',
-        currentStep: draftData.currentStep ?? null,
-        category: draftData.category || null,
-        createdAt: serverTimestamp(),
+        currentStep: cleanDraftData.currentStep ?? null,
+        category: cleanDraftData.category || null,
+        createdAt: serverTimestamp(), // Only set once
         lastModified: serverTimestamp(),
         id: docId,
-        data: draftData.data || {},
+        data: cleanDraftData.data || {},
       };
     } else {
-      // For updates, merge new data into existing, but never overwrite createdAt, category, or currentStep unless explicitly changed
-      const existing = (await getDoc(draftRef)).data() || {};
+      // Update existing draft, never touch createdAt
+      const existing = existingSnap.data() || {};
+      // Check if privacyType is already correct and no other changes are needed
+      const prevPrivacyType = existing.data?.privacyType;
+      const newPrivacyType = cleanDraftData.data?.privacyType;
+      const onlyPrivacyType = Object.keys(cleanDraftData.data || {}).length === 1 && cleanDraftData.data.privacyType !== undefined;
+      const noOtherChanges = (!cleanDraftData.currentStep || cleanDraftData.currentStep === existing.currentStep) && (!cleanDraftData.category || cleanDraftData.category === existing.category);
+      if (prevPrivacyType === newPrivacyType && onlyPrivacyType && noOtherChanges) {
+        // No update needed, return existing draftId
+        return docId;
+      }
       draftWithMetadata = {
         ...existing,
-        ...draftData,
-        category: draftData.category ?? existing.category ?? null,
-        currentStep: draftData.currentStep ?? existing.currentStep ?? null,
-        createdAt: existing.createdAt,
-        lastModified: serverTimestamp(),
-        data: draftData.data || existing.data || {},
+        ...cleanDraftData,
+        category: cleanDraftData.category ?? existing.category ?? null,
+        currentStep: cleanDraftData.currentStep ?? existing.currentStep ?? null,
+        createdAt: existing.createdAt, // ✅ Keep original
+        lastModified: serverTimestamp(), // ✅ Always updates
+        data: {
+          ...existing.data,
+          ...cleanDraftData.data,
+        },
       };
+      // Explicitly delete any top-level privacyType/propertyStructure if present
+      delete draftWithMetadata.privacyType;
+      delete draftWithMetadata.propertyStructure;
     }
 
     console.log('draftService: Final data structure:', Object.keys(draftWithMetadata));
@@ -115,6 +136,13 @@ export const saveDraft = async (draftData, draftId = null) => {
       }));
     }
 
+    // 🧠 Prevent overwriting valid data with null or undefined
+    for (const key in draftWithMetadata) {
+      if (draftWithMetadata[key] === null || draftWithMetadata[key] === undefined) {
+        delete draftWithMetadata[key];
+      }
+    }
+
     try {
       await setDoc(draftRef, draftWithMetadata, { merge: true });
       console.log('draftService: Successfully saved to Firestore');
@@ -124,7 +152,7 @@ export const saveDraft = async (draftData, draftId = null) => {
       console.error('draftService: Error code:', firestoreError.code);
       console.error('draftService: Error message:', firestoreError.message);
       console.error('draftService: Full error:', firestoreError);
-      
+
       // Provide more specific error messages
       let userFriendlyMessage = 'Failed to save draft: ';
       switch (firestoreError.code) {
@@ -143,7 +171,7 @@ export const saveDraft = async (draftData, draftId = null) => {
         default:
           userFriendlyMessage += firestoreError.message;
       }
-      
+
       throw new Error(userFriendlyMessage);
     }
 

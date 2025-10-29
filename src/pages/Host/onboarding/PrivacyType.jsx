@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
 import { db } from '@/lib/firebase';
-import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, deleteField } from 'firebase/firestore';
 
 const privacyOptions = [
   {
@@ -23,6 +23,8 @@ const privacyOptions = [
 ];
 
 const PrivacyType = () => {
+  // Block auto-save for privacytype step after manual save
+  const justSavedRef = React.useRef(false);
   const navigate = useNavigate();
   const location = useLocation();
   
@@ -30,28 +32,61 @@ const PrivacyType = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [draftRef, setDraftRef] = useState(null);
   const [selectedOption, setSelectedOption] = useState(state.privacyType || '');
+  let draftId = location.state?.draftId;
+  // Restore draftId if missing (e.g., after browser navigation)
+  useEffect(() => {
+    const restoreDraftId = async () => {
+      if (!draftId) {
+        // Try to fetch user's most recent draft
+        try {
+          const { getUserDrafts } = await import('@/pages/Host/services/draftService');
+          const drafts = await getUserDrafts();
+          if (drafts.length > 0) {
+            draftId = drafts[0].id;
+            const ref = doc(db, 'onboardingDrafts', draftId);
+            setDraftRef(ref);
+            // Fetch draft and sync selectedOption
+            const snap = await getDoc(ref);
+            if (snap.exists()) {
+              const draftData = snap.data()?.data || {};
+              if (draftData.privacyType) {
+                setSelectedOption(draftData.privacyType);
+                actions.updateState({ privacyType: draftData.privacyType });
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Error restoring draftId:', error);
+        }
+      }
+    };
+    restoreDraftId();
+  }, [draftId]);
 
   // Create or get draft on mount
   useEffect(() => {
-    async function getOrCreateDraft(userId) {
-      const ref = doc(db, 'listings', userId);
-      const snap = await getDoc(ref);
-      if (!snap.exists()) {
-        await setDoc(ref, {
-          hostId: userId,
-          status: 'draft',
-          step: 'privacy-type',
-          data: {},
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        });
-      }
-      return ref;
+    // Use existing draftId from navigation state
+    if (draftId) {
+      const ref = doc(db, 'onboardingDrafts', draftId);
+      setDraftRef(ref);
+      // Fetch draft and sync selectedOption
+      const fetchDraft = async () => {
+        try {
+          const snap = await getDoc(ref);
+          if (snap.exists()) {
+            const draftData = snap.data()?.data || {};
+            if (draftData.privacyType) {
+              setSelectedOption(draftData.privacyType);
+              actions.updateState({ privacyType: draftData.privacyType });
+            }
+          }
+        } catch (error) {
+          console.error('Error loading draft:', error);
+        }
+      };
+      fetchDraft();
     }
-    if (state.user?.uid) {
-      getOrCreateDraft(state.user.uid).then(setDraftRef);
-    }
-  }, [state.user]);
+  }, [draftId, state.user, actions]);
 
   // Update selectedOption when state changes (after loading draft)
   useEffect(() => {
@@ -68,47 +103,64 @@ const PrivacyType = () => {
 
   // Enhanced navigation functions
   const handleNext = async () => {
+  justSavedRef.current = true;
+    // Reset justSavedRef after a short delay
+    if (justSavedRef.current) {
+      setTimeout(() => {
+        justSavedRef.current = false;
+      }, 4000); // Block auto-save for 4 seconds after manual save
+    }
     if (!selectedOption || !draftRef) {
       alert('Please select a privacy type before continuing.');
       return;
     }
     setIsLoading(true);
     try {
-      await updateDoc(draftRef, {
-        data: {
-          ...state,
-          privacyType: selectedOption,
-        },
-        step: 'location',
-        status: 'draft',
-        updatedAt: new Date(),
-      });
-      navigate('/pages/location');
+      // Get existing data fields
+      const snap = await getDoc(draftRef);
+      const prevData = snap.exists() && snap.data().data ? snap.data().data : {};
+      // Only update privacyType if value is different
+      if (prevData.privacyType !== selectedOption) {
+        await updateDoc(draftRef, {
+          "data.privacyType": selectedOption,
+          privacyType: deleteField(),
+          lastModified: new Date(),
+          currentStep: 'location',
+        });
+      } else {
+        // Only update step and lastModified, do NOT touch propertyStructure or other fields
+        await updateDoc(draftRef, {
+          lastModified: new Date(),
+          currentStep: 'location',
+        });
+      }
+      navigate('/pages/location', { state: { draftId } });
     } catch (error) {
       console.error('Error saving draft:', error);
-      navigate('/pages/location');
+      navigate('/pages/location', { state: { draftId } });
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleSaveAndExit = async () => {
-    if (!selectedOption || !draftRef) {
-      alert('Please select a privacy type before saving.');
+    if (!draftRef) {
       return;
     }
     setIsLoading(true);
     try {
+      // Get existing data fields
+      const snap = await getDoc(draftRef);
+      const prevData = snap.exists() && snap.data().data ? snap.data().data : {};
       await updateDoc(draftRef, {
         data: {
-          ...state,
+          ...prevData,
           privacyType: selectedOption,
         },
-        step: 'privacy-type',
-        status: 'draft',
-        updatedAt: new Date(),
+        lastModified: new Date(),
+        currentStep: 'location',
       });
-      alert('Draft saved successfully.');
+      navigate('/host/hostdashboard');
     } catch (error) {
       console.error('Error saving and exiting:', error);
       alert('Error saving progress: ' + error.message);
@@ -183,7 +235,7 @@ const PrivacyType = () => {
           <div className="px-8 py-6">
             <div className="flex justify-between items-center">
               <button
-                onClick={() => navigateBack(navigate, '/pages/propertystructure')}
+                onClick={() => navigate('/pages/propertystructure', { state: { draftId: location.state?.draftId } })}
                 className="hover:underline"
               >
                 Back

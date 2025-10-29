@@ -279,16 +279,44 @@ export const OnboardingProvider = ({ children }) => {
       console.log('OnboardingContext: Starting saveDraft...');
       dispatch({ type: ACTIONS.SET_LOADING, payload: true });
 
-      // Always save the full onboarding state to localStorage if unauthenticated
-      let dataToSave = { ...initialState, ...state, ...partialData };
-      // Remove non-serializable fields (functions, etc.)
-      Object.keys(dataToSave).forEach(key => {
-        if (typeof dataToSave[key] === 'function') {
-          delete dataToSave[key];
+      // Only include fields relevant to the current step
+      let dataToSave = {};
+      if (partialData && Object.keys(partialData).length > 0) {
+        dataToSave = { ...partialData };
+      } else {
+        switch (state.currentStep) {
+          case 'propertystructure':
+            if (state.propertyStructure) dataToSave.propertyStructure = state.propertyStructure;
+            break;
+          case 'privacytype':
+            if (state.privacyType) dataToSave.privacyType = state.privacyType;
+            break;
+          case 'location':
+            if (state.locationData) dataToSave.locationData = state.locationData;
+            break;
+          case 'propertydetails':
+            if (state.propertyType) dataToSave.propertyType = state.propertyType;
+            break;
+          // Add more cases for other steps as needed
+          default:
+            break;
         }
-      });
+      }
+
+      // If only privacyType is being set and matches Firestore, skip save
+      if (state.user && state.draftId && Object.keys(dataToSave).length === 1 && dataToSave.privacyType !== undefined) {
+        const { getDoc, doc } = await import('firebase/firestore');
+        const draftRef = doc(db, 'onboardingDrafts', state.draftId);
+        const snap = await getDoc(draftRef);
+        const prevPrivacyType = snap.exists() ? snap.data()?.data?.privacyType : undefined;
+        if (prevPrivacyType === dataToSave.privacyType) {
+          dispatch({ type: ACTIONS.SET_LOADING, payload: false });
+          return state.draftId;
+        }
+      }
+
       if (!state.user) {
-        console.log('User not authenticated, saving full onboarding state to localStorage...');
+        // ...existing code for unauthenticated save...
         const tempDraftKey = 'getaways_temp_onboarding_draft';
         const tempDraftData = {
           ...dataToSave,
@@ -296,23 +324,21 @@ export const OnboardingProvider = ({ children }) => {
           tempId: 'temp_' + Date.now()
         };
         localStorage.setItem(tempDraftKey, JSON.stringify(tempDraftData));
-        console.log('Temporary draft saved to localStorage:', tempDraftData);
         dispatch({ type: ACTIONS.SET_DRAFT_ID, payload: tempDraftData.tempId });
         return tempDraftData.tempId;
       }
 
       // User is authenticated, save to Firebase
-      console.log('User authenticated, saving to Firebase...');
-      console.log('Saving draft with ID:', state.draftId);
-      console.log('Current step:', state.currentStep);
-      if (!dataToSave.currentStep) {
-  dataToSave.currentStep = state.currentStep || 'property-details';
+      if (state.currentStep === 'hosting-steps') {
+        const draftRef = doc(db, 'listings', state.draftId);
+        await updateDoc(draftRef, { lastModified: new Date() });
+        return state.draftId;
       }
-      console.log('Full data being saved:', dataToSave);
+      if (!dataToSave.currentStep) {
+        dataToSave.currentStep = state.currentStep || 'property-details';
+      }
       const draftId = await saveDraft(dataToSave, state.draftId);
-      console.log('Received draftId from service:', draftId);
       dispatch({ type: ACTIONS.SET_DRAFT_ID, payload: draftId });
-      console.log('OnboardingContext: saveDraft completed successfully');
       return draftId;
     } catch (error) {
       console.error('Error saving draft:', error);
@@ -325,23 +351,71 @@ export const OnboardingProvider = ({ children }) => {
   // Auto-save when important data changes (debounced) 
   useEffect(() => {
     let autoSaveTimeout;
-    
-    // Auto-save if we have some data and are not on the first step
+
+    // Auto-save only for the current onboarding step and only save relevant fields
     if (state.currentStep && state.currentStep !== 'property-details') {
-      // Check if we have meaningful data to save
-      const hasData = state.propertyType || 
-                     state.locationData?.address || 
-                     state.photos?.length > 0 || 
-                     state.title || 
-                     state.selectedAmenities?.length > 0;
-      
-      if (hasData && !state.isLoading) {
+      let hasData = false;
+      let relevantFields = {};
+      // Only consider fields relevant to the current step
+      switch (state.currentStep) {
+        case 'propertystructure':
+          hasData = !!state.propertyStructure;
+          relevantFields = { propertyStructure: state.propertyStructure };
+          break;
+        case 'privacytype':
+          hasData = !!state.privacyType;
+          relevantFields = { privacyType: state.privacyType };
+          break;
+        case 'location':
+          hasData = !!state.locationData?.address;
+          // Only include locationData if on location step
+          relevantFields = { locationData: state.locationData };
+          break;
+        case 'propertydetails':
+          hasData = !!state.propertyType;
+          relevantFields = { propertyType: state.propertyType };
+          break;
+        // Add more cases for other steps as needed
+        default:
+          // Never include locationData for other steps
+          break;
+      }
+
+      // Prevent auto-save if only privacyType is set and matches Firestore
+      if (state.currentStep === 'privacytype' && hasData && state.user && state.draftId) {
+        // Prevent auto-save if manual save just occurred
+        if (window.justSavedPrivacyType) return;
+        let skipAutoSave = false;
+        const checkPrivacyType = async () => {
+          const { getDoc, doc } = await import('firebase/firestore');
+          const draftRef = doc(db, 'onboardingDrafts', state.draftId);
+          const snap = await getDoc(draftRef);
+          const prevPrivacyType = snap.exists() ? snap.data()?.data?.privacyType : undefined;
+          if (prevPrivacyType === state.privacyType) {
+            skipAutoSave = true;
+          }
+        };
+        checkPrivacyType().then(() => {
+          if (!skipAutoSave) {
+            const storageType = state.user ? 'Firebase' : 'localStorage';
+            console.log(`OnboardingContext: Scheduling auto-save for step: ${state.currentStep} (${storageType})`);
+            autoSaveTimeout = setTimeout(async () => {
+              try {
+                await saveDraftCallback(relevantFields);
+                console.log('OnboardingContext: Auto-save completed');
+              } catch (error) {
+                console.error('OnboardingContext: Auto-save failed:', error);
+                // Don't throw error for auto-save failures
+              }
+            }, 3000); // 3-second debounce
+          }
+        });
+      } else if (hasData && !state.isLoading) {
         const storageType = state.user ? 'Firebase' : 'localStorage';
         console.log(`OnboardingContext: Scheduling auto-save for step: ${state.currentStep} (${storageType})`);
-        
         autoSaveTimeout = setTimeout(async () => {
           try {
-            await saveDraftCallback();
+            await saveDraftCallback(relevantFields);
             console.log('OnboardingContext: Auto-save completed');
           } catch (error) {
             console.error('OnboardingContext: Auto-save failed:', error);

@@ -17,6 +17,9 @@ const GuestSelection = () => {
   
   const { navigateNext, navigateBack } = useOnboardingNavigation('guest-selection');
   
+  // Ref to track initialization
+  const hasInitialized = useRef(false);
+  
   const [selectedOption, setSelectedOption] = useState(state.selectedGuestOption || 'any-guest');
 
   const guestOptions = [
@@ -61,7 +64,7 @@ const GuestSelection = () => {
     if (actions.setCurrentStep) {
       actions.setCurrentStep('guest-selection');
     }
-  }, []);
+  }, [actions]);
 
   // Initialize from context if available (after draft loading or direct navigation)
   useEffect(() => {
@@ -80,9 +83,7 @@ const GuestSelection = () => {
     if (actions.updateGuestSelection) {
       actions.updateGuestSelection(selection);
     }
-    if (actions.setCurrentStep) {
-      actions.setCurrentStep('guest-selection');
-    }
+    // Removed setCurrentStep from here to prevent setState during render
   };
 
   // Handle option selection with context update

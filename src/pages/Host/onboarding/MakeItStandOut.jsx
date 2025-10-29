@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import OnboardingHeader from './components/OnboardingHeader';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
 import { useSaveAndExitWithContext } from './hooks/useSaveAndExit.js';
@@ -37,7 +38,7 @@ const MakeItStandOut = () => {
     if (actions.setCurrentStep) {
       actions.setCurrentStep('make-it-stand-out');
     }
-  }, []);
+  }, [actions]);
 
   // Save & Exit handler
   const handleSaveAndExitClick = async () => {
@@ -83,48 +84,46 @@ const MakeItStandOut = () => {
 
   return (
     <div className="min-h-screen bg-white">
-      {/* Header */}
-      <header className="fixed top-0 left-0 right-0 bg-white z-50 border-b">
-        <div className="py-4 px-8 flex justify-between items-center">
-          <svg viewBox="0 0 32 32" className="h-8 w-8">
-            <path d="m16 1c2.008 0 3.978.378 5.813 1.114 1.837.736 3.525 1.798 4.958 3.138 1.433 1.34 2.56 2.92 3.355 4.628.795 1.709 1.2 3.535 1.2 5.394 0 1.859-.405 3.685-1.2 5.394-.795 1.708-1.922 3.288-3.355 4.628-1.433 1.34-3.121 2.402-4.958 3.138-1.835.736-3.805 1.114-5.813 1.114s-3.978-.378-5.813-1.114c-1.837-.736-3.525-1.798-4.958-3.138-1.433-1.34-2.56-2.92-3.355-4.628-.795-1.709-1.2-3.535-1.2-5.394 0-1.859.405-3.685 1.2-5.394.795-1.708 1.922-3.288 3.355-4.628 1.433-1.34 3.121-2.402 4.958-3.138 1.835-.736 3.805-1.114 5.813-1.114z" fill="rgb(255, 56, 92)"/>
-          </svg>
-          <div className="flex items-center gap-6">
-            <button className="font-medium text-sm hover:underline">Questions?</button>
-            <button 
-              onClick={handleSaveAndExitClick}
-              disabled={state.isLoading}
-              className="font-medium text-sm hover:underline disabled:opacity-50"
+      <OnboardingHeader />
+      <main className="flex-1">
+        <div className="relative z-0">
+          <div className="absolute inset-0 -z-10 overflow-hidden">
+            {/* Background Circles */}
+            <svg
+              className="absolute -z-10 transform -translate-x-1/2"
+              width="404"
+              height="384"
+              viewBox="0 0 404 384"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
             >
-              {state.isLoading ? 'Saving...' : 'Save & exit'}
-            </button>
+              <defs>
+                <pattern
+                  id="a"
+                  x="0"
+                  y="0"
+                  width="20"
+                  height="20"
+                  patternUnits="userSpaceOnUse"
+                >
+                  <circle cx="2" cy="2" r="2" fill="currentColor" />
+                </pattern>
+              </defs>
+              <rect
+                width="100%"
+                height="100%"
+                fill="url(#a)"
+                opacity="0.05"
+              />
+            </svg>
           </div>
-        </div>
-      </header>
 
-      {/* Progress Bar */}
-      <div className="w-full">
-        <div className="h-1 w-full flex space-x-2">
-          <div className="h-full bg-gray-200 flex-1 relative">
-            <div className="absolute left-0 top-0 h-full bg-[#FF385C] w-full"></div>
-          </div>
-          <div className="h-full bg-gray-200 flex-1 relative">
-            <div className="absolute left-0 top-0 h-full bg-[#FF385C] w-1/2"></div>
-          </div>
-          <div className="h-full bg-gray-200 flex-1"></div>
-        </div>
-      </div>
-
-      {/* Main Content */}
-      <main className="pt-20 px-8 pb-32">
-        <div className="max-w-7xl mx-auto">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center min-h-[calc(100vh-200px)]">
-            {/* Left Content */}
-            <div className="space-y-6">
-              <div>
-                <p className="text-lg font-medium text-gray-900 mb-2">Step 2</p>
-                <h1 className="text-5xl font-medium text-gray-900 leading-tight mb-6">
-                  Make your place stand out
+          <div className="px-4 py-8 sm:px-6 lg:px-8">
+            {/* Content for Make It Stand Out */}
+            <div className="max-w-3xl mx-auto">
+              <div className="mb-8">
+                <h1 className="text-3xl font-extrabold leading-tight">
+                  Make It Stand Out
                 </h1>
                 <p className="text-lg text-gray-600 leading-relaxed">
                   In this step, you'll add some of the amenities your place offers, plus 5 or more photos. Then, you'll create a title and description.

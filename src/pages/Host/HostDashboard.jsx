@@ -99,27 +99,28 @@ const HostDashboard = () => {
 
   const handleContinueDraft = (draft) => {
     const stepRoutes = {
-      'property-details': '/pages/propertydetails',
-      'property-structure': '/pages/propertystructure',
-      'privacy-type': '/pages/privacytype',
+      'hosting-steps': '/pages/hosting-steps', 'hostingsteps': '/pages/hostingsteps',
+      'property-details': '/pages/propertydetails', 'propertydetails': '/pages/propertydetails',
+      'property-structure': '/pages/propertystructure', 'propertystructure': '/pages/propertystructure',
+      'privacy-type': '/pages/privacytype', 'privacytype': '/pages/privacytype',
       'location': '/pages/location',
-      'location-confirmation': '/pages/locationconfirmation',
-      'property-basics': '/pages/propertybasics',
-      'make-it-stand-out': '/pages/makeitstandout',
+      'location-confirmation': '/pages/locationconfirmation', 'locationconfirmation': '/pages/locationconfirmation',
+      'property-basics': '/pages/propertybasics', 'propertybasics': '/pages/propertybasics',
+      'make-it-stand-out': '/pages/makeitstandout', 'makeitstandout': '/pages/makeitstandout',
       'amenities': '/pages/amenities',
       'photos': '/pages/photos',
-      'photos-preview': '/pages/photospreview',
-      'title-description': '/pages/titleDescription',
+      'photos-preview': '/pages/photospreview', 'photospreview': '/pages/photospreview',
+      'title-description': '/pages/titleDescription', 'titledescription': '/pages/titleDescription',
       'description': '/pages/description',
-      'description-details': '/pages/descriptiondetails',
-      'finish-setup': '/pages/finishsetup',
-      'booking-settings': '/pages/bookingsettings',
-      'guest-selection': '/pages/guestselection',
+      'description-details': '/pages/descriptiondetails', 'descriptiondetails': '/pages/descriptiondetails',
+      'finish-setup': '/pages/finishsetup', 'finishsetup': '/pages/finishsetup',
+      'booking-settings': '/pages/bookingsettings', 'bookingsettings': '/pages/bookingsettings',
+      'guest-selection': '/pages/guestselection', 'guestselection': '/pages/guestselection',
       'pricing': '/pages/pricing',
-      'weekend-pricing': '/pages/weekendpricing',
+      'weekend-pricing': '/pages/weekendpricing', 'weekendpricing': '/pages/weekendpricing',
       'discounts': '/pages/discounts',
-      'safety-details': '/pages/safetydetails',
-      'final-details': '/pages/finaldetails'
+      'safety-details': '/pages/safetydetails', 'safetydetails': '/pages/safetydetails',
+      'final-details': '/pages/finaldetails', 'finaldetails': '/pages/finaldetails'
     };
     const route = stepRoutes[draft.currentStep] || '/pages/propertydetails';
     navigate(route, { state: { draftId: draft.id } });
@@ -214,9 +215,9 @@ const HostDashboard = () => {
                     );
                   })}
                 </div>
-                <div className="flex gap-2">
-                  <button className={`p-2 rounded ${draftView === 'grid' ? 'bg-gray-100' : ''}`} onClick={() => setDraftView('grid')}><Grid className="w-5 h-5" /></button>
-                  <button className={`p-2 rounded ${draftView === 'list' ? 'bg-gray-100' : ''}`} onClick={() => setDraftView('list')}><List className="w-5 h-5" /></button>
+                <div className="flex items-center gap-2 p-1 bg-muted rounded-lg">
+                  <button onClick={() => setDraftView('grid')} className={`p-2 rounded-lg transition-colors ${draftView === 'grid' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}><Grid className="w-5 h-5" /></button>
+                  <button onClick={() => setDraftView('list')} className={`p-2 rounded-lg transition-colors ${draftView === 'list' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}><List className="w-5 h-5" /></button>
                   <button
                     onClick={() => {
                       setForceHostTypeSelection(true);
@@ -229,26 +230,59 @@ const HostDashboard = () => {
                   </button>
                 </div>
               </div>
-              <div className="flex flex-col items-center justify-center min-h-[260px]">
-                {/* Filter and render drafts by category */}
+              <div className="min-h-[260px]">
                 {(draftTab === 'all' ? drafts : drafts.filter(d => d.category === draftTab)).length === 0 ? (
-                  <>
-                    <HomeIcon className="w-16 h-16 text-gray-400 mb-4" strokeWidth={2} />
+                  <div className="text-center py-16">
+                    <HomeIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" strokeWidth={2} />
                     <div className="text-lg font-medium mb-2">No drafts yet.</div>
                     <div className="text-gray-500 text-center">Start creating and save your drafts for accommodations, services, and experiences.</div>
-                  </>
+                  </div>
                 ) : (
-                  <ul className="w-full">
-                    {(draftTab === 'all' ? drafts : drafts.filter(d => d.category === draftTab)).map((draft, idx) => (
-                      <li key={draft.id || idx} className="mb-4 p-4 border rounded-lg flex justify-between items-center">
-                        <span>{draft.title || 'Untitled Draft'}</span>
-                        <div className="flex gap-2">
-                          <button className="btn-primary px-3 py-1 text-sm" onClick={() => handleContinueDraft(draft)}>Continue</button>
-                          <button className="btn-outline px-3 py-1 text-sm" onClick={() => handleDeleteDraft(draft.id)}>Delete</button>
+                  draftView === 'grid' ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {(draftTab === 'all' ? drafts : drafts.filter(d => d.category === draftTab)).map((draft, idx) => (
+                        <div key={draft.id || idx} className="card-listing cursor-pointer hover-lift" onClick={() => handleContinueDraft(draft)}>
+                          <div className="relative w-full overflow-hidden rounded-lg aspect-[4/3] bg-gray-100 flex items-center justify-center">
+                            {/* Placeholder image or icon */}
+                            <Camera className="w-12 h-12 text-gray-400" />
+                          </div>
+                          <div className="p-6">
+                            <h3 className="font-heading text-xl font-semibold text-foreground">{draft.title || 'Untitled Draft'}</h3>
+                            <p className="font-body text-muted-foreground flex items-center gap-1">
+                              <MapPin className="w-4 h-4" /> {draft.location || 'No location'}
+                            </p>
+                            <div className="flex justify-between mt-2">
+                              <span className="font-heading text-base font-bold text-foreground">{draft.category}</span>
+                              <span className="text-xs text-muted-foreground">Last saved {draft.lastModified?.toDate?.().toLocaleString?.() || ''}</span>
+                            </div>
+                            <div className="flex gap-2 mt-4">
+                              <button className="btn-primary px-3 py-1 text-sm" onClick={e => {e.stopPropagation(); handleContinueDraft(draft);}}>Continue</button>
+                              <button className="btn-outline px-3 py-1 text-sm" onClick={e => {e.stopPropagation(); handleDeleteDraft(draft.id);}}>Delete</button>
+                            </div>
+                          </div>
                         </div>
-                      </li>
-                    ))}
-                  </ul>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {(draftTab === 'all' ? drafts : drafts.filter(d => d.category === draftTab)).map((draft, idx) => (
+                        <div key={draft.id || idx} className="card-listing hover-lift cursor-pointer flex items-start gap-4 p-4" onClick={() => handleContinueDraft(draft)}>
+                          <div className="relative flex-shrink-0 w-36 h-36 overflow-hidden rounded-lg bg-gray-100 flex items-center justify-center">
+                            <Camera className="w-12 h-12 text-gray-400" />
+                          </div>
+                          <div className="flex-1">
+                            <h3 className="font-heading text-lg font-semibold text-foreground">{draft.title || 'Untitled Draft'}</h3>
+                            <p className="font-body text-muted-foreground">{draft.location || 'No location'}</p>
+                            <span className="text-sm text-muted-foreground">{draft.category}</span>
+                            <div className="flex gap-2 mt-2">
+                              <button className="btn-primary px-3 py-1 text-sm" onClick={e => {e.stopPropagation(); handleContinueDraft(draft);}}>Continue</button>
+                              <button className="btn-outline px-3 py-1 text-sm" onClick={e => {e.stopPropagation(); handleDeleteDraft(draft.id);}}>Delete</button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
                 )}
               </div>
             </div>
@@ -275,27 +309,56 @@ const HostDashboard = () => {
                     );
                   })}
                 </div>
-                <div className="flex gap-2">
-                  <button className={`p-2 rounded ${listingView === 'grid' ? 'bg-gray-100' : ''}`} onClick={() => setListingView('grid')}><Grid className="w-5 h-5" /></button>
-                  <button className={`p-2 rounded ${listingView === 'list' ? 'bg-gray-100' : ''}`} onClick={() => setListingView('list')}><List className="w-5 h-5" /></button>
+                <div className="flex items-center gap-2 p-1 bg-muted rounded-lg">
+                  <button onClick={() => setListingView('grid')} className={`p-2 rounded-lg transition-colors ${listingView === 'grid' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}><Grid className="w-5 h-5" /></button>
+                  <button onClick={() => setListingView('list')} className={`p-2 rounded-lg transition-colors ${listingView === 'list' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}><List className="w-5 h-5" /></button>
                 </div>
               </div>
-              <div className="flex flex-col items-center justify-center min-h-[260px]">
+              <div className="min-h-[260px]">
                 {(listingTab === 'all' ? listings : listings.filter(l => l.category === listingTab)).length === 0 ? (
-                  <>
-                    <HomeIcon className="w-16 h-16 text-gray-400 mb-4" strokeWidth={2} />
+                  <div className="text-center py-16">
+                    <HomeIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" strokeWidth={2} />
                     <div className="text-lg font-medium mb-2">No listings yet.</div>
                     <div className="text-gray-500 text-center">Start exploring and publish your accommodations, services, and experiences.</div>
-                  </>
+                  </div>
                 ) : (
-                  <ul className="w-full">
-                    {(listingTab === 'all' ? listings : listings.filter(l => l.category === listingTab)).map((listing, idx) => (
-                      <li key={listing.id || idx} className="mb-4 p-4 border rounded-lg flex justify-between items-center">
-                        <span>{listing.title || 'Untitled Listing'}</span>
-                        {/* Add actions for listings if needed */}
-                      </li>
-                    ))}
-                  </ul>
+                  listingView === 'grid' ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {(listingTab === 'all' ? listings : listings.filter(l => l.category === listingTab)).map((listing, idx) => (
+                        <div key={listing.id || idx} className="card-listing cursor-pointer hover-lift">
+                          <div className="relative w-full overflow-hidden rounded-lg aspect-[4/3] bg-gray-100 flex items-center justify-center">
+                            {/* Placeholder image or icon */}
+                            <Camera className="w-12 h-12 text-gray-400" />
+                          </div>
+                          <div className="p-6">
+                            <h3 className="font-heading text-xl font-semibold text-foreground">{listing.title || 'Untitled Listing'}</h3>
+                            <p className="font-body text-muted-foreground flex items-center gap-1">
+                              <MapPin className="w-4 h-4" /> {listing.location || 'No location'}
+                            </p>
+                            <div className="flex justify-between mt-2">
+                              <span className="font-heading text-base font-bold text-foreground">{listing.category}</span>
+                              <span className="text-xs text-muted-foreground">Published {listing.publishedAt?.toLocaleString?.() || ''}</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {(listingTab === 'all' ? listings : listings.filter(l => l.category === listingTab)).map((listing, idx) => (
+                        <div key={listing.id || idx} className="card-listing hover-lift cursor-pointer flex items-start gap-4 p-4">
+                          <div className="relative flex-shrink-0 w-36 h-36 overflow-hidden rounded-lg bg-gray-100 flex items-center justify-center">
+                            <Camera className="w-12 h-12 text-gray-400" />
+                          </div>
+                          <div className="flex-1">
+                            <h3 className="font-heading text-lg font-semibold text-foreground">{listing.title || 'Untitled Listing'}</h3>
+                            <p className="font-body text-muted-foreground">{listing.location || 'No location'}</p>
+                            <span className="text-sm text-muted-foreground">{listing.category}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
                 )}
               </div>
             </div>
@@ -308,16 +371,12 @@ const HostDashboard = () => {
     <OnboardingProvider>
       <HostTypeModal
         isOpen={showHostTypeModal}
-        onClose={() => {
-          setShowHostTypeModal(false);
-          setForceHostTypeSelection(false);
-        }}
         currentUser={user}
         forceHostTypeSelection={forceHostTypeSelection}
+        onClose={() => setShowHostTypeModal(false)}
       />
     </OnboardingProvider>
   </div>
   );
-};
-
+}
 export default HostDashboard;

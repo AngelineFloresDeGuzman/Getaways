@@ -52,7 +52,7 @@ const Photos = () => {
     if (actions.setCurrentStep) {
       actions.setCurrentStep('photos');
     }
-  }, []);
+  }, [actions]);
 
   // Sync with context photos when navigating back
   useEffect(() => {

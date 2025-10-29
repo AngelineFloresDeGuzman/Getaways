@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import OnboardingHeader from './components/OnboardingHeader';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
 import { db } from '@/lib/firebase';
-import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, deleteField } from 'firebase/firestore';
 import {
   Home,
   Building2 as Building,
@@ -59,28 +60,52 @@ const PropertyStructure = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [draftRef, setDraftRef] = useState(null);
   const [selectedType, setSelectedType] = useState(state.propertyStructure || '');
+  let draftId = location.state?.draftId;
+  // Restore draftId if missing (e.g., after browser navigation)
+  useEffect(() => {
+    const restoreDraftId = async () => {
+      if (!draftId) {
+        // Try to fetch user's most recent draft
+        try {
+          const { getUserDrafts } = await import('@/pages/Host/services/draftService');
+          const drafts = await getUserDrafts();
+          if (drafts.length > 0) {
+            draftId = drafts[0].id;
+            const ref = doc(db, 'onboardingDrafts', draftId);
+            setDraftRef(ref);
+          }
+        } catch (error) {
+          console.error('Error restoring draftId:', error);
+        }
+      }
+    };
+    restoreDraftId();
+  }, [draftId]);
 
   // Create or get draft on mount
   useEffect(() => {
-    async function getOrCreateDraft(userId) {
-      const ref = doc(db, 'listings', userId);
-      const snap = await getDoc(ref);
-      if (!snap.exists()) {
-        await setDoc(ref, {
-          hostId: userId,
-          status: 'draft',
-          step: 'property-structure',
-          data: {},
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        });
-      }
-      return ref;
+    // Use existing draftId from navigation state
+    if (draftId) {
+      const ref = doc(db, 'onboardingDrafts', draftId);
+      setDraftRef(ref);
+      // Fetch draft and sync selectedType
+      const fetchDraft = async () => {
+        try {
+          const snap = await getDoc(ref);
+          if (snap.exists()) {
+            const draftData = snap.data()?.data || {};
+            if (draftData.propertyStructure) {
+              setSelectedType(draftData.propertyStructure);
+              actions.updateState({ propertyStructure: draftData.propertyStructure });
+            }
+          }
+        } catch (error) {
+          console.error('Error loading draft:', error);
+        }
+      };
+      fetchDraft();
     }
-    if (state.user?.uid) {
-      getOrCreateDraft(state.user.uid).then(setDraftRef);
-    }
-  }, [state.user]);
+  }, [draftId, actions]);
 
   // Update selectedType when state changes (after loading draft)
   useEffect(() => {
@@ -101,19 +126,27 @@ const PropertyStructure = () => {
     if (selectedType && draftRef) {
       setIsLoading(true);
       try {
-        await updateDoc(draftRef, {
-          data: {
-            ...state,
-            propertyStructure: selectedType,
-          },
-          step: 'privacy-type',
-          status: 'draft',
-          updatedAt: new Date(),
-        });
-        navigate('/pages/privacytype');
+        // Get existing data fields
+        const snap = await getDoc(draftRef);
+        const prevData = snap.exists() && snap.data().data ? snap.data().data : {};
+        // Only update if value is different
+        if (prevData.propertyStructure !== selectedType) {
+          await updateDoc(draftRef, {
+            "data.propertyStructure": selectedType,
+            propertyStructure: deleteField(),
+            lastModified: new Date(),
+            currentStep: 'privacytype',
+          });
+        } else {
+          await updateDoc(draftRef, {
+            lastModified: new Date(),
+            currentStep: 'privacytype',
+          });
+        }
+        navigate('/pages/privacytype', { state: { draftId } });
       } catch (error) {
         console.error('Error saving draft:', error);
-        navigate('/pages/privacytype');
+        navigate('/pages/privacytype', { state: { draftId } });
       } finally {
         setIsLoading(false);
       }
@@ -124,16 +157,18 @@ const PropertyStructure = () => {
     if (draftRef) {
       setIsLoading(true);
       try {
+        // Get existing data fields
+        const snap = await getDoc(draftRef);
+        const prevData = snap.exists() && snap.data().data ? snap.data().data : {};
         await updateDoc(draftRef, {
           data: {
-            ...state,
+            ...prevData,
             propertyStructure: selectedType,
           },
-          step: 'property-structure',
-          status: 'draft',
-          updatedAt: new Date(),
+          lastModified: new Date(),
+          currentStep: 'privacytype',
         });
-        alert('Draft saved successfully.');
+        navigate('/host/hostdashboard');
       } catch (error) {
         console.error('Error saving and exiting:', error);
         alert('Error saving progress: ' + error.message);
@@ -146,23 +181,7 @@ const PropertyStructure = () => {
   return (
     <div className="min-h-screen bg-white">
       {/* Header */}
-      <header className="fixed top-0 left-0 right-0 bg-white z-50 border-b">
-        <div className="py-4 px-8 flex justify-between items-center">
-          <svg viewBox="0 0 32 32" className="h-8 w-8">
-            <path d="m16 1c2.008 0 3.978.378 5.813 1.114 1.837.736 3.525 1.798 4.958 3.138 1.433 1.34 2.56 2.92 3.355 4.628.795 1.709 1.2 3.535 1.2 5.394 0 1.859-.405 3.685-1.2 5.394-.795 1.708-1.922 3.288-3.355 4.628-1.433 1.34-3.121 2.402-4.958 3.138-1.835.736-3.805 1.114-5.813 1.114s-3.978-.378-5.813-1.114c-1.837-.736-3.525-1.798-4.958-3.138-1.433-1.34-2.56-2.92-3.355-4.628-.795-1.709-1.2-3.535-1.2-5.394 0-1.859.405-3.685 1.2-5.394.795-1.708 1.922-3.288 3.355-4.628 1.433-1.34 3.121-2.402 4.958-3.138 1.835-.736 3.805-1.114 5.813-1.114z" fill="rgb(255, 56, 92)"/>
-          </svg>
-          <div className="flex items-center gap-6">
-            <button className="font-medium text-sm hover:underline">Questions?</button>
-            <button 
-              onClick={handleSaveAndExit}
-              className="font-medium text-sm hover:underline"
-              disabled={isLoading}
-            >
-              {isLoading ? 'Saving...' : 'Save & exit'}
-            </button>
-          </div>
-        </div>
-      </header>
+      <OnboardingHeader />
 
       {/* Progress Bar at the top */}
       <div className="w-full">
@@ -215,7 +234,7 @@ const PropertyStructure = () => {
           <div className="px-8 py-6 border-t">
             <div className="flex justify-between items-center">
               <button
-                onClick={() => navigateBack(navigate, '/pages/propertydetails')}
+                onClick={() => navigate('/pages/propertydetails', { state: { draftId: location.state?.draftId } })}
                 className="hover:underline"
               >
                 Back

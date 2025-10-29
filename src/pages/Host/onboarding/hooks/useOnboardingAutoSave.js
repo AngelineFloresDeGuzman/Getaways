@@ -38,6 +38,11 @@ export const useOnboardingAutoSave = (stepName, dependencies = []) => {
       return;
     }
 
+    // Prevent auto-save on the first onboarding step
+    if (state.currentStep === 'hosting-steps') {
+      console.log('Auto-save skipped: On hosting-steps, only lastModified should be updated manually');
+      return;
+    }
     // Don't save if we're currently loading
     if (state.isLoading) {
       console.log('Auto-save skipped: Currently loading');

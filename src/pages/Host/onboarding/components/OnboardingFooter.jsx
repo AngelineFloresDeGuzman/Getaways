@@ -13,18 +13,7 @@ const OnboardingFooter = ({
   return (
     <footer className="fixed bottom-0 left-0 right-0 bg-white z-40">
       <div className="max-w-none">
-        {/* Progress Bar */}
-        {showProgress && (
-          <div className="h-1 w-full flex space-x-2">
-            {Array.from({ length: totalSteps }, (_, index) => (
-              <div key={index} className="h-full bg-gray-200 flex-1 relative">
-                {index < currentStep && (
-                  <div className="absolute left-0 top-0 h-full bg-[#FF385C] w-full"></div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
+        {/* Progress Bar removed as requested */}
         
         <div className="px-8 py-6 border-t">
           <div className="flex justify-between items-center">

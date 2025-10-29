@@ -3,6 +3,7 @@ import { experiences } from './sharedData';
 import { useParams, Link } from 'react-router-dom';
 import Navigation from '@/components/Navigation';
 import Footer from '@/components/Footer';
+import WishlistSection from '@/components/WishlistSection';
 import {
   MapPin, Star, Heart, Share2, Clock, Users, ArrowLeft, X, Check
 } from 'lucide-react';
@@ -243,6 +244,14 @@ const ExperiencesDetails = () => {
                 <p className="text-muted-foreground">No reviews yet.</p>
               )}
             </div>
+
+            {/* Wishlist Section */}
+            <WishlistSection
+              listingId={experience.id}
+              listingTitle={experience.title}
+              listingType="experience"
+              hostName={experience.host}
+            />
           </div>
 
           {/* Booking Card */}

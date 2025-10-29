@@ -1,181 +1,121 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
+import OnboardingHeader from './components/OnboardingHeader';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
 import { db } from '@/lib/firebase';
-import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { Home, Building2, TreePine } from 'lucide-react';
 
 const PropertyDetails = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  
-  // Enhanced auto-save and state management
   const { state, actions } = useOnboarding();
+
   const [isLoading, setIsLoading] = useState(false);
   const [draftRef, setDraftRef] = useState(null);
-  
   const [selectedType, setSelectedType] = useState(state.propertyType || null);
   const [saveError, setSaveError] = useState(null);
 
-  // Create or get draft on mount
+  let draftId = location.state?.draftId;
+  // Restore draftId if missing (e.g., after browser navigation)
   useEffect(() => {
-    async function getOrCreateDraft(userId) {
-      const ref = doc(db, 'listings', userId);
-      const snap = await getDoc(ref);
-      if (!snap.exists()) {
-        await setDoc(ref, {
-          hostId: userId,
-          status: 'draft',
-          step: 'property-details',
-          data: {},
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        });
+    const restoreDraftId = async () => {
+      if (!draftId) {
+        // Try to fetch user's most recent draft
+        try {
+          const { getUserDrafts } = await import('@/pages/Host/services/draftService');
+          const drafts = await getUserDrafts();
+          if (drafts.length > 0) {
+            draftId = drafts[0].id;
+            // Set draftRef for subsequent use
+            const ref = doc(db, 'onboardingDrafts', draftId);
+            setDraftRef(ref);
+          }
+        } catch (error) {
+          console.error('Error restoring draftId:', error);
+        }
       }
-      return ref;
-    }
-    if (state.user?.uid) {
-      getOrCreateDraft(state.user.uid).then(setDraftRef);
-    }
-  }, [state.user]);
+    };
+    restoreDraftId();
+  }, [draftId]);
 
-  // Update selectedType when state changes (after loading draft)
+  // Load draft and prefill propertyType
   useEffect(() => {
-    if (state.propertyType) {
-      setSelectedType(state.propertyType);
-    }
-  }, [state.propertyType]);
+    if (!draftId) return;
+    const ref = doc(db, 'onboardingDrafts', draftId);
+    setDraftRef(ref);
 
-  // Update context when selectedType changes
-  useEffect(() => {
-    if (selectedType && selectedType !== state.propertyType) {
-      actions.updatePropertyType(selectedType);
-    }
-  }, [selectedType, state.propertyType, actions]);
+    const fetchDraft = async () => {
+      try {
+        const snap = await getDoc(ref);
+        if (snap.exists()) {
+          const draftData = snap.data()?.data || {};
+          if (draftData.propertyType) {
+            setSelectedType(draftData.propertyType);
+            actions.updatePropertyType(draftData.propertyType);
+          }
+        }
+      } catch (error) {
+        console.error('Error loading draft:', error);
+      }
+    };
+
+    fetchDraft();
+  }, [draftId, actions]);
 
   const propertyTypes = [
-    {
-      id: 'house',
-      title: 'House',
-      subtitle: 'A place all to yourself',
-      icon: Home,
-      description: 'Guests have the whole place to themselves'
-    },
-    {
-      id: 'apartment',
-      title: 'Apartment', 
-      subtitle: 'A place all to yourself',
-      icon: Building2,
-      description: 'Guests have the whole place to themselves'
-    },
-    {
-      id: 'guesthouse',
-      title: 'Guesthouse',
-      subtitle: 'A place all to yourself', 
-      icon: TreePine,
-      description: 'Guests have the whole place to themselves'
-    }
+    { id: 'house', title: 'House', subtitle: 'A place all to yourself', icon: Home, description: 'Guests have the whole place to themselves' },
+    { id: 'apartment', title: 'Apartment', subtitle: 'A place all to yourself', icon: Building2, description: 'Guests have the whole place to themselves' },
+    { id: 'guesthouse', title: 'Guesthouse', subtitle: 'A place all to yourself', icon: TreePine, description: 'Guests have the whole place to themselves' }
   ];
 
   const handlePropertyTypeSelect = (typeId) => {
     setSelectedType(typeId);
     actions.updatePropertyType(typeId);
-    setSaveError(null); // Clear any previous errors
+    setSaveError(null);
   };
 
+  // Save only current page fields when clicking Next
   const handleNext = async () => {
-    if (selectedType && draftRef) {
-      setIsLoading(true);
-      try {
-        // Save draft with recommended structure
-        await updateDoc(draftRef, {
-          data: {
-            ...state,
-            propertyType: selectedType,
-          },
-          step: 'propertystructure',
-          status: 'draft',
-          updatedAt: new Date(),
-        });
-        navigate('/pages/propertystructure');
-      } catch (error) {
-        console.error('Error saving draft:', error);
-        setSaveError('Failed to save progress. Continuing anyway...');
-        setTimeout(() => {
-          navigate('/pages/propertystructure');
-        }, 1000);
-      } finally {
-        setIsLoading(false);
-      }
+    if (!draftRef) return;
+    try {
+      await updateDoc(draftRef, {
+        currentStep: 'propertystructure',
+        lastModified: new Date(),
+      });
+      navigate('/pages/propertystructure', { state: { draftId } });
+    } catch (error) {
+      console.error('Error saving draft:', error);
+      setSaveError('Failed to save progress. Continuing anyway...');
+      setTimeout(() => navigate('/pages/propertystructure', { state: { draftId } }), 1000);
+    } finally {
+      setIsLoading(false);
     }
   };
 
+  // Save & Exit: only update lastModified, do not touch other fields
   const handleSaveAndExit = async () => {
-    if (draftRef) {
-      setIsLoading(true);
-      setSaveError(null);
-      try {
-        await updateDoc(draftRef, {
-          data: {
-            ...state,
-            propertyType: selectedType,
-          },
-          step: 'property-details',
-          status: 'draft',
-          updatedAt: new Date(),
-        });
-        setSaveError('Draft saved successfully.');
-      } catch (error) {
-        console.error('Error saving and exiting:', error);
-        setSaveError(error.message);
-        if (error.message.includes('authenticated')) {
-          setTimeout(() => navigate('/login'), 2000);
-        }
-      } finally {
-        setIsLoading(false);
-      }
+    if (!draftRef) return;
+    setIsLoading(true);
+    setSaveError(null);
+    try {
+      await updateDoc(draftRef, {
+        currentStep: 'propertystructure',
+        lastModified: new Date(),
+      });
+      setSaveError('Draft saved successfully.');
+      setTimeout(() => navigate('/host/hostdashboard'), 1500);
+    } catch (error) {
+      console.error('Error saving draft:', error);
+      setSaveError(error.message);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   return (
     <div className="min-h-screen bg-white">
-      {/* Header */}
-      <header className="fixed top-0 left-0 right-0 bg-white z-50 border-b">
-        <div className="py-4 px-8 flex justify-between items-center">
-          <img src="/logo.jpg" alt="Getaways" className="h-8" />
-          <div className="flex items-center gap-6">
-            <button className="hover:underline">Questions?</button>
-            <button 
-              onClick={handleSaveAndExit}
-              className="hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled={isLoading}
-            >
-              {isLoading ? 'Saving...' : 'Save & exit'}
-            </button>
-          </div>
-        </div>
-        
-        {/* Error/Status Messages */}
-        {saveError && (
-          <div className="bg-red-50 border-l-4 border-red-400 p-4 mx-8">
-            <div className="flex">
-              <div className="ml-3">
-                <p className="text-sm text-red-700">{saveError}</p>
-              </div>
-            </div>
-          </div>
-        )}
-        
-        {isLoading && (
-          <div className="bg-blue-50 border-l-4 border-blue-400 p-4 mx-8">
-            <div className="flex">
-              <div className="ml-3">
-                <p className="text-sm text-blue-700">Loading your saved progress...</p>
-              </div>
-            </div>
-          </div>
-        )}
-      </header>
+      <OnboardingHeader />
 
       {/* Main Content */}
       <main className="flex min-h-[calc(100vh-136px)]">
@@ -188,72 +128,31 @@ const PropertyDetails = () => {
                 In this step, we'll ask you which type of property you have and if guests will book the entire place or just a room. Then let us know the location and how many guests can stay.
               </p>
             </div>
-
-            {/* Property Type Selection */}
-            <div className="space-y-4">
-              {propertyTypes.map((type) => {
-                const Icon = type.icon;
-                return (
-                  <button
-                    key={type.id}
-                    onClick={() => handlePropertyTypeSelect(type.id)}
-                    className={`w-full p-6 border-2 rounded-lg text-left transition-all hover:border-gray-400 ${
-                      selectedType === type.id 
-                        ? 'border-black bg-gray-50' 
-                        : 'border-gray-200'
-                    }`}
-                  >
-                    <div className="flex items-start gap-4">
-                      <Icon className="w-8 h-8 mt-1" />
-                      <div className="flex-1">
-                        <h3 className="text-lg font-medium">{type.title}</h3>
-                        <p className="text-gray-600 text-sm">{type.subtitle}</p>
-                        <p className="text-gray-500 text-xs mt-1">{type.description}</p>
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
+            <div className="flex items-center justify-center">
+              <img src="/images/property-layout.png" alt="Property reference" className="w-[85%] h-auto object-contain" />
             </div>
           </div>
         </div>
 
-        {/* Right Side Illustration */}
         <div className="w-[50%] bg-gray-50 flex items-center justify-center">
-          <img 
-            src="/images/property-layout.png" 
-            alt=""
-            className="w-[85%] h-auto object-contain"
-          />
+          <img src="/images/property-layout.png" alt="" className="w-[85%] h-auto object-contain" />
         </div>
       </main>
 
       {/* Footer */}
       <footer className="fixed bottom-0 left-0 right-0 bg-white">
         <div className="max-w-none">
-          {/* Progress Bar */}
-          <div className="h-1 w-full flex space-x-2">
-            <div className="h-full bg-gray-200 flex-1"></div>
-            <div className="h-full bg-gray-200 flex-1"></div>
-            <div className="h-full bg-gray-200 flex-1"></div>
-          </div>
-          
+          {/* Progress bar removed as requested */}
+
           <div className="px-8 py-6 border-t">
             <div className="flex justify-between items-center">
-              <button
-                onClick={() => navigate('/pages/hosting-steps')}
-                className="hover:underline"
-              >
+              <button onClick={() => navigate('/pages/hostingsteps')} className="hover:underline">
                 Back
               </button>
-              <button 
+              <button
                 onClick={handleNext}
-                disabled={!selectedType || isLoading}
-                className={`rounded-lg px-8 py-3.5 text-base font-medium transition-colors ${
-                  selectedType && !isLoading
-                    ? 'bg-black text-white hover:bg-gray-800' 
-                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                }`}
+                disabled={isLoading}
+                className={`rounded-lg px-8 py-3.5 text-base font-medium transition-colors ${!isLoading ? 'bg-black text-white hover:bg-gray-800' : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}
               >
                 {isLoading ? 'Saving...' : 'Next'}
               </button>
