@@ -81,9 +81,9 @@ const App = () => {
             <Route path="/experiences" element={<Experiences darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/experiences/:id" element={<ExperiencesDetails darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/login" element={<Login darkMode={darkMode} setDarkMode={setDarkMode} />} />
-            <Route path="/reset-password" element={<ResetPassword darkMode={darkMode} setDarkMode={setDarkMode} />} />
+            <Route path="/resetpassword" element={<ResetPassword darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/signup" element={<SignUp darkMode={darkMode} setDarkMode={setDarkMode} />} />
-            <Route path="/verify-email" element={<VerifyEmail darkMode={darkMode} setDarkMode={setDarkMode} />} />
+            <Route path="/verifyemail" element={<VerifyEmail darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/guest/index" element={<GuestIndex darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/bookings" element={<Bookings darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/favorites" element={<Favorites darkMode={darkMode} setDarkMode={setDarkMode} />} />
@@ -103,22 +103,22 @@ const App = () => {
                   <Route path="privacytype" element={<PrivacyType />} />
                   <Route path="location" element={<Location />} />
                   <Route path="locationconfirmation" element={<LocationConfirmation />} />
-                  <Route path="property-basics" element={<PropertyBasics />} />
-                  <Route path="make-it-stand-out" element={<MakeItStandOut />} />
+                  <Route path="propertybasics" element={<PropertyBasics />} />
+                  <Route path="makeitstandout" element={<MakeItStandOut />} />
                   <Route path="amenities" element={<Amenities />} />
                   <Route path="photos" element={<Photos />} />
-                  <Route path="photos-preview" element={<PhotosPreview />} />
-                  <Route path="title-description" element={<TitleDescription />} />
+                  <Route path="photospreview" element={<PhotosPreview />} />
+                  <Route path="titledescription" element={<TitleDescription />} />
                   <Route path="description" element={<Description />} />
-                  <Route path="description-details" element={<DescriptionDetails />} />
-                  <Route path="finish-setup" element={<FinishSetup />} />
-                  <Route path="booking-settings" element={<BookingSettings />} />
-                  <Route path="guest-selection" element={<GuestSelection />} />
+                  <Route path="descriptiondetails" element={<DescriptionDetails />} />
+                  <Route path="finishsetup" element={<FinishSetup />} />
+                  <Route path="bookingsettings" element={<BookingSettings />} />
+                  <Route path="guestselection" element={<GuestSelection />} />
                   <Route path="pricing" element={<Pricing />} />
-                  <Route path="weekend-pricing" element={<WeekendPricing />} />
+                  <Route path="weekendpricing" element={<WeekendPricing />} />
                   <Route path="discounts" element={<Discounts />} />
-                  <Route path="safety-details" element={<SafetyDetails />} />
-                  <Route path="final-details" element={<FinalDetails />} />
+                  <Route path="safetydetails" element={<SafetyDetails />} />
+                  <Route path="finaldetails" element={<FinalDetails />} />
                 </Routes>
               </OnboardingProvider>
             } />

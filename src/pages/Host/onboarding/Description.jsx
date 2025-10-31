@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import OnboardingHeader from './components/OnboardingHeader';
+import OnboardingFooter from './components/OnboardingFooter';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
 import { useSaveAndExitWithContext } from './hooks/useSaveAndExit';
@@ -132,12 +133,14 @@ const Description = () => {
     loadDraftData();
   }, [location.state?.draftId, state.user]);
 
-  // Set current step when component mounts
+  // Set current step when component mounts or route changes
   useEffect(() => {
-    if (actions.setCurrentStep) {
+    if (actions.setCurrentStep && state.currentStep !== 'description') {
+      console.log('📍 Description page - Setting currentStep to description');
       actions.setCurrentStep('description');
     }
-  }, [actions]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]); // Run when route changes
 
   // Initialize from context if available (after draft loading or direct navigation)
   useEffect(() => {
@@ -162,8 +165,9 @@ const Description = () => {
   return (
     <div className="min-h-screen bg-white">
       <OnboardingHeader />
-      <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
+      <main className="pt-20 px-8 pb-32">
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
           {highlights.map((highlight) => (
             <button
               key={highlight.id}
@@ -192,47 +196,27 @@ const Description = () => {
             {selectedHighlights.length} of 2 highlights selected
           </div>
         )}
-      </div>
+        </div>
+      </main>
 
       {/* Footer */}
-      <footer className="fixed bottom-0 left-0 right-0 bg-white border-t">
-        <div className="max-w-none">
-          <div className="px-8 py-6">
-            <div className="flex justify-between items-center">
-              <button
-                onClick={() => navigate('/pages/title-description')}
-                className="hover:underline"
-              >
-                Back
-              </button>
-              <button 
-                className={`rounded-lg px-8 py-3.5 text-base font-medium ${
-                  canProceed
-                    ? 'bg-black text-white hover:bg-gray-800'
-                    : 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                }`}
-                onClick={() => {
-                  if (canProceed) {
-                    // Update context before navigation
-                    updateHighlightsContext(selectedHighlights);
-                    
-                    // Continue to description details
-                    navigate('/pages/description-details', { 
-                      state: { 
-                        ...location.state,
-                        descriptionHighlights: selectedHighlights
-                      } 
-                    });
-                  }
-                }}
-                disabled={!canProceed}
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        </div>
-      </footer>
+      <OnboardingFooter
+        onBack={() => navigate('/pages/titledescription')}
+        onNext={() => {
+          if (canProceed) {
+            updateHighlightsContext(selectedHighlights);
+            navigate('/pages/descriptiondetails', { 
+              state: { 
+                ...location.state,
+                descriptionHighlights: selectedHighlights
+              } 
+            });
+          }
+        }}
+        backText="Back"
+        nextText="Next"
+        canProceed={canProceed}
+      />
     </div>
   );
 };

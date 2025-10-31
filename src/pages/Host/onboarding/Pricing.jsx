@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { MapPin } from 'lucide-react';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
 import OnboardingHeader from './components/OnboardingHeader';
+import OnboardingFooter from './components/OnboardingFooter';
 import { auth } from '../../../lib/firebase';
 
 const Pricing = () => {
@@ -150,7 +151,7 @@ const Pricing = () => {
   const handleNext = () => {
     // Update pricing in context before proceeding
     actions.updatePricing({ weekdayPrice: basePrice });
-    navigate('/host/onboarding/weekend-pricing');
+    navigate('/host/onboarding/weekendpricing');
   };
 
   const handleBack = () => {
@@ -159,13 +160,7 @@ const Pricing = () => {
 
   return (
     <div className="min-h-screen bg-white">
-      <OnboardingHeader 
-        showProgress={true}
-        currentStep={2}
-        totalSteps={3}
-        onSaveAndExit={handleSaveAndExitClick}
-        isSaving={isSaving}
-      />
+      <OnboardingHeader showProgress={true} />
 
       {/* Main Content */}
       <main className="pt-28 px-8 pb-32">
@@ -224,42 +219,22 @@ const Pricing = () => {
         </div>
       </main>
 
-      {/* Footer */}
-      <footer className="fixed bottom-0 left-0 right-0 bg-white border-t">
-        <div className="max-w-none">
-          <div className="px-8 py-6">
-            <div className="flex justify-between items-center">
-              <button
-                onClick={() => navigate('/pages/guest-selection')}
-                className="hover:underline"
-              >
-                Back
-              </button>
-              <button 
-                className={`rounded-lg px-8 py-3.5 text-base font-medium ${
-                  canProceed
-                    ? 'bg-black text-white hover:bg-gray-800'
-                    : 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                }`}
-                onClick={() => {
-                  if (canProceed) {
-                    // Continue to weekend pricing or completion
-                    navigate('/pages/weekend-pricing', { 
-                      state: { 
-                        ...location.state,
-                        weekdayPrice: basePrice
-                      } 
-                    });
-                  }
-                }}
-                disabled={!canProceed}
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        </div>
-      </footer>
+      <OnboardingFooter
+        onBack={() => navigate('/pages/guestselection')}
+        onNext={() => {
+          if (canProceed) {
+            navigate('/pages/weekendpricing', { 
+              state: { 
+                ...location.state,
+                weekdayPrice: basePrice
+              } 
+            });
+          }
+        }}
+        backText="Back"
+        nextText="Next"
+        canProceed={canProceed}
+      />
     </div>
   );
 };

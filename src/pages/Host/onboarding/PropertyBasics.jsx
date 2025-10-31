@@ -1,6 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useOnboardingAutoSave, useOnboardingNavigation } from './hooks/useOnboardingAutoSave';
+import OnboardingHeader from './components/OnboardingHeader';
+import OnboardingFooter from './components/OnboardingFooter';
 
 const PropertyBasics = () => {
   const navigate = useNavigate();
@@ -13,9 +15,9 @@ const PropertyBasics = () => {
     loadDraftIfNeeded, 
     saveAndExit, 
     isLoading 
-  } = useOnboardingAutoSave('property-basics', []);
+  } = useOnboardingAutoSave('propertybasics', []);
   
-  const { navigateNext, navigateBack } = useOnboardingNavigation('property-basics');
+  const { navigateNext, navigateBack } = useOnboardingNavigation('propertybasics');
   
   // State for property basics
   const [propertyBasics, setPropertyBasics] = useState({
@@ -27,6 +29,16 @@ const PropertyBasics = () => {
 
   // Ref to track initialization
   const hasInitialized = useRef(false);
+  const [hasLoadedDraft, setHasLoadedDraft] = useState(false);
+
+  // Set current step immediately when component mounts to ensure progress bar detects forward navigation
+  // Use useLayoutEffect to set it synchronously before paint
+  useLayoutEffect(() => {
+    if (actions?.setCurrentStep) {
+      console.log('📍 PropertyBasics: Setting currentStep to propertybasics (useLayoutEffect)');
+      actions.setCurrentStep('propertybasics');
+    }
+  }, [actions]);
 
   // Load draft if continuing from saved progress
   useEffect(() => {
@@ -34,14 +46,48 @@ const PropertyBasics = () => {
       if (location.state?.draftId) {
         try {
           await loadDraftIfNeeded(location.state.draftId);
+          setHasLoadedDraft(true);
         } catch (error) {
           console.error('Error loading draft in PropertyBasics:', error);
+          setHasLoadedDraft(true); // Set to true even on error to allow step correction
         }
+      } else {
+        setHasLoadedDraft(true);
       }
     };
 
     initializePage();
   }, [location.state, loadDraftIfNeeded]);
+
+  // Ensure currentStep is correct after draft loads (in case draft overwrote it)
+  useEffect(() => {
+    if (hasLoadedDraft && actions?.setCurrentStep) {
+      // Only set if it's not already correct (to avoid unnecessary updates)
+      if (state.currentStep !== 'propertybasics') {
+        console.log('📍 PropertyBasics: Resetting currentStep to propertybasics after draft load');
+        console.log('📍 PropertyBasics: Draft loaded with currentStep:', state.currentStep, '- correcting to propertybasics');
+        actions.setCurrentStep('propertybasics');
+        
+        // CRITICAL: Also update sessionStorage to ensure progress bar uses correct previous step
+        // Force it to 'locationconfirmation' so progress bar calculates forward navigation correctly
+        const storagePrevStepKey = 'onb_prev_step_name';
+        const currentPrevStep = sessionStorage.getItem(storagePrevStepKey);
+        
+        // Only update if previous step is not 'locationconfirmation' (our expected previous step)
+        if (currentPrevStep !== 'locationconfirmation') {
+          console.log('📍 PropertyBasics: Correcting sessionStorage previous step from', currentPrevStep, 'to locationconfirmation');
+          sessionStorage.setItem(storagePrevStepKey, 'locationconfirmation');
+          
+          // Also ensure progress step and value are correct
+          const storageStepKey = 'onb_progress_step';
+          const storageKey = 'onb_progress_value';
+          const locationConfirmationProgress = ((5 + 1) / 7) * 100; // locationconfirmation index 5
+          sessionStorage.setItem(storageStepKey, '1');
+          sessionStorage.setItem(storageKey, String(locationConfirmationProgress));
+        }
+      }
+    }
+  }, [hasLoadedDraft, actions, state.currentStep]);
 
   // Update propertyBasics when state changes (after loading draft)
   useEffect(() => {
@@ -161,39 +207,7 @@ const PropertyBasics = () => {
 
   return (
     <div className="min-h-screen bg-white">
-      {/* Header */}
-      <header className="fixed top-0 left-0 right-0 bg-white z-50 border-b">
-        <div className="py-4 px-8 flex justify-between items-center">
-          <svg viewBox="0 0 32 32" className="h-8 w-8">
-            <path d="m16 1c2.008 0 3.978.378 5.813 1.114 1.837.736 3.525 1.798 4.958 3.138 1.433 1.34 2.56 2.92 3.355 4.628.795 1.709 1.2 3.535 1.2 5.394 0 1.859-.405 3.685-1.2 5.394-.795 1.708-1.922 3.288-3.355 4.628-1.433 1.34-3.121 2.402-4.958 3.138-1.835.736-3.805 1.114-5.813 1.114s-3.978-.378-5.813-1.114c-1.837-.736-3.525-1.798-4.958-3.138-1.433-1.34-2.56-2.92-3.355-4.628-.795-1.709-1.2-3.535-1.2-5.394 0-1.859.405-3.685 1.2-5.394.795-1.708 1.922-3.288 3.355-4.628 1.433-1.34 3.121-2.402 4.958-3.138 1.835-.736 3.805-1.114 5.813-1.114z" fill="rgb(255, 56, 92)"/>
-          </svg>
-          <div className="flex items-center gap-6">
-            <button className="font-medium text-sm hover:underline">Questions?</button>
-            <button 
-              onClick={handleSaveAndExitClick}
-              className="font-medium text-sm hover:underline"
-              disabled={isLoading}
-            >
-              {isLoading ? 'Saving...' : 'Save & exit'}
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* Progress Bar */}
-      <div className="w-full">
-        <div className="h-1 w-full flex space-x-2">
-          <div className="h-full bg-gray-200 flex-1 relative">
-            <div className="absolute left-0 top-0 h-full bg-[#FF385C] w-full"></div>
-          </div>
-          <div className="h-full bg-gray-200 flex-1 relative">
-            <div className="absolute left-0 top-0 h-full bg-[#FF385C] w-full"></div>
-          </div>
-          <div className="h-full bg-gray-200 flex-1 relative">
-            <div className="absolute left-0 top-0 h-full bg-[#FF385C] w-full"></div>
-          </div>
-        </div>
-      </div>
+      <OnboardingHeader showProgress={true} />
 
       {/* Main Content */}
       <main className="pt-20 px-8 pb-32">
@@ -232,37 +246,26 @@ const PropertyBasics = () => {
       </main>
 
       {/* Footer */}
-      <footer className="fixed bottom-0 left-0 right-0 bg-white border-t">
-        <div className="max-w-none">
-          <div className="px-8 py-6">
-            <div className="flex justify-between items-center">
-              <button
-                onClick={() => navigate('/pages/locationconfirmation')}
-                className="hover:underline"
-              >
-                Back
-              </button>
-              <button 
-                className="bg-black text-white hover:bg-gray-800 rounded-lg px-8 py-3.5 text-base font-medium"
-                onClick={() => {
-                  // Update context before navigation
-                  updatePropertyBasics(propertyBasics);
-                  
-                  // Navigate to make it stand out with property basics data
-                  navigate('/pages/make-it-stand-out', { 
-                    state: { 
-                      ...location.state,
-                      propertyBasics
-                    } 
-                  });
-                }}
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        </div>
-      </footer>
+      <OnboardingFooter
+        onBack={() => navigate('/pages/locationconfirmation', {
+          state: {
+            ...location.state,
+            draftId: state?.draftId || location.state?.draftId
+          }
+        })}
+        onNext={() => {
+          updatePropertyBasics(propertyBasics);
+          navigate('/pages/makeitstandout', { 
+            state: { 
+              ...location.state,
+              propertyBasics
+            } 
+          });
+        }}
+        backText="Back"
+        nextText="Next"
+        canProceed={true}
+      />
     </div>
   );
 };

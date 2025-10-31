@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import OnboardingHeader from './components/OnboardingHeader';
+import OnboardingFooter from './components/OnboardingFooter';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
 import { db } from '@/lib/firebase';
@@ -16,11 +17,25 @@ const PropertyDetails = () => {
   const [selectedType, setSelectedType] = useState(state.propertyType || null);
   const [saveError, setSaveError] = useState(null);
 
+  // Load lordicon script
+  useEffect(() => {
+    // Check if script already exists
+    const existingScript = document.querySelector('script[src="https://cdn.lordicon.com/lordicon.js"]');
+    
+    if (!existingScript) {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.lordicon.com/lordicon.js';
+      script.async = true;
+      document.head.appendChild(script);
+    }
+  }, []);
+
   let draftId = location.state?.draftId;
   // Restore draftId if missing (e.g., after browser navigation)
   useEffect(() => {
     const restoreDraftId = async () => {
-      if (!draftId) {
+      // Only try to restore draft if user is authenticated
+      if (!draftId && state.user?.uid) {
         // Try to fetch user's most recent draft
         try {
           const { getUserDrafts } = await import('@/pages/Host/services/draftService');
@@ -37,7 +52,7 @@ const PropertyDetails = () => {
       }
     };
     restoreDraftId();
-  }, [draftId]);
+  }, [draftId, state.user]);
 
   // Load draft and prefill propertyType
   useEffect(() => {
@@ -62,6 +77,15 @@ const PropertyDetails = () => {
 
     fetchDraft();
   }, [draftId, actions]);
+
+  // Set current step for progress bar when component mounts or route changes
+  useEffect(() => {
+    if (actions.setCurrentStep && state.currentStep !== 'propertydetails') {
+      console.log('📍 PropertyDetails page - Setting currentStep to propertydetails');
+      actions.setCurrentStep('propertydetails');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]); // Run when route changes
 
   const propertyTypes = [
     { id: 'house', title: 'House', subtitle: 'A place all to yourself', icon: Home, description: 'Guests have the whole place to themselves' },
@@ -114,52 +138,74 @@ const PropertyDetails = () => {
   };
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="h-screen bg-white overflow-hidden">
       <OnboardingHeader />
 
       {/* Main Content */}
-      <main className="flex min-h-[calc(100vh-136px)]">
-        <div className="flex-1 flex items-center justify-center">
-          <div className="max-w-[640px] px-20">
-            <div className="mb-16">
-              <span className="text-gray-600">Step 1</span>
-              <h1 className="text-[32px] font-medium mb-4">Tell us about your place</h1>
-              <p className="text-gray-600 text-lg">
+      <main className="flex items-center justify-center h-[calc(100vh-136px)] gap-6 overflow-hidden pl-40 pr-4 pt-16">
+        <div className="flex-1 flex items-center justify-end">
+          <div className="max-w-[720px]">
+            <div>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-full border-2 border-primary flex items-center justify-center relative overflow-hidden">
+                  <div className="absolute inset-0 bg-primary animate-fill-circle"></div>
+                  <span className="text-white font-bold text-lg relative z-10">1</span>
+                </div>
+              </div>
+              <h1 className="text-[40px] font-medium mb-5">Tell us about your <span className="text-primary">place</span></h1>
+              <p className="text-gray-600 text-xl leading-relaxed">
                 In this step, we'll ask you which type of property you have and if guests will book the entire place or just a room. Then let us know the location and how many guests can stay.
               </p>
-            </div>
-            <div className="flex items-center justify-center">
-              <img src="/images/property-layout.png" alt="Property reference" className="w-[85%] h-auto object-contain" />
+              
+              <style>{`
+                @keyframes fillCircle {
+                  0% {
+                    transform: translateY(100%);
+                  }
+                  50% {
+                    transform: translateY(0);
+                  }
+                  100% {
+                    transform: translateY(100%);
+                  }
+                }
+                
+                .animate-fill-circle {
+                  animation: fillCircle 4s ease-in-out infinite;
+                }
+              `}</style>
             </div>
           </div>
         </div>
 
-        <div className="w-[50%] bg-gray-50 flex items-center justify-center">
-          <img src="/images/property-layout.png" alt="" className="w-[85%] h-auto object-contain" />
+        <div className="w-[45%] flex items-center justify-start">
+          {/* Animated House Icon */}
+          <div 
+            className="w-[400px] h-[400px]"
+            dangerouslySetInnerHTML={{
+              __html: `
+                <lord-icon
+                  src="https://cdn.lordicon.com/dznelzdk.json"
+                  trigger="loop"
+                  delay="2000"
+                  speed="0.5"
+                  state="morph-mantion"
+                  colors="primary:#faf9d1,secondary:#109173,tertiary:#b26836,quaternary:#109173,quinary:#646e78,senary:#ebe6ef"
+                  style="width:400px;height:400px">
+                </lord-icon>
+              `
+            }}
+          />
         </div>
       </main>
 
       {/* Footer */}
-      <footer className="fixed bottom-0 left-0 right-0 bg-white">
-        <div className="max-w-none">
-          {/* Progress bar removed as requested */}
-
-          <div className="px-8 py-6 border-t">
-            <div className="flex justify-between items-center">
-              <button onClick={() => navigate('/pages/hostingsteps')} className="hover:underline">
-                Back
-              </button>
-              <button
-                onClick={handleNext}
-                disabled={isLoading}
-                className={`rounded-lg px-8 py-3.5 text-base font-medium transition-colors ${!isLoading ? 'bg-black text-white hover:bg-gray-800' : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}
-              >
-                {isLoading ? 'Saving...' : 'Next'}
-              </button>
-            </div>
-          </div>
-        </div>
-      </footer>
+      <OnboardingFooter
+        onBack={() => navigate('/pages/hostingsteps')}
+        onNext={handleNext}
+        canProceed={!isLoading}
+        nextText={isLoading ? 'Saving...' : 'Next'}
+      />
     </div>
   );
 };

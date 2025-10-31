@@ -3,6 +3,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { Upload, X, Camera, Trash2 } from 'lucide-react';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
 import { useSaveAndExitWithContext } from './hooks/useSaveAndExit.js';
+import OnboardingHeader from './components/OnboardingHeader';
+import OnboardingFooter from './components/OnboardingFooter';
 
 const Photos = () => {
   const navigate = useNavigate();
@@ -45,26 +47,35 @@ const Photos = () => {
     };
 
     loadDraftData();
-  }, [location.state?.draftId, state.user]); // Added state.user dependency
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state?.draftId]); // Only run when draftId changes
 
-  // Set current step when component mounts
+  // Set current step when component mounts or route changes
   useEffect(() => {
-    if (actions.setCurrentStep) {
+    if (actions.setCurrentStep && state.currentStep !== 'photos') {
+      console.log('📍 Photos page - Setting currentStep to photos');
       actions.setCurrentStep('photos');
     }
-  }, [actions]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]); // Run when route changes
 
   // Sync with context photos when navigating back
+  // Use photo count instead of full array to avoid re-render loop
   useEffect(() => {
     if (state.photos && state.photos.length > 0 && uploadedPhotos.length === 0 && !location.state?.draftId) {
       console.log('Syncing photos from context on navigation back:', state.photos.length);
       setUploadedPhotos(state.photos);
     }
-  }, [state.photos, uploadedPhotos.length, location.state?.draftId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.photos?.length, location.state?.draftId]); // Use length to avoid constant re-renders
 
   // Update uploadedPhotos when state changes (after loading draft)
+  // Only load from context when draft is loaded, not when we update photos locally
   useEffect(() => {
-    if (state.photos && state.photos.length > 0 && (draftLoaded.current || !location.state?.draftId)) {
+    if (!draftLoaded.current) return; // Only run after draft is loaded
+    
+    if (state.photos && state.photos.length > 0 && uploadedPhotos.length === 0) {
+      // Only load from context if we don't already have photos
       // Convert base64 photos back to display format
       const displayPhotos = state.photos.map(photo => ({
         id: photo.id,
@@ -75,12 +86,13 @@ const Photos = () => {
       }));
       console.log('Loading photos from draft:', displayPhotos);
       setUploadedPhotos(displayPhotos);
-    } else if (state.photoSummary && draftLoaded.current && (!state.photos || state.photos.length === 0)) {
+    } else if (state.photoSummary && (!state.photos || state.photos.length === 0)) {
       // Fallback: If we only have photo summary, show message
       console.log('Draft loaded with photo summary only:', state.photoSummary);
       setUploadedPhotos([]);
     }
-  }, [state.photos, state.photoSummary, draftLoaded.current, location.state?.draftId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state?.draftId]); // Only run when draftId changes
 
   // Helper to convert File to base64 for storage
   const fileToBase64 = (file) => {
@@ -142,13 +154,13 @@ const Photos = () => {
     setShowPreviewModal(false);
     setPendingPhotos([]);
     
-    // Update current step to photos-preview since we're navigating there
+    // Update current step to photospreview since we're navigating there
     if (actions.setCurrentStep) {
-      await actions.setCurrentStep('photos-preview');
+      await actions.setCurrentStep('photospreview');
     }
     
     // Auto-navigate to preview page after uploading photos
-    navigate('/pages/photos-preview', {
+    navigate('/pages/photospreview', {
       state: {
         ...location.state,
         photos: updatedPhotos
@@ -174,8 +186,8 @@ const Photos = () => {
       
       // Update current step in context based on route
       if (actions.setCurrentStep) {
-        if (route === '/pages/photos-preview') {
-          await actions.setCurrentStep('photos-preview');
+        if (route === '/pages/photospreview') {
+          await actions.setCurrentStep('photospreview');
         } else {
           await actions.setCurrentStep('photos');
         }
@@ -328,37 +340,7 @@ const Photos = () => {
 
   return (
     <div className="min-h-screen bg-white">
-      {/* Header */}
-      <header className="fixed top-0 left-0 right-0 bg-white z-50 border-b">
-        <div className="py-4 px-8 flex justify-between items-center">
-          <svg viewBox="0 0 32 32" className="h-8 w-8">
-            <path d="m16 1c2.008 0 3.978.378 5.813 1.114 1.837.736 3.525 1.798 4.958 3.138 1.433 1.34 2.56 2.92 3.355 4.628.795 1.709 1.2 3.535 1.2 5.394 0 1.859-.405 3.685-1.2 5.394-.795 1.708-1.922 3.288-3.355 4.628-1.433 1.34-3.121 2.402-4.958 3.138-1.835.736-3.805 1.114-5.813 1.114s-3.978-.378-5.813-1.114c-1.837-.736-3.525-1.798-4.958-3.138-1.433-1.34-2.56-2.92-3.355-4.628-.795-1.709-1.2-3.535-1.2-5.394 0-1.859.405-3.685 1.2-5.394.795-1.708 1.922-3.288 3.355-4.628 1.433-1.34 3.121-2.402 4.958-3.138 1.835-.736 3.805-1.114 5.813-1.114z" fill="rgb(255, 56, 92)"/>
-          </svg>
-          <div className="flex items-center gap-6">
-            <button className="font-medium text-sm hover:underline">Questions?</button>
-            <button 
-              onClick={handleSaveAndExitClick}
-              disabled={state.isLoading}
-              className="font-medium text-sm hover:underline disabled:opacity-50"
-            >
-              {state.isLoading ? 'Saving...' : 'Save & exit'}
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* Progress Bar */}
-      <div className="w-full">
-        <div className="h-1 w-full flex space-x-2">
-          <div className="h-full bg-gray-200 flex-1 relative">
-            <div className="absolute left-0 top-0 h-full bg-[#FF385C] w-full"></div>
-          </div>
-          <div className="h-full bg-gray-200 flex-1 relative">
-            <div className="absolute left-0 top-0 h-full bg-[#FF385C] w-full"></div>
-          </div>
-          <div className="h-full bg-gray-200 flex-1"></div>
-        </div>
-      </div>
+      <OnboardingHeader showProgress={true} />
 
       {/* Main Content */}
       <main className="pt-20 px-8 pb-32">
@@ -496,36 +478,17 @@ const Photos = () => {
       </main>
 
       {/* Footer */}
-      <footer className="fixed bottom-0 left-0 right-0 bg-white border-t">
-        <div className="max-w-none">
-          <div className="px-8 py-6">
-            <div className="flex justify-between items-center">
-              <button
-                onClick={async () => await saveAndNavigate('/pages/amenities')}
-                className="hover:underline"
-              >
-                Back
-              </button>
-              <button 
-                className={`rounded-lg px-8 py-3.5 text-base font-medium ${
-                  canProceed
-                    ? 'bg-black text-white hover:bg-gray-800'
-                    : 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                }`}
-                onClick={async () => {
-                  if (canProceed) {
-                    // Save and navigate to photos preview
-                    await saveAndNavigate('/pages/photos-preview');
-                  }
-                }}
-                disabled={!canProceed}
-              >
-                {uploadedPhotos.length >= 5 ? 'Preview photos' : 'Next'}
-              </button>
-            </div>
-          </div>
-        </div>
-      </footer>
+      <OnboardingFooter
+        onBack={async () => await saveAndNavigate('/pages/amenities')}
+        onNext={async () => {
+          if (canProceed) {
+            await saveAndNavigate('/pages/photospreview');
+          }
+        }}
+        backText="Back"
+        nextText={uploadedPhotos.length >= 5 ? 'Preview photos' : 'Next'}
+        canProceed={canProceed}
+      />
 
       {/* Photo Preview Modal */}
       {showPreviewModal && (

@@ -1,13 +1,34 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { MapContainer, TileLayer, Marker, Popup, LayersControl, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, LayersControl, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L, { DragEndEvent } from 'leaflet';
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
 import markerIcon from 'leaflet/dist/images/marker-icon.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 import { useOnboardingAutoSave, useOnboardingNavigation } from './hooks/useOnboardingAutoSave';
+import { db } from '@/lib/firebase';
+import { doc, updateDoc, getDoc } from 'firebase/firestore';
 import OnboardingHeader from './components/OnboardingHeader';
+import OnboardingFooter from './components/OnboardingFooter';
+
+// Add custom CSS to override marker cursor and add blink animation
+const style = document.createElement('style');
+style.textContent = `
+  .custom-home-marker,
+  .custom-home-marker *,
+  .leaflet-marker-icon.custom-home-marker,
+  .leaflet-marker-icon.custom-home-marker *,
+  .leaflet-interactive.custom-home-marker,
+  .leaflet-interactive.custom-home-marker * {
+    cursor: default !important;
+    pointer-events: auto !important;
+  }
+`;
+if (!document.head.querySelector('style[data-marker-cursor]')) {
+  style.setAttribute('data-marker-cursor', 'true');
+  document.head.appendChild(style);
+}
 
 // Fix marker icon issue
 delete L.Icon.Default.prototype._getIconUrl;
@@ -15,6 +36,28 @@ L.Icon.Default.mergeOptions({
   iconRetinaUrl: markerIcon2x,
   iconUrl: markerIcon,
   shadowUrl: markerShadow,
+});
+
+// Custom home icon marker with brand color (warm brown/copper like logo)
+const homeIcon = L.divIcon({
+  html: `
+    <div style="position: relative; width: 50px; height: 65px; filter: drop-shadow(0 2px 8px rgba(0,0,0,0.3)); cursor: default !important;">
+      <svg width="50" height="65" viewBox="0 0 50 65" fill="none" xmlns="http://www.w3.org/2000/svg" style="cursor: default !important; color: hsl(var(--primary));">
+        <!-- Pin shape with pointed bottom -->
+        <path d="M25 65 C20 58, 5 40, 5 25 C5 11, 11 5, 25 5 C39 5, 45 11, 45 25 C45 40, 30 58, 25 65 Z" 
+              fill="currentColor" stroke="white" stroke-width="3" stroke-linejoin="round" style="cursor: default !important;"/>
+        <!-- Home icon -->
+        <g transform="translate(13, 12)" style="cursor: default !important;">
+          <path d="M12 2L0 10V22H5V15H19V22H24V10L12 2Z" fill="white" style="cursor: default !important;"/>
+          <rect x="8" y="18" width="8" height="4" fill="white" style="cursor: default !important;"/>
+        </g>
+      </svg>
+    </div>
+  `,
+  className: 'custom-home-marker',
+  iconSize: [50, 65],
+  iconAnchor: [25, 65],
+  popupAnchor: [0, -65]
 });
 
 function MapUpdater({ center, onClick }) {
@@ -58,7 +101,6 @@ const Location = () => {
     country: '',
     zipCode: '',
     unit: '',
-    level: '',
     building: '',
     latitude: null,
     longitude: null
@@ -69,28 +111,148 @@ const Location = () => {
   const [suggestions, setSuggestions] = useState([]);
   const [isGeocoding, setIsGeocoding] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [showAddressForm, setShowAddressForm] = useState(
+    location.state?.showAddressForm || false
+  );
+  const [showFinalConfirm, setShowFinalConfirm] = useState(false);
+  const [showPreciseLocation, setShowPreciseLocation] = useState(false);
+  const [showConfirmation, setShowConfirmation] = useState(false);
+  const searchTimeoutRef = useRef(null);
+
+  // Handle navigation state from LocationConfirmation page
+  useEffect(() => {
+    if (location.state?.fromLocationConfirmation) {
+      // If coming from LocationConfirmation with showAddressForm flag, set it
+      if (location.state.showAddressForm !== undefined) {
+        setShowAddressForm(location.state.showAddressForm);
+      }
+      
+      // If location data is passed from LocationConfirmation, use it
+      if (location.state.locationData) {
+        setSelectedLocation(location.state.locationData);
+        setLocationFilled(true); // Mark location as filled since we have data
+      }
+      
+      // If position is passed from LocationConfirmation, use it
+      if (location.state.position) {
+        setPosition(location.state.position);
+      }
+    }
+  }, [location.state]);
+
+  // When opening the address confirmation form, prefill fields from saved draft (if present)
+  useEffect(() => {
+    if (showAddressForm && state?.locationData) {
+      const d = state.locationData;
+      setSelectedLocation(prev => ({
+        street: d.street || prev.street || '',
+        barangay: d.barangay || prev.barangay || '',
+        city: d.city || prev.city || '',
+        province: d.province || prev.province || '',
+        country: d.country || prev.country || '',
+        zipCode: d.zipCode || prev.zipCode || '',
+        unit: d.unit || prev.unit || '',
+        building: d.building || prev.building || '',
+        latitude: d.latitude ?? prev.latitude ?? position[0],
+        longitude: d.longitude ?? prev.longitude ?? position[1],
+      }));
+    }
+  }, [showAddressForm, state?.locationData]);
   const handleMapClick = async (e) => {
     const { lat, lng } = e.latlng;
     setPosition([lat, lng]);
-    // Reverse geocode to fill building, unit, level, etc.
+    setLocationFilled(true);
+    setShowConfirmation(true);
+    // Close search suggestions when pinning
+    setSearchFocused(false);
+    setSuggestions([]);
+    
+    // Reverse geocode to fill building, unit, etc.
     try {
-      const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
-      const data = await response.json();
-      setSelectedLocation(prev => ({
-        ...prev,
-        barangay: data.address.suburb || data.address.village || data.address.neighbourhood || '',
-        zipCode: data.address.postcode || '',
-        street: data.address.road || prev.street,
-        city: data.address.city || data.address.town || data.address.municipality || prev.city,
-        province: data.address.state || data.address.region || data.address.county || data.address.state_district || '',
-        unit: data.address.unit || data.address.level || data.address.apartment || data.address.flat || '',
-        level: data.address.level || '',
-        building: data.address.building || data.address.public_building || data.address.commercial || data.address.residential || data.address.apartment || data.address.house || data.address.hotel || '',
+      // Try BigDataCloud first (better CORS support)
+      try {
+        const bigDataResponse = await fetch(
+          `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`
+        );
+        if (bigDataResponse.ok) {
+          const bigData = await bigDataResponse.json();
+          if (bigData && bigData.countryName) {
+            // Clean country name
+            let countryName = bigData.countryName.replace(/\s*\(the\)\s*/gi, '').trim();
+            countryName = countryName.replace(/\s*-\s*[A-Z]{2,3}\s*$/i, '').trim();
+            countryName = countryName.replace(/\s*\([A-Z]{2,3}\)\s*$/i, '').trim();
+            
+            // Construct display name
+            const addressParts = [];
+            if (bigData.locality) addressParts.push(bigData.locality);
+            if (bigData.city) addressParts.push(bigData.city);
+            if (bigData.principalSubdivision) addressParts.push(bigData.principalSubdivision);
+            if (countryName) addressParts.push(countryName);
+            const displayName = addressParts.join(', ');
+            
+            setSearchValue(displayName || `${lat}, ${lng}`);
+            setSelectedLocation({
+              street: bigData.locality || '',
+              barangay: bigData.localityInfo?.administrative?.[4]?.name || bigData.localityInfo?.administrative?.[3]?.name || '',
+              city: bigData.city || bigData.localityInfo?.administrative?.[2]?.name || bigData.localityInfo?.administrative?.[1]?.name || '',
+              province: (bigData.principalSubdivision && bigData.principalSubdivision !== 'region') ? bigData.principalSubdivision :
+                       (bigData.localityInfo?.administrative?.[1]?.name && bigData.localityInfo.administrative[1].name !== 'region') ? bigData.localityInfo.administrative[1].name :
+                       (bigData.localityInfo?.administrative?.[0]?.name && bigData.localityInfo.administrative[0].name !== 'region') ? bigData.localityInfo.administrative[0].name : '',
+              zipCode: bigData.postcode || '',
+              unit: '',
+              building: '',
+              latitude: lat,
+              longitude: lng,
+              country: countryName || 'Philippines'
+            });
+            return; // Success, exit early
+          }
+        }
+      } catch (bigDataError) {
+        console.log('BigDataCloud failed, trying Nominatim:', bigDataError);
+      }
+      
+      // Fallback to Nominatim via CORS proxy
+      const nominatimUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&addressdetails=1`;
+      const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(nominatimUrl)}`;
+      const response = await fetch(proxyUrl);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const proxyData = await response.json();
+      let data;
+      try {
+        data = JSON.parse(proxyData.contents || '{}');
+      } catch (parseError) {
+        console.error('Error parsing Nominatim response:', parseError);
+        data = {};
+      }
+      
+      const addr = data.address || {};
+      setSearchValue(data.display_name || `${lat}, ${lng}`);
+      setSelectedLocation({
+        barangay: addr.suburb || addr.village || addr.neighbourhood || '',
+        zipCode: addr.postcode || '',
+        street: addr.road || '',
+        city: addr.city || addr.town || addr.municipality || '',
+        province: addr.state || addr.region || addr.county || addr.state_district || '',
+        unit: addr.unit || addr.apartment || addr.flat || '',
+        building: addr.building || addr.public_building || addr.commercial || addr.residential || '',
         latitude: lat,
         longitude: lng,
-        country: data.address.country || prev.country
+        country: addr.country || 'Philippines'
+      });
+    } catch (error) {
+      console.error('Error reverse geocoding on map click:', error);
+      // At minimum, set coordinates even if geocoding fails
+      setSearchValue(`${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+      setSelectedLocation(prev => ({
+        ...prev,
+        latitude: lat,
+        longitude: lng
       }));
-    } catch {}
+    }
   };
 
   const handleSaveAndExit = () => {
@@ -101,10 +263,16 @@ const Location = () => {
   const handleMarkerDragEnd = async (e) => {
     const { lat, lng } = e.target.getLatLng();
     setPosition([lat, lng]);
-    // Reverse geocode to fill building, unit, level, etc.
+    // Reverse geocode to fill building, unit, etc.
     try {
-      const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
-      const data = await response.json();
+      const nominatimUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`;
+      const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(nominatimUrl)}`;
+      const response = await fetch(proxyUrl);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const proxyData = await response.json();
+      const data = JSON.parse(proxyData.contents || '{}');
       setSelectedLocation(prev => ({
         ...prev,
         barangay: data.address.suburb || data.address.village || data.address.neighbourhood || '',
@@ -112,8 +280,7 @@ const Location = () => {
         street: data.address.road || prev.street,
         city: data.address.city || data.address.town || data.address.municipality || prev.city,
         province: data.address.state || data.address.region || data.address.county || data.address.state_district || '',
-        unit: data.address.unit || data.address.level || data.address.apartment || data.address.flat || '',
-        level: data.address.level || '',
+        unit: data.address.unit || data.address.apartment || data.address.flat || '',
         building: data.address.building || data.address.public_building || data.address.commercial || data.address.residential || data.address.apartment || data.address.house || data.address.hotel || '',
         latitude: lat,
         longitude: lng,
@@ -131,8 +298,14 @@ const Location = () => {
   const geocodeAddress = async (query) => {
     if (!query) return;
     try {
-      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`);
-      const results = await response.json();
+      const nominatimUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`;
+      const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(nominatimUrl)}`;
+      const response = await fetch(proxyUrl);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const proxyData = await response.json();
+      const results = JSON.parse(proxyData.contents || '[]');
       if (results && results[0]) {
         setPosition([parseFloat(results[0].lat), parseFloat(results[0].lon)]);
         setSelectedLocation(prev => ({
@@ -145,68 +318,345 @@ const Location = () => {
     } catch {}
   };
 
-  // Fetch suggestions as user types
+  // Fetch suggestions as user types with debouncing
   useEffect(() => {
-    if (searchValue.length < 3) {
+    // Clear previous timeout
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    // Clear suggestions if search value is too short
+    if (searchValue.length < 2) {
       setSuggestions([]);
+      setIsSearching(false);
       return;
     }
-    const fetchSuggestions = async () => {
+
+    // Set loading state
+    setIsSearching(true);
+
+    // Debounce the API call
+    searchTimeoutRef.current = setTimeout(async () => {
       try {
-        const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchValue)}&addressdetails=1&limit=5`);
-        const results = await response.json();
+        // Get current map center for proximity search
+        const [lat, lon] = position;
+        
+        // Create viewbox around current position (approximately 50km radius)
+        const latOffset = 0.5; // ~55km
+        const lonOffset = 0.5; // ~55km
+        const viewbox = `${lon - lonOffset},${lat + latOffset},${lon + lonOffset},${lat - latOffset}`;
+        
+        // Use CORS proxy for Nominatim to avoid CORS issues
+        const nominatimUrl = `https://nominatim.openstreetmap.org/search?` +
+          `format=json&` +
+          `q=${encodeURIComponent(searchValue)}&` +
+          `addressdetails=1&` +
+          `limit=8&` +
+          `viewbox=${viewbox}&` +
+          `bounded=1`;
+        
+        // Use CORS proxy
+        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(nominatimUrl)}`;
+        const response = await fetch(proxyUrl);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const proxyData = await response.json();
+        const results = JSON.parse(proxyData.contents || '[]');
+        
+        // If no results found in bounded area, try again without bounds
+        if (results.length === 0) {
+          const fallbackUrl = `https://nominatim.openstreetmap.org/search?` +
+            `format=json&` +
+            `q=${encodeURIComponent(searchValue)}&` +
+            `addressdetails=1&` +
+            `limit=8&` +
+            `lat=${lat}&` +
+            `lon=${lon}`;
+          
+          const fallbackProxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(fallbackUrl)}`;
+          const fallbackResponse = await fetch(fallbackProxyUrl);
+          
+          if (!fallbackResponse.ok) {
+            throw new Error(`HTTP error! status: ${fallbackResponse.status}`);
+          }
+          
+          const fallbackProxyData = await fallbackResponse.json();
+          const fallbackResults = JSON.parse(fallbackProxyData.contents || '[]');
+          setSuggestions(fallbackResults);
+        } else {
         setSuggestions(results);
-      } catch {
+        }
+        
+        setIsSearching(false);
+      } catch (error) {
+        console.error('Error fetching location suggestions:', error);
+        // On CORS error or other failures, show empty suggestions gracefully
         setSuggestions([]);
+        setIsSearching(false);
+      }
+    }, 300); // 300ms debounce delay
+
+    // Cleanup function
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
       }
     };
-    fetchSuggestions();
-  }, [searchValue]);
+  }, [searchValue, position]);
 
   // Handle search bar input
   const handleSearchChange = (e) => {
     setSearchValue(e.target.value);
     setLocationFilled(false);
+    setShowConfirmation(false);
   };
 
-  // When a suggestion is clicked
-  const handleSuggestionClick = (suggestion) => {
+  // When a suggestion is clicked - pin location and show confirmation
+  const handleSuggestionClick = async (suggestion) => {
     setSearchValue(suggestion.display_name);
-    setPosition([parseFloat(suggestion.lat), parseFloat(suggestion.lon)]);
+    const lat = parseFloat(suggestion.lat);
+    const lon = parseFloat(suggestion.lon);
+    setPosition([lat, lon]);
     setLocationFilled(true);
     setSuggestions([]);
+    setSearchFocused(false);
+    setIsSearching(false);
+    setShowConfirmation(true);
+    
+    // Comprehensive parsing of address details from suggestion
+    const addr = suggestion.address || {};
+    
+    // Extract street address - try multiple fields
+    const street = addr.road || 
+                   addr.pedestrian || 
+                   addr.footway || 
+                   addr.path || 
+                   addr.street || 
+                   addr.road_reference || '';
+    
+    // Extract barangay/district - try multiple fields
+    const barangay = addr.suburb || 
+                     addr.village || 
+                     addr.neighbourhood || 
+                     addr.quarter || 
+                     addr.district || 
+                     addr.residential || 
+                     addr.city_district || '';
+    
+    // Extract city - try multiple fields
+    const city = addr.city || 
+                 addr.town || 
+                 addr.municipality || 
+                 addr.city_district || 
+                 addr.locality || '';
+    
+    // Extract province/state - try multiple fields
+    const province = addr.state || 
+                     addr.region || 
+                     addr.county || 
+                     addr.state_district || 
+                     addr.province || 
+                     addr.administrative || '';
+    
+    // Extract country - clean it
+    let country = addr.country || 'Philippines';
+    country = country.replace(/\s*\(the\)\s*/gi, '').trim();
+    country = country.replace(/\s*-\s*[A-Z]{2,3}\s*$/i, '').trim();
+    country = country.replace(/\s*\([A-Z]{2,3}\)\s*$/i, '').trim();
+    
+    // Extract ZIP code
+    const zipCode = addr.postcode || '';
+    
+    // Extract unit/level - try multiple fields
+    const unit = addr.unit || 
+                 addr.apartment || 
+                 addr.flat || 
+                 addr.house_number || 
+                 addr.level || 
+                 addr.floor || '';
+    
+    // Extract building name - try multiple fields
+    const building = addr.building || 
+                    addr.public_building || 
+                    addr.commercial || 
+                    addr.shop || 
+                    addr.amenity || 
+                    addr.name || '';
+    
+    // Set all parsed location data
+    setSelectedLocation({
+      street: street,
+      barangay: barangay,
+      city: city,
+      province: province,
+      country: country,
+      zipCode: zipCode,
+      unit: unit,
+      building: building,
+      latitude: lat,
+      longitude: lon
+    });
+    
+    console.log('Location page: Parsed location data from suggestion:', {
+      street, barangay, city, province, country, zipCode, unit, building, lat, lon
+    });
   };
 
-  // Use current location
+  // Use current location - pin and show confirmation
   const handleUseCurrentLocation = () => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(async (pos) => {
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
         setPosition([lat, lng]);
-        // Reverse geocode to get address
-        try {
-          const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
-          const data = await response.json();
-          const addressString = data.display_name || '';
-          setSearchValue(addressString);
           setSuggestions([]);
           setLocationFilled(true);
+        setSearchFocused(false);
+        setShowConfirmation(true);
+        
+        // Reverse geocode to get address - try BigDataCloud first
+        try {
+          // Try BigDataCloud first (better CORS support)
+          try {
+            const bigDataResponse = await fetch(
+              `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`
+            );
+            if (bigDataResponse.ok) {
+              const bigData = await bigDataResponse.json();
+              if (bigData && bigData.countryName) {
+                // Clean country name
+                let countryName = bigData.countryName.replace(/\s*\(the\)\s*/gi, '').trim();
+                countryName = countryName.replace(/\s*-\s*[A-Z]{2,3}\s*$/i, '').trim();
+                countryName = countryName.replace(/\s*\([A-Z]{2,3}\)\s*$/i, '').trim();
+                
+                // Construct display name
+                const addressParts = [];
+                if (bigData.locality) addressParts.push(bigData.locality);
+                if (bigData.city) addressParts.push(bigData.city);
+                if (bigData.principalSubdivision) addressParts.push(bigData.principalSubdivision);
+                if (countryName) addressParts.push(countryName);
+                const displayName = addressParts.join(', ');
+                
+                setSearchValue(displayName || `${lat}, ${lng}`);
+                setSelectedLocation({
+                  street: bigData.locality || '',
+                  barangay: bigData.localityInfo?.administrative?.[4]?.name || bigData.localityInfo?.administrative?.[3]?.name || '',
+                  city: bigData.city || bigData.localityInfo?.administrative?.[2]?.name || bigData.localityInfo?.administrative?.[1]?.name || '',
+                  province: (bigData.principalSubdivision && bigData.principalSubdivision !== 'region') ? bigData.principalSubdivision :
+                           (bigData.localityInfo?.administrative?.[1]?.name && bigData.localityInfo.administrative[1].name !== 'region') ? bigData.localityInfo.administrative[1].name :
+                           (bigData.localityInfo?.administrative?.[0]?.name && bigData.localityInfo.administrative[0].name !== 'region') ? bigData.localityInfo.administrative[0].name : '',
+                  zipCode: bigData.postcode || '',
+                  unit: '',
+                  building: '',
+                  latitude: lat,
+                  longitude: lng,
+                  country: countryName || 'Philippines'
+                });
+                return; // Success, exit early
+              }
+            }
+          } catch (bigDataError) {
+            console.log('BigDataCloud failed, trying Nominatim:', bigDataError);
+          }
+          
+          // Fallback to Nominatim via CORS proxy
+          const nominatimUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&addressdetails=1`;
+          const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(nominatimUrl)}`;
+          const response = await fetch(proxyUrl);
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+          const proxyData = await response.json();
+          let data;
+          try {
+            data = JSON.parse(proxyData.contents || '{}');
+          } catch (parseError) {
+            console.error('Error parsing Nominatim response:', parseError);
+            data = {};
+          }
+          
+          const addr = data.address || {};
+          const addressString = data.display_name || '';
+          setSearchValue(addressString || `${lat}, ${lng}`);
+          
+          // Comprehensive extraction of address fields
+          const street = addr.road || 
+                        addr.pedestrian || 
+                        addr.footway || 
+                        addr.path || 
+                        addr.street || 
+                        addr.road_reference || '';
+          
+          const barangay = addr.suburb || 
+                          addr.village || 
+                          addr.neighbourhood || 
+                          addr.quarter || 
+                          addr.district || 
+                          addr.residential || 
+                          addr.city_district || '';
+          
+          const city = addr.city || 
+                      addr.town || 
+                      addr.municipality || 
+                      addr.city_district || 
+                      addr.locality || '';
+          
+          const province = addr.state || 
+                          addr.region || 
+                          addr.county || 
+                          addr.state_district || 
+                          addr.province || 
+                          addr.administrative || '';
+          
+          let country = addr.country || 'Philippines';
+          country = country.replace(/\s*\(the\)\s*/gi, '').trim();
+          country = country.replace(/\s*-\s*[A-Z]{2,3}\s*$/i, '').trim();
+          country = country.replace(/\s*\([A-Z]{2,3}\)\s*$/i, '').trim();
+          
+          const zipCode = addr.postcode || '';
+          
+          const unit = addr.unit || 
+                      addr.apartment || 
+                      addr.flat || 
+                      addr.house_number || 
+                      addr.level || 
+                      addr.floor || '';
+          
+          const building = addr.building || 
+                          addr.public_building || 
+                          addr.commercial || 
+                          addr.shop || 
+                          addr.amenity || 
+                          addr.name || '';
+          
+          setSelectedLocation({
+            street: street,
+            barangay: barangay,
+            city: city,
+            province: province,
+            country: country,
+            zipCode: zipCode,
+            unit: unit,
+            building: building,
+            latitude: lat,
+            longitude: lng
+          });
+        } catch (error) {
+          console.error('Error reverse geocoding current location:', error);
+          // At minimum, set coordinates even if geocoding fails
+          setSearchValue(`${lat.toFixed(6)}, ${lng.toFixed(6)}`);
           setSelectedLocation(prev => ({
             ...prev,
-            barangay: data.address.suburb || data.address.village || data.address.neighbourhood || '',
-            zipCode: data.address.postcode || '',
-            street: data.address.road || prev.street,
-            city: data.address.city || data.address.town || data.address.municipality || prev.city,
-            province: data.address.state || data.address.region || data.address.county || data.address.state_district || '',
-            unit: data.address.unit || data.address.level || data.address.apartment || data.address.flat || '',
-            level: data.address.level || '',
-            building: data.address.building || data.address.public_building || data.address.commercial || data.address.residential || data.address.apartment || data.address.house || data.address.hotel || '',
             latitude: lat,
-            longitude: lng,
-            country: data.address.country || prev.country
+            longitude: lng
           }));
-        } catch {}
+        }
+      }, (error) => {
+        console.error('Error getting current location:', error);
+        alert('Unable to get your current location. Please check your browser settings and try again.');
       });
     }
   };
@@ -227,8 +677,14 @@ const Location = () => {
         setPosition([lat, lng]);
         // Reverse geocode to fill address fields
         try {
-          const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
-          const data = await response.json();
+          const nominatimUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`;
+          const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(nominatimUrl)}`;
+          const response = await fetch(proxyUrl);
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+          const proxyData = await response.json();
+          const data = JSON.parse(proxyData.contents || '{}');
           setSelectedLocation(prev => ({
             ...prev,
             barangay: data.address.suburb || data.address.village || data.address.neighbourhood || '',
@@ -256,23 +712,32 @@ const Location = () => {
   };
 
   const showDetails = locationFilled || position;
-  const canProceed = !!position;
+  // Block Next on first part until the user selects/pins a location
+  const canProceed = locationFilled;
 
   return (
-  <div className="min-h-screen bg-white flex flex-col items-center" style={{ overflow: 'hidden', height: '100vh' }}>
+  <div className="min-h-screen bg-white flex flex-col" style={{ overflow: showAddressForm ? 'auto' : 'hidden', minHeight: '100vh' }}>
       <OnboardingHeader />
+      
+      {!showAddressForm ? (
+        // Map Search View
+        <>
       {/* Onboarding header text */}
-      <div className="w-full max-w-2xl mx-auto flex flex-col items-center mt-32">
-  <h1 className="text-[32px] font-semibold text-gray-900 mb-2 text-center">Where's your place located?</h1>
-  <p className="text-gray-600 mb-8 text-center">Your address is only shared with guests after they've made a reservation.</p>
-  <div className="w-full mt-2 flex justify-center">
-          <div className="relative rounded-2xl overflow-hidden shadow-lg" style={{ width: 520, height: 'calc(100vh - 320px)' }}>
-            {/* Sticky search bar */}
-            <div className="sticky top-0 left-0 w-full z-30 flex justify-center" style={{ pointerEvents: 'auto' }}>
-              <form onSubmit={handleSearchSubmit} className="w-[90%] mt-6">
-                <div className="flex flex-col gap-2 bg-white rounded-2xl shadow-lg p-2 w-full relative">
-                  <div className="flex items-center border border-gray-300 rounded-2xl px-4 py-3 bg-white">
-                    <span className="mr-2 text-xl">📍</span>
+      <div className="w-full max-w-5xl mx-auto flex flex-col items-center mt-24 px-8">
+  <h1 className="text-[30px] font-medium text-gray-900 mb-2 text-center">Where's your place <span className="text-primary">located</span>?</h1>
+  <p className="text-gray-600 mb-6 text-center text-base">Your address is only shared with guests after they've made a reservation.</p>
+  
+  {/* Map container with search bar overlay */}
+  <div className="w-full mt-6 flex justify-center">
+    <div className="relative rounded-2xl overflow-hidden shadow-lg w-full" style={{ maxWidth: '900px' }}>
+      {/* Search bar overlaying the map */}
+      <div className="absolute top-0 left-0 w-full z-[1000] flex justify-center" style={{ pointerEvents: 'none' }}>
+        <form onSubmit={handleSearchSubmit} className="w-[90%] mt-6" style={{ pointerEvents: 'auto' }}>
+          <div className="flex flex-col gap-2 bg-white rounded-2xl shadow-xl w-full relative">
+            <div className="flex items-center border-2 border-black rounded-2xl px-5 py-4 bg-white">
+              <svg className="w-6 h-6 text-black mr-3" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+              </svg>
                     <input
                       type="text"
                       placeholder="Enter your address"
@@ -280,47 +745,163 @@ const Location = () => {
                       onChange={handleSearchChange}
                       onFocus={() => setSearchFocused(true)}
                       onBlur={() => setTimeout(() => setSearchFocused(false), 200)}
-                      className="flex-1 p-2 border-none focus:outline-none bg-transparent text-lg"
+                className="flex-1 text-base text-gray-900 placeholder-gray-700 border-none focus:outline-none bg-transparent font-normal"
                       autoComplete="off"
                     />
-                    {searchValue && (
-                      <button type="button" onClick={() => setSearchValue('')} className="ml-2 text-gray-400 text-xl">✕</button>
+              {isSearching && (
+                <div className="ml-2 animate-spin rounded-full h-5 w-5 border-b-2 border-gray-900"></div>
+              )}
+              {searchValue && !isSearching && (
+                <button type="button" onClick={() => setSearchValue('')} className="ml-2 text-gray-500 hover:text-gray-700 text-xl">✕</button>
                     )}
                   </div>
-                  {searchFocused && (
-                    <div className="mt-2 rounded-2xl shadow bg-white border border-gray-200 flex items-center px-4 py-3 cursor-pointer" onMouseDown={e => e.preventDefault()} onClick={handleUseCurrentLocation}>
-                      <span className="mr-3 text-2xl">&#x1F4CD;</span>
-                      <span className="text-gray-800 text-base">Use my current location</span>
+            {/* Show options when search bar is focused but no valid suggestions yet */}
+            {searchFocused && searchValue.length < 2 && (
+              <div className="px-2 pb-2">
+                {/* Use my current location option at top */}
+                <div className="rounded-xl hover:bg-gray-50 flex items-center px-4 py-3 cursor-pointer transition-colors" onMouseDown={e => e.preventDefault()} onClick={handleUseCurrentLocation}>
+                  <svg className="w-6 h-6 text-gray-700 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  <span className="text-gray-900 text-base font-normal">Use my current location</span>
+                </div>
+                {/* Enter address manually option at bottom */}
+                <div className="border-t border-gray-200 mt-2 pt-2">
+                  <div
+                    className="flex items-center gap-4 px-4 py-3 cursor-pointer hover:bg-gray-50 rounded-xl transition-colors"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => {
+                      setShowAddressForm(true);
+                      setSearchFocused(false);
+                    }}
+                  >
+                    <svg className="w-6 h-6 text-gray-700 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                    </svg>
+                    <span className="text-gray-900 text-base font-normal">Enter address manually</span>
+                  </div>
+                </div>
                     </div>
                   )}
-                  {suggestions.length > 0 && (
-                    <ul className="absolute top-20 left-0 right-0 bg-white border border-gray-200 rounded-xl shadow-lg z-40 max-h-72 overflow-y-auto">
+            {/* Show options when searching (loading state) */}
+            {searchFocused && isSearching && searchValue.length >= 2 && (
+              <div className="px-2 pb-2">
+                {/* Use my current location option at top */}
+                <div className="rounded-xl hover:bg-gray-50 flex items-center px-4 py-3 cursor-pointer transition-colors mb-2" onMouseDown={e => e.preventDefault()} onClick={handleUseCurrentLocation}>
+                  <svg className="w-6 h-6 text-gray-700 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  <span className="text-gray-900 text-base font-normal">Use my current location</span>
+                </div>
+                <div className="px-4 py-3 text-center text-gray-500 text-sm">
+                  Searching...
+                </div>
+                {/* Enter address manually option at bottom */}
+                <div className="border-t border-gray-200 mt-2 pt-2">
+                  <div
+                    className="flex items-center gap-4 px-4 py-3 cursor-pointer hover:bg-gray-50 rounded-xl transition-colors"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => {
+                      setShowAddressForm(true);
+                      setSearchFocused(false);
+                    }}
+                  >
+                    <svg className="w-6 h-6 text-gray-700 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                    </svg>
+                    <span className="text-gray-900 text-base font-normal">Enter address manually</span>
+                  </div>
+                </div>
+                    </div>
+                  )}
+            {searchFocused && searchValue.length >= 2 && suggestions.length > 0 && !isSearching && (
+              <div className="px-2 pb-2">
+                {/* Use my current location option at top */}
+                <div className="rounded-xl hover:bg-gray-50 flex items-center px-4 py-3 cursor-pointer transition-colors mb-2" onMouseDown={e => e.preventDefault()} onClick={handleUseCurrentLocation}>
+                  <svg className="w-6 h-6 text-gray-700 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  <span className="text-gray-900 text-base font-normal">Use my current location</span>
+                </div>
+                <ul className="max-h-80 overflow-y-auto">
                       {suggestions.map((s, idx) => (
                         <li
                           key={s.place_id}
-                          className="flex items-start gap-3 p-4 cursor-pointer hover:bg-gray-100 border-b last:border-b-0"
+                      className="flex items-start gap-4 px-4 py-3 cursor-pointer hover:bg-gray-50 rounded-xl transition-colors"
                           onClick={() => handleSuggestionClick(s)}
                         >
-                          <span className="text-xl mt-1">📍</span>
-                          <div>
-                            <div className="font-semibold text-base">{s.display_name.split(',')[0]}</div>
-                            <div className="text-gray-600 text-sm">{s.display_name.replace(s.display_name.split(',')[0] + ',', '').trim()}</div>
+                      <svg className="w-6 h-6 text-gray-700 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+                      </svg>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold text-base text-gray-900 truncate">{s.display_name.split(',')[0]}</div>
+                        <div className="text-gray-600 text-sm leading-snug">{s.display_name.replace(s.display_name.split(',')[0] + ',', '').trim()}</div>
                           </div>
                         </li>
                       ))}
                     </ul>
+                {/* Enter address manually option */}
+                <div className="border-t border-gray-200 mt-2 pt-2">
+                  <div
+                    className="flex items-center gap-4 px-4 py-3 cursor-pointer hover:bg-gray-50 rounded-xl transition-colors"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => {
+                      setShowAddressForm(true);
+                      setSearchFocused(false);
+                    }}
+                  >
+                    <svg className="w-6 h-6 text-gray-700 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                    </svg>
+                    <span className="text-gray-900 text-base font-normal">Enter address manually</span>
+                  </div>
+                </div>
+              </div>
+            )}
+            {searchFocused && searchValue.length >= 2 && suggestions.length === 0 && !isSearching && (
+              <div className="px-2 pb-2">
+                {/* Use my current location option at top */}
+                <div className="rounded-xl hover:bg-gray-50 flex items-center px-4 py-3 cursor-pointer transition-colors mb-2" onMouseDown={e => e.preventDefault()} onClick={handleUseCurrentLocation}>
+                  <svg className="w-6 h-6 text-gray-700 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  <span className="text-gray-900 text-base font-normal">Use my current location</span>
+                </div>
+                <div className="px-4 py-3 text-center text-gray-500 text-sm">
+                  No locations found. Try a different search term.
+                </div>
+                {/* Enter address manually option */}
+                <div className="border-t border-gray-200 mt-2 pt-2">
+                  <div
+                    className="flex items-center gap-4 px-4 py-3 cursor-pointer hover:bg-gray-50 rounded-xl transition-colors"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => {
+                      setShowAddressForm(true);
+                      setSearchFocused(false);
+                    }}
+                  >
+                    <svg className="w-6 h-6 text-gray-700 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                    </svg>
+                    <span className="text-gray-900 text-base font-normal">Enter address manually</span>
+                  </div>
+                </div>
+              </div>
                   )}
                 </div>
               </form>
             </div>
-            {/* Map below search bar */}
-            <div className="w-full h-full">
-              {/* Always show map, but only show pin/details if locationFilled */}
+
+      {/* Map with search bar overlaid on top */}
               <MapContainer
                 center={position}
                 zoom={15}
-                style={{ height: '300px', width: '100%' }}
-                zoomControl={true}
+        style={{ height: '600px', width: '100%', borderRadius: '16px' }}
+        zoomControl={false}
                 doubleClickZoom={true}
                 scrollWheelZoom={true}
               >
@@ -329,37 +910,977 @@ const Location = () => {
                   attribution="&copy; OpenStreetMap contributors"
                 />
                 {locationFilled && (
-                  <Marker position={position}>
-                    <Popup>
-                      {searchValue || 'Current location'}
-                    </Popup>
-                  </Marker>
+          <Marker position={position} icon={homeIcon} />
                 )}
                 <MapUpdater center={position} onClick={handleMapClick} />
               </MapContainer>
+
+              {/* Confirmation panel - compact, right bottom corner */}
+              {showConfirmation && (
+                <div className="absolute bottom-6 right-6 bg-white rounded-xl shadow-2xl p-4 z-[1001]" style={{ width: '280px' }}>
+                  <div className="flex flex-col gap-3">
+                  <div className="flex items-center gap-3">
+                      <div className="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'hsl(var(--primary))' }}>
+                        <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+                        </svg>
+            </div>
+                      <h3 className="text-base font-semibold text-gray-900">Is this your location?</h3>
+          </div>
+                    <button
+                      onClick={async () => {
+                        setShowConfirmation(false);
+                        const [lat, lng] = position;
+                        let normalizedLocationData = null;
+                        
+                        // Normalize location data function
+                        const normalizeLocationData = (input) => {
+                          if (!input) return {};
+                          const allowedKeys = [
+                            'street', 'barangay', 'city', 'province', 'country', 'zipCode',
+                            'unit', 'building', 'latitude', 'longitude'
+                          ];
+                          const out = {};
+                          for (const key of allowedKeys) {
+                            let val = input[key];
+                            if (val === undefined || val === null) continue;
+                            if (typeof val === 'string') {
+                              val = val.trim();
+                              if (!val) continue;
+                              // Clean up country name: remove "(the)" and country code suffixes
+                              if (key === 'country') {
+                                val = val.replace(/\s*\(the\)\s*/gi, '');
+                                val = val.replace(/\s*-\s*[A-Z]{2,3}\s*$/i, '');
+                                val = val.replace(/\s*\([A-Z]{2,3}\)\s*$/i, '');
+                                val = val.trim();
+                              }
+                            }
+                            if ((key === 'latitude' || key === 'longitude') && typeof val === 'string') {
+                              val = parseFloat(val);
+                              if (!Number.isFinite(val)) continue;
+                            }
+                            out[key] = val;
+                          }
+                          return out;
+                        };
+                        
+                        // Check if selectedLocation already has complete data from search suggestion
+                        // Validate: has coordinates, and coordinates match current position (within small tolerance)
+                        const hasCompleteData = selectedLocation && 
+                          selectedLocation.latitude && 
+                          selectedLocation.longitude &&
+                          Math.abs(selectedLocation.latitude - lat) < 0.001 &&
+                          Math.abs(selectedLocation.longitude - lng) < 0.001 &&
+                          (selectedLocation.street || selectedLocation.city || selectedLocation.country);
+                        
+                        if (hasCompleteData) {
+                          // Use existing data from search suggestion, just ensure coordinates match current position
+                          normalizedLocationData = {
+                            ...selectedLocation,
+                            latitude: lat,
+                            longitude: lng
+                          };
+                          setSelectedLocation(normalizedLocationData);
+                          console.log('Location page: Using existing location data from search suggestion');
+                        } else {
+                          // Need to reverse geocode to get complete address data
+                          try {
+                            // Try BigDataCloud first for better accuracy
+                            const response = await fetch(
+                              `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`
+                            );
+                            const data = await response.json();
+                            
+                            if (data && data.countryName) {
+                              // Clean country name: remove "(the)" suffix
+                              let countryName = data.countryName.replace(/\s*\(the\)\s*/gi, '').trim();
+                              countryName = countryName.replace(/\s*-\s*[A-Z]{2,3}\s*$/i, '').trim();
+                              countryName = countryName.replace(/\s*\([A-Z]{2,3}\)\s*$/i, '').trim();
+                              
+                              // Construct street address from available data
+                              let streetAddress = '';
+                              if (data.localityInfo?.informative) {
+                                const streetInfo = data.localityInfo.informative.find(item => 
+                                  item.description?.includes('road') || 
+                                  item.description?.includes('street') ||
+                                  item.description?.includes('pedestrian') ||
+                                  item.description?.includes('path') ||
+                                  item.name
+                                );
+                                streetAddress = streetInfo?.name || '';
+                              }
+                              if (!streetAddress && data.locality) {
+                                streetAddress = data.locality;
+                              }
+                              
+                              // Extract barangay from administrative levels
+                              const barangay = data.localityInfo?.administrative?.[4]?.name || 
+                                             data.localityInfo?.administrative?.[3]?.name || 
+                                             data.localityInfo?.administrative?.[5]?.name || '';
+                              
+                              // Extract city from multiple sources
+                              const city = data.city || 
+                                          data.locality || 
+                                          data.localityInfo?.administrative?.[2]?.name || 
+                                          data.localityInfo?.administrative?.[1]?.name || '';
+                              
+                              // Extract province/state
+                              const province = (data.principalSubdivision && data.principalSubdivision !== 'region') ? data.principalSubdivision :
+                                             (data.localityInfo?.administrative?.[1]?.name && data.localityInfo.administrative[1].name !== 'region') ? data.localityInfo.administrative[1].name :
+                                             (data.localityInfo?.administrative?.[0]?.name && data.localityInfo.administrative[0].name !== 'region') ? data.localityInfo.administrative[0].name : '';
+                              
+                              // Merge with existing selectedLocation to preserve any manually entered data
+                              normalizedLocationData = {
+                                street: streetAddress || selectedLocation?.street || '',
+                                building: selectedLocation?.building || '',
+                                barangay: barangay || selectedLocation?.barangay || '',
+                                city: city || selectedLocation?.city || '',
+                                zipCode: data.postcode || selectedLocation?.zipCode || '',
+                                province: province || selectedLocation?.province || '',
+                                country: countryName || selectedLocation?.country || 'Philippines',
+                                unit: selectedLocation?.unit || '',
+                                latitude: lat,
+                                longitude: lng
+                              };
+                              setSelectedLocation(normalizedLocationData);
+                            } else {
+                              // Fallback to Nominatim if BigDataCloud fails
+                              const nominatimUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&addressdetails=1`;
+                              const nominatimProxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(nominatimUrl)}`;
+                              const nominatimResponse = await fetch(nominatimProxyUrl);
+                              if (!nominatimResponse.ok) {
+                                throw new Error(`HTTP error! status: ${nominatimResponse.status}`);
+                              }
+                              const nominatimProxyData = await nominatimResponse.json();
+                              const nominatimData = JSON.parse(nominatimProxyData.contents || '{}');
+                              const addr = nominatimData.address || {};
+                              
+                              // Comprehensive extraction similar to handleSuggestionClick
+                              const street = addr.road || 
+                                           addr.pedestrian || 
+                                           addr.footway || 
+                                           addr.path || 
+                                           addr.street || 
+                                           addr.road_reference || '';
+                              
+                              const barangay = addr.suburb || 
+                                             addr.village || 
+                                             addr.neighbourhood || 
+                                             addr.quarter || 
+                                             addr.district || 
+                                             addr.residential || 
+                                             addr.city_district || '';
+                              
+                              const city = addr.city || 
+                                         addr.town || 
+                                         addr.municipality || 
+                                         addr.city_district || 
+                                         addr.locality || '';
+                              
+                              const province = addr.state || 
+                                             addr.region || 
+                                             addr.county || 
+                                             addr.state_district || 
+                                             addr.province || 
+                                             addr.administrative || '';
+                              
+                              let country = addr.country || 'Philippines';
+                              country = country.replace(/\s*\(the\)\s*/gi, '').trim();
+                              country = country.replace(/\s*-\s*[A-Z]{2,3}\s*$/i, '').trim();
+                              country = country.replace(/\s*\([A-Z]{2,3}\)\s*$/i, '').trim();
+                              
+                              const zipCode = addr.postcode || '';
+                              
+                              const unit = addr.unit || 
+                                         addr.apartment || 
+                                         addr.flat || 
+                                         addr.house_number || 
+                                         addr.level || 
+                                         addr.floor || '';
+                              
+                              const building = addr.building || 
+                                              addr.public_building || 
+                                              addr.commercial || 
+                                              addr.shop || 
+                                              addr.amenity || 
+                                              addr.name || '';
+                              
+                              // Merge with existing selectedLocation, but prioritize reverse geocoded data
+                              normalizedLocationData = {
+                                street: street || selectedLocation?.street || '',
+                                barangay: barangay || selectedLocation?.barangay || '',
+                                city: city || selectedLocation?.city || '',
+                                province: province || selectedLocation?.province || '',
+                                zipCode: zipCode || selectedLocation?.zipCode || '',
+                                country: country || selectedLocation?.country || 'Philippines',
+                                unit: unit || selectedLocation?.unit || '',
+                                building: building || selectedLocation?.building || '',
+                                latitude: lat,
+                                longitude: lng
+                              };
+                              setSelectedLocation(normalizedLocationData);
+                            }
+                            console.log('Location page: Reverse geocoded location data');
+                          } catch (error) {
+                            console.error('Error geocoding location on Confirm:', error);
+                            // At minimum, ensure coordinates are set and preserve existing data
+                            normalizedLocationData = {
+                              ...selectedLocation,
+                              latitude: lat,
+                              longitude: lng
+                            };
+                            setSelectedLocation(normalizedLocationData);
+                          }
+                        }
+                        
+                        // Normalize location data
+                        const currentLocationData = normalizeLocationData(normalizedLocationData);
+                        
+                        // Update context
+                        actions.updateLocationData(currentLocationData);
+                        if (actions.setCurrentStep) {
+                          actions.setCurrentStep('location');
+                        }
+                        
+                        // Try to get draftId and save to Firebase
+                        let draftIdToUse = state?.draftId || location.state?.draftId;
+                        
+                        // If draftId starts with 'temp_', it's a temporary ID - we need to find/create a real one
+                        if (draftIdToUse && draftIdToUse.startsWith('temp_')) {
+                          console.log('Location page: Found temp ID on Confirm, attempting to find or create real draft');
+                          draftIdToUse = null; // Reset to null so we can find/create a real one
+                        }
+                        
+                        // If no draftId found, try to restore it from user's drafts
+                        if (!draftIdToUse && state.user?.uid) {
+                          try {
+                            const { getUserDrafts, saveDraft } = await import('@/pages/Host/services/draftService');
+                            const drafts = await getUserDrafts();
+                            if (drafts.length > 0) {
+                              draftIdToUse = drafts[0].id;
+                              console.log('Location page: Restored draftId from getUserDrafts:', draftIdToUse);
+                              if (actions.setDraftId) {
+                                actions.setDraftId(draftIdToUse);
+                              }
+                            } else {
+                              // No drafts exist, create a new one
+                              console.log('Location page: No existing drafts found, creating new draft on Confirm');
+                              const newDraftData = {
+                                currentStep: 'location',
+                                category: state.category || 'accommodation',
+                                data: {
+                                  locationData: currentLocationData
+                                }
+                              };
+                              draftIdToUse = await saveDraft(newDraftData, null);
+                              console.log('Location page: Created new draft on Confirm:', draftIdToUse);
+                              if (actions.setDraftId) {
+                                actions.setDraftId(draftIdToUse);
+                              }
+                            }
+                          } catch (error) {
+                            console.error('Location page: Error restoring/creating draftId on Confirm:', error);
+                          }
+                        }
+                        
+                        // Save to Firebase if we have a valid (non-temp) draftId
+                        if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
+                          try {
+                            const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
+                            const docSnap = await getDoc(draftRef);
+                            
+                            if (docSnap.exists()) {
+                              await updateDoc(draftRef, {
+                                'data.locationData': currentLocationData,
+                                lastModified: new Date()
+                              });
+                              console.log('Location page: ✅ Saved complete locationData to Firebase on Confirm click', currentLocationData);
+                            } else {
+                              // Document doesn't exist, create it
+                              console.log('Location page: Document does not exist on Confirm, creating new one');
+                              const { saveDraft } = await import('@/pages/Host/services/draftService');
+                              const newDraftData = {
+                                currentStep: 'location',
+                                category: state.category || 'accommodation',
+                                data: {
+                                  locationData: currentLocationData
+                                }
+                              };
+                              draftIdToUse = await saveDraft(newDraftData, draftIdToUse);
+                              console.log('Location page: Created document on Confirm with ID:', draftIdToUse);
+                              if (actions.setDraftId) {
+                                actions.setDraftId(draftIdToUse);
+                              }
+                            }
+                          } catch (firebaseError) {
+                            console.error('Location page: Error saving to Firebase on Confirm:', firebaseError);
+                          }
+                        } else {
+                          console.warn('Location page: No draftId found, cannot save on Confirm');
+                        }
+                        
+                        setShowAddressForm(true);
+                      }}
+                      className="w-full px-4 py-2.5 rounded-lg font-medium transition-all text-sm"
+                      style={{ background: 'hsl(var(--primary))', color: 'white' }}
+                      onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.9'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
+                    >
+                      Confirm
+                    </button>
+        </div>
+      </div>
+              )}
             </div>
           </div>
         </div>
+      <OnboardingFooter
+        onBack={() => navigate('/pages/privacytype')}
+        onNext={() => {}}
+        backText="Back"
+        nextText="Next"
+        canProceed={false}
+      />
+      </>
+      ) : (
+        // Address Confirmation Form View
+        <>
+          <div className="w-full max-w-5xl mx-auto mt-32 px-8 pb-32 flex-1">
+            <div className="mx-auto" style={{ maxWidth: '900px' }}>
+              <h1 className="text-[32px] font-semibold text-gray-900 mb-2">Confirm your address</h1>
+              <p className="text-gray-600 mb-8">Your address is only shared with guests after they've made a reservation.</p>
+            </div>
+            
+            <form 
+              onSubmit={(e) => {
+                e.preventDefault();
+                // Validate required fields
+                if (!selectedLocation.country || !selectedLocation.street || !selectedLocation.city || !selectedLocation.zipCode || !selectedLocation.province) {
+                  alert('Please fill in all required fields (Country, Street address, City, ZIP code, and Province) before continuing.');
+                  return;
+                }
+                setShowFinalConfirm(true);
+              }}
+              className="flex flex-col gap-4 mx-auto" 
+              style={{ maxWidth: '900px' }}
+            >
+              {/* Country / region */}
+              <div>
+                <label className={`block text-xs mb-1 ${!selectedLocation.country ? 'text-red-500' : 'text-gray-600'}`}>Country / region <span className="text-red-500">*</span></label>
+                <select
+                  required
+                  value={selectedLocation.country}
+                  onChange={(e) => setSelectedLocation({ ...selectedLocation, country: e.target.value })}
+                  className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:border-gray-900 bg-white appearance-none ${
+                    !selectedLocation.country ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  style={{ 
+                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E")`,
+                    backgroundPosition: 'right 0.5rem center',
+                    backgroundRepeat: 'no-repeat',
+                    backgroundSize: '1.5em 1.5em',
+                    paddingRight: '2.5rem'
+                  }}
+                >
+                  <option value="">Select a country</option>
+                  <option value="Afghanistan">Afghanistan</option>
+                  <option value="Albania">Albania</option>
+                  <option value="Algeria">Algeria</option>
+                  <option value="Andorra">Andorra</option>
+                  <option value="Argentina">Argentina</option>
+                  <option value="Armenia">Armenia</option>
+                  <option value="Australia">Australia</option>
+                  <option value="Austria">Austria</option>
+                  <option value="Azerbaijan">Azerbaijan</option>
+                  <option value="Bahamas">Bahamas</option>
+                  <option value="Bahrain">Bahrain</option>
+                  <option value="Bangladesh">Bangladesh</option>
+                  <option value="Barbados">Barbados</option>
+                  <option value="Belarus">Belarus</option>
+                  <option value="Belgium">Belgium</option>
+                  <option value="Belize">Belize</option>
+                  <option value="Benin">Benin</option>
+                  <option value="Bhutan">Bhutan</option>
+                  <option value="Bolivia">Bolivia</option>
+                  <option value="Bosnia and Herzegovina">Bosnia and Herzegovina</option>
+                  <option value="Botswana">Botswana</option>
+                  <option value="Brazil">Brazil</option>
+                  <option value="Brunei">Brunei</option>
+                  <option value="Bulgaria">Bulgaria</option>
+                  <option value="Burkina Faso">Burkina Faso</option>
+                  <option value="Burundi">Burundi</option>
+                  <option value="Cambodia">Cambodia</option>
+                  <option value="Cameroon">Cameroon</option>
+                  <option value="Canada">Canada</option>
+                  <option value="Cape Verde">Cape Verde</option>
+                  <option value="Central African Republic">Central African Republic</option>
+                  <option value="Chad">Chad</option>
+                  <option value="Chile">Chile</option>
+                  <option value="China">China</option>
+                  <option value="Colombia">Colombia</option>
+                  <option value="Comoros">Comoros</option>
+                  <option value="Congo">Congo</option>
+                  <option value="Costa Rica">Costa Rica</option>
+                  <option value="Croatia">Croatia</option>
+                  <option value="Cuba">Cuba</option>
+                  <option value="Cyprus">Cyprus</option>
+                  <option value="Czech Republic">Czech Republic</option>
+                  <option value="Denmark">Denmark</option>
+                  <option value="Djibouti">Djibouti</option>
+                  <option value="Dominica">Dominica</option>
+                  <option value="Dominican Republic">Dominican Republic</option>
+                  <option value="Ecuador">Ecuador</option>
+                  <option value="Egypt">Egypt</option>
+                  <option value="El Salvador">El Salvador</option>
+                  <option value="Equatorial Guinea">Equatorial Guinea</option>
+                  <option value="Eritrea">Eritrea</option>
+                  <option value="Estonia">Estonia</option>
+                  <option value="Ethiopia">Ethiopia</option>
+                  <option value="Fiji">Fiji</option>
+                  <option value="Finland">Finland</option>
+                  <option value="France">France</option>
+                  <option value="Gabon">Gabon</option>
+                  <option value="Gambia">Gambia</option>
+                  <option value="Georgia">Georgia</option>
+                  <option value="Germany">Germany</option>
+                  <option value="Ghana">Ghana</option>
+                  <option value="Greece">Greece</option>
+                  <option value="Grenada">Grenada</option>
+                  <option value="Guatemala">Guatemala</option>
+                  <option value="Guinea">Guinea</option>
+                  <option value="Guinea-Bissau">Guinea-Bissau</option>
+                  <option value="Guyana">Guyana</option>
+                  <option value="Haiti">Haiti</option>
+                  <option value="Honduras">Honduras</option>
+                  <option value="Hong Kong">Hong Kong</option>
+                  <option value="Hungary">Hungary</option>
+                  <option value="Iceland">Iceland</option>
+                  <option value="India">India</option>
+                  <option value="Indonesia">Indonesia</option>
+                  <option value="Iran">Iran</option>
+                  <option value="Iraq">Iraq</option>
+                  <option value="Ireland">Ireland</option>
+                  <option value="Israel">Israel</option>
+                  <option value="Italy">Italy</option>
+                  <option value="Jamaica">Jamaica</option>
+                  <option value="Japan">Japan</option>
+                  <option value="Jordan">Jordan</option>
+                  <option value="Kazakhstan">Kazakhstan</option>
+                  <option value="Kenya">Kenya</option>
+                  <option value="Kiribati">Kiribati</option>
+                  <option value="Kuwait">Kuwait</option>
+                  <option value="Kyrgyzstan">Kyrgyzstan</option>
+                  <option value="Laos">Laos</option>
+                  <option value="Latvia">Latvia</option>
+                  <option value="Lebanon">Lebanon</option>
+                  <option value="Lesotho">Lesotho</option>
+                  <option value="Liberia">Liberia</option>
+                  <option value="Libya">Libya</option>
+                  <option value="Liechtenstein">Liechtenstein</option>
+                  <option value="Lithuania">Lithuania</option>
+                  <option value="Luxembourg">Luxembourg</option>
+                  <option value="Macao">Macao</option>
+                  <option value="Madagascar">Madagascar</option>
+                  <option value="Malawi">Malawi</option>
+                  <option value="Malaysia">Malaysia</option>
+                  <option value="Maldives">Maldives</option>
+                  <option value="Mali">Mali</option>
+                  <option value="Malta">Malta</option>
+                  <option value="Marshall Islands">Marshall Islands</option>
+                  <option value="Mauritania">Mauritania</option>
+                  <option value="Mauritius">Mauritius</option>
+                  <option value="Mexico">Mexico</option>
+                  <option value="Micronesia">Micronesia</option>
+                  <option value="Moldova">Moldova</option>
+                  <option value="Monaco">Monaco</option>
+                  <option value="Mongolia">Mongolia</option>
+                  <option value="Montenegro">Montenegro</option>
+                  <option value="Morocco">Morocco</option>
+                  <option value="Mozambique">Mozambique</option>
+                  <option value="Myanmar">Myanmar</option>
+                  <option value="Namibia">Namibia</option>
+                  <option value="Nauru">Nauru</option>
+                  <option value="Nepal">Nepal</option>
+                  <option value="Netherlands">Netherlands</option>
+                  <option value="New Zealand">New Zealand</option>
+                  <option value="Nicaragua">Nicaragua</option>
+                  <option value="Niger">Niger</option>
+                  <option value="Nigeria">Nigeria</option>
+                  <option value="North Korea">North Korea</option>
+                  <option value="North Macedonia">North Macedonia</option>
+                  <option value="Norway">Norway</option>
+                  <option value="Oman">Oman</option>
+                  <option value="Pakistan">Pakistan</option>
+                  <option value="Palau">Palau</option>
+                  <option value="Palestine">Palestine</option>
+                  <option value="Panama">Panama</option>
+                  <option value="Papua New Guinea">Papua New Guinea</option>
+                  <option value="Paraguay">Paraguay</option>
+                  <option value="Peru">Peru</option>
+                  <option value="Philippines">Philippines</option>
+                  <option value="Poland">Poland</option>
+                  <option value="Portugal">Portugal</option>
+                  <option value="Qatar">Qatar</option>
+                  <option value="Romania">Romania</option>
+                  <option value="Russia">Russia</option>
+                  <option value="Rwanda">Rwanda</option>
+                  <option value="Saint Kitts and Nevis">Saint Kitts and Nevis</option>
+                  <option value="Saint Lucia">Saint Lucia</option>
+                  <option value="Saint Vincent and the Grenadines">Saint Vincent and the Grenadines</option>
+                  <option value="Samoa">Samoa</option>
+                  <option value="San Marino">San Marino</option>
+                  <option value="Sao Tome and Principe">Sao Tome and Principe</option>
+                  <option value="Saudi Arabia">Saudi Arabia</option>
+                  <option value="Senegal">Senegal</option>
+                  <option value="Serbia">Serbia</option>
+                  <option value="Seychelles">Seychelles</option>
+                  <option value="Sierra Leone">Sierra Leone</option>
+                  <option value="Singapore">Singapore</option>
+                  <option value="Slovakia">Slovakia</option>
+                  <option value="Slovenia">Slovenia</option>
+                  <option value="Solomon Islands">Solomon Islands</option>
+                  <option value="Somalia">Somalia</option>
+                  <option value="South Africa">South Africa</option>
+                  <option value="South Korea">South Korea</option>
+                  <option value="South Sudan">South Sudan</option>
+                  <option value="Spain">Spain</option>
+                  <option value="Sri Lanka">Sri Lanka</option>
+                  <option value="Sudan">Sudan</option>
+                  <option value="Suriname">Suriname</option>
+                  <option value="Sweden">Sweden</option>
+                  <option value="Switzerland">Switzerland</option>
+                  <option value="Syria">Syria</option>
+                  <option value="Taiwan">Taiwan</option>
+                  <option value="Tajikistan">Tajikistan</option>
+                  <option value="Tanzania">Tanzania</option>
+                  <option value="Thailand">Thailand</option>
+                  <option value="Timor-Leste">Timor-Leste</option>
+                  <option value="Togo">Togo</option>
+                  <option value="Tonga">Tonga</option>
+                  <option value="Trinidad and Tobago">Trinidad and Tobago</option>
+                  <option value="Tunisia">Tunisia</option>
+                  <option value="Turkey">Turkey</option>
+                  <option value="Turkmenistan">Turkmenistan</option>
+                  <option value="Tuvalu">Tuvalu</option>
+                  <option value="Uganda">Uganda</option>
+                  <option value="Ukraine">Ukraine</option>
+                  <option value="United Arab Emirates">United Arab Emirates</option>
+                  <option value="United Kingdom">United Kingdom</option>
+                  <option value="United States">United States</option>
+                  <option value="Uruguay">Uruguay</option>
+                  <option value="Uzbekistan">Uzbekistan</option>
+                  <option value="Vanuatu">Vanuatu</option>
+                  <option value="Vatican City">Vatican City</option>
+                  <option value="Venezuela">Venezuela</option>
+                  <option value="Vietnam">Vietnam</option>
+                  <option value="Yemen">Yemen</option>
+                  <option value="Zambia">Zambia</option>
+                  <option value="Zimbabwe">Zimbabwe</option>
+                </select>
+              </div>
+
+              {/* Unit, level, etc */}
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">Unit, level, etc. (if applicable)</label>
+                <input
+                  type="text"
+                  value={selectedLocation.unit}
+                  onChange={(e) => setSelectedLocation({ ...selectedLocation, unit: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:border-gray-900"
+                  placeholder=""
+                />
+              </div>
+
+              {/* Building name */}
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">Building name (if applicable)</label>
+                <input
+                  type="text"
+                  value={selectedLocation.building}
+                  onChange={(e) => setSelectedLocation({ ...selectedLocation, building: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:border-gray-900"
+                  placeholder=""
+                />
+              </div>
+
+              {/* Street address */}
+              <div>
+                <label className={`block text-xs mb-1 ${!selectedLocation.street ? 'text-red-500' : 'text-gray-600'}`}>Street address <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  required
+                  value={selectedLocation.street}
+                  onChange={(e) => setSelectedLocation({ ...selectedLocation, street: e.target.value })}
+                  className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:border-gray-900 ${
+                    !selectedLocation.street ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  placeholder=""
+                />
+              </div>
+
+              {/* Barangay / district */}
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">Barangay / district (if applicable)</label>
+                <input
+                  type="text"
+                  value={selectedLocation.barangay}
+                  onChange={(e) => setSelectedLocation({ ...selectedLocation, barangay: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:border-gray-900"
+                  placeholder=""
+                />
+              </div>
+
+              {/* City / municipality */}
+              <div>
+                <label className={`block text-xs mb-1 ${!selectedLocation.city ? 'text-red-500' : 'text-gray-600'}`}>City / municipality <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  required
+                  value={selectedLocation.city}
+                  onChange={(e) => setSelectedLocation({ ...selectedLocation, city: e.target.value })}
+                  className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:border-gray-900 ${
+                    !selectedLocation.city ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  placeholder=""
+                />
+              </div>
+
+              {/* ZIP code */}
+              <div>
+                <label className={`block text-xs mb-1 ${!selectedLocation.zipCode ? 'text-red-500' : 'text-gray-600'}`}>ZIP code <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  required
+                  value={selectedLocation.zipCode}
+                  onChange={(e) => setSelectedLocation({ ...selectedLocation, zipCode: e.target.value })}
+                  className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:border-gray-900 ${
+                    !selectedLocation.zipCode ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  placeholder=""
+                />
+              </div>
+
+              {/* Province */}
+              <div>
+                <label className={`block text-xs mb-1 ${!selectedLocation.province ? 'text-red-500' : 'text-gray-600'}`}>Province <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  required
+                  value={selectedLocation.province}
+                  onChange={(e) => setSelectedLocation({ ...selectedLocation, province: e.target.value })}
+                  className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:border-gray-900 ${
+                    !selectedLocation.province ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  placeholder=""
+                />
+              </div>
+
+            </form>
+
+            {/* Show precise location toggle */}
+            <div className="flex items-start justify-between mt-8 mx-auto" style={{ maxWidth: '900px' }}>
+              <div className="flex-1">
+                <h3 className="text-base font-medium text-gray-900 mb-1">Show your home's precise location</h3>
+                <p className="text-sm text-gray-600">
+                  Make it clear to guests where your place is located. We'll only share your address after they've made a reservation.{' '}
+                  <span className="underline cursor-pointer">Learn more</span>
+                </p>
       </div>
-      <div className="fixed bottom-0 left-0 w-full flex justify-between items-center px-16 py-6 bg-white border-t" style={{ zIndex: 20 }}>
-        <button 
-          onClick={() => navigate('/pages/privacytype')}
-          className="text-gray-600 px-6 py-2 rounded-lg hover:bg-gray-100"
-        >
-          Back
-        </button>
+              <div className="ml-4 flex-shrink-0">
         <button
-          onClick={() => {
-            if (canProceed) {
-              navigate('/pages/locationconfirmation');
-            }
-          }}
-          className={`px-8 py-3 rounded-lg text-white font-semibold ${canProceed ? 'bg-black hover:bg-gray-900' : 'bg-gray-300 cursor-not-allowed'}`}
-          disabled={!canProceed}
-        >
-          Next
-        </button>
+                  type="button"
+                  onClick={() => setShowPreciseLocation(!showPreciseLocation)}
+                  className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    showPreciseLocation ? 'bg-black' : 'bg-gray-200'
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                      showPreciseLocation ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
       </div>
+            </div>
+
+            {/* Map preview - same size as main map */}
+            <div className="mt-6 relative rounded-xl overflow-hidden mx-auto" style={{ height: '600px', maxWidth: '900px', cursor: 'default' }}>
+              <MapContainer
+                key={`${position[0]}-${position[1]}-${showPreciseLocation}`}
+                center={position}
+                zoom={showPreciseLocation ? 17 : 13}
+                style={{ height: '100%', width: '100%', cursor: 'default' }}
+                zoomControl={false}
+                dragging={false}
+                scrollWheelZoom={false}
+                doubleClickZoom={false}
+              >
+                <TileLayer
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  attribution="&copy; OpenStreetMap contributors"
+                />
+                <Marker position={position} icon={homeIcon} />
+                <MapUpdater center={position} onClick={() => {}} />
+              </MapContainer>
+              {!showPreciseLocation && (
+                <div className="absolute inset-0 bg-white bg-opacity-80 flex items-center justify-center backdrop-blur-sm">
+                  <div className="text-center px-8">
+                    <svg className="w-12 h-12 mx-auto mb-3 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    <p className="text-gray-900 font-semibold text-lg mb-1">Approximate location</p>
+                    <p className="text-gray-600 text-sm">We'll share your general area with guests</p>
+                  </div>
+                </div>
+              )}
+      </div>
+          </div>
+          <OnboardingFooter
+            onBack={() => setShowAddressForm(false)}
+            onNext={() => {
+              // All required fields are validated by canProceed prop
+              // Ensure currentStep is 'location' before showing modal
+              // LocationConfirmation will update it when navigated to
+              if (actions.setCurrentStep) {
+                actions.setCurrentStep('location');
+              }
+              setShowFinalConfirm(true);
+            }}
+            backText="Back"
+            nextText="Next"
+            canProceed={selectedLocation.country && selectedLocation.street && selectedLocation.city && selectedLocation.zipCode && selectedLocation.province}
+          />
+
+          {/* Final confirmation modal before navigating to LocationConfirmation */}
+          {showFinalConfirm && (
+            <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/40">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+                <div className="flex items-center justify-center mb-4">
+                  <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ background: 'hsl(var(--primary))' }}>
+                    <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+                    </svg>
+        </div>
+      </div>
+                <h3 className="text-lg font-semibold text-center mb-2">Is your address correct?</h3>
+                <p className="text-center text-sm text-gray-700 mb-6">
+                  {[
+                    selectedLocation.unit,
+                    selectedLocation.building,
+                    selectedLocation.street,
+                    selectedLocation.barangay,
+                    selectedLocation.city,
+                    selectedLocation.zipCode,
+                    selectedLocation.province,
+                    selectedLocation.country
+                  ].filter(Boolean).join(', ')}
+                </p>
+                <div className="flex items-center justify-between gap-3">
+                  <button
+                    className="px-4 py-2 rounded-lg border text-sm"
+                    onClick={() => setShowFinalConfirm(false)}
+                  >
+                    Edit address
+                  </button>
+        <button
+                    className="px-4 py-2 rounded-lg text-white text-sm"
+                    style={{ background: 'hsl(var(--primary))' }}
+                    onClick={async () => {
+                      setShowFinalConfirm(false);
+                      try {
+                        // Normalize location data to only include allowed fields (same as LocationConfirmation)
+                        const normalizeLocationData = (input) => {
+                          if (!input) return {};
+                          const allowedKeys = [
+                            'street', 'barangay', 'city', 'province', 'country', 'zipCode',
+                            'unit', 'building', 'latitude', 'longitude'
+                          ];
+                          const out = {};
+                          for (const key of allowedKeys) {
+                            let val = input[key];
+                            if (val === undefined || val === null) continue;
+                            if (typeof val === 'string') {
+                              val = val.trim();
+                              if (!val) continue;
+                              // Clean up country name: remove "(the)" and country code suffixes
+                              if (key === 'country') {
+                                // Remove "(the)" from country names like "Philippines (the)"
+                                val = val.replace(/\s*\(the\)\s*/gi, '');
+                                // Remove country code suffix like " - PH" or " (PH)"
+                                val = val.replace(/\s*-\s*[A-Z]{2,3}\s*$/i, ''); // Remove " - PH" at end
+                                val = val.replace(/\s*\([A-Z]{2,3}\)\s*$/i, ''); // Remove " (PH)" at end
+                                val = val.trim();
+                              }
+                            }
+                            if ((key === 'latitude' || key === 'longitude') && typeof val === 'string') {
+                              val = parseFloat(val);
+                              if (!Number.isFinite(val)) continue;
+                            }
+                            out[key] = val;
+                          }
+                          return out;
+                        };
+
+                        const currentLocationData = normalizeLocationData({
+                          ...selectedLocation,
+                          latitude: position[0],
+                          longitude: position[1]
+                        });
+                        
+                        // Update context first
+                        actions.updateLocationData(currentLocationData);
+                        // Ensure currentStep is 'location' before navigating (LocationConfirmation will update it)
+                        // This ensures the progress bar correctly detects forward navigation
+                        if (actions.setCurrentStep) {
+                          actions.setCurrentStep('location');
+                        }
+                        
+                        // Manually update sessionStorage to ensure progress bar detects forward navigation
+                        // Store 'location' as previous step before navigating to 'locationconfirmation'
+                        // This ensures OnboardingHeader correctly detects forward navigation (location -> locationconfirmation)
+                        // 'location' is at index 4 in step group 1: progress = ((4+1)/7)*100 = 71.43%
+                        const storagePrevStepKey = 'onb_prev_step_name';
+                        const storageStepKey = 'onb_progress_step';
+                        const storageKey = 'onb_progress_value';
+                        const locationProgress = ((4 + 1) / 7) * 100; // location index 4, total 7 pages in step 1
+                        sessionStorage.setItem(storagePrevStepKey, 'location');
+                        sessionStorage.setItem(storageStepKey, '1'); // Both location and locationconfirmation are in step group 1
+                        sessionStorage.setItem(storageKey, String(locationProgress)); // Store current progress
+                        console.log('📍 Location page: Set previous step in sessionStorage to "location" (progress:', Math.round(locationProgress) + '%) for forward navigation detection');
+                        
+                        // Small delay to ensure React processes state updates and sessionStorage is set
+                        await new Promise(resolve => setTimeout(resolve, 50));
+                        
+                        // Try to get draftId from multiple sources and restore if needed
+                        let draftIdToUse = state?.draftId || location.state?.draftId;
+                        
+                        // If draftId starts with 'temp_', it's a temporary ID - we need to find/create a real one
+                        if (draftIdToUse && draftIdToUse.startsWith('temp_')) {
+                          console.log('Location page: Found temp ID, attempting to find or create real draft');
+                          draftIdToUse = null; // Reset to null so we can find/create a real one
+                        }
+                        
+                        // If no draftId found, try to restore it from user's drafts
+                        if (!draftIdToUse && state.user?.uid) {
+                          try {
+                            const { getUserDrafts, saveDraft } = await import('@/pages/Host/services/draftService');
+                            const drafts = await getUserDrafts();
+                            if (drafts.length > 0) {
+                              draftIdToUse = drafts[0].id;
+                              console.log('Location page: Restored draftId from getUserDrafts:', draftIdToUse);
+                              // Update context with restored draftId
+                              if (actions.setDraftId) {
+                                actions.setDraftId(draftIdToUse);
+                              }
+                            } else {
+                              // No drafts exist, create a new one
+                              console.log('Location page: No existing drafts found, creating new draft');
+                              const newDraftData = {
+                                currentStep: 'location',
+                                category: state.category || 'accommodation',
+                                data: {
+                                  locationData: currentLocationData
+                                }
+                              };
+                              draftIdToUse = await saveDraft(newDraftData, null);
+                              console.log('Location page: Created new draft:', draftIdToUse);
+                              if (actions.setDraftId) {
+                                actions.setDraftId(draftIdToUse);
+                              }
+                            }
+                          } catch (error) {
+                            console.error('Location page: Error restoring/creating draftId:', error);
+                            // If we can't find or create a draft, try to save anyway with existing temp ID handling
+                          }
+                        }
+                        
+                        // Only save if we have a valid (non-temp) draftId
+                        if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
+                          try {
+                            // Update the existing document directly
+                            const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
+                            
+                            // Check if document exists before updating
+                            const docSnap = await getDoc(draftRef);
+                            
+                            if (docSnap.exists()) {
+                              await updateDoc(draftRef, {
+                                'data.locationData': currentLocationData,
+                                lastModified: new Date()
+                              });
+                              console.log('Location page: ✅ Successfully saved locationData to existing document:', draftIdToUse);
+                              console.log('Location page: Saved data:', currentLocationData);
+                            } else {
+                              // Document doesn't exist, create it
+                              console.log('Location page: Document does not exist, creating new one');
+                              const { saveDraft } = await import('@/pages/Host/services/draftService');
+                              const newDraftData = {
+                                currentStep: 'location',
+                                category: state.category || 'accommodation',
+                                data: {
+                                  locationData: currentLocationData
+                                }
+                              };
+                              draftIdToUse = await saveDraft(newDraftData, draftIdToUse);
+                              console.log('Location page: Created document with ID:', draftIdToUse);
+                              if (actions.setDraftId) {
+                                actions.setDraftId(draftIdToUse);
+                              }
+                            }
+                          } catch (updateError) {
+                            console.error('Location page: ❌ Error updating document:', updateError);
+                            console.error('Location page: Error details:', {
+                              message: updateError.message,
+                              code: updateError.code,
+                              stack: updateError.stack
+                            });
+                            throw updateError; // Re-throw to be caught by outer catch
+                          }
+                        } else {
+                          const errorMsg = 'Location page: ❌ No valid draftId found. User may not be authenticated or draft creation failed.';
+                          console.warn(errorMsg);
+                          console.warn('Location page: State draftId:', state?.draftId);
+                          console.warn('Location page: Location state draftId:', location.state?.draftId);
+                          console.warn('Location page: User uid:', state.user?.uid);
+                          // Don't throw error, just navigate without saving - data is in context and navigation state
+                          console.warn('Location page: Navigating without Firebase save - data will be lost if page is refreshed');
+                        }
+                        
+                        navigate('/pages/locationconfirmation', { 
+                          state: { 
+                            locationData: currentLocationData, 
+                            position,
+                            draftId: draftIdToUse || state?.draftId || location.state?.draftId
+                          } 
+                        });
+                      } catch (e) {
+                        console.error('Failed to persist location before navigating to confirmation:', e);
+                        // Fallback: navigate with selectedLocation as-is
+                        const fallbackLocationData = {
+                          ...selectedLocation,
+                          latitude: position[0],
+                          longitude: position[1]
+                        };
+                        navigate('/pages/locationconfirmation', { 
+                          state: { 
+                            locationData: fallbackLocationData, 
+                            position 
+                          } 
+                        });
+                      }
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.9'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
+                  >
+                    Yes, it's correct
+                  </button>
+                </div>
+      </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

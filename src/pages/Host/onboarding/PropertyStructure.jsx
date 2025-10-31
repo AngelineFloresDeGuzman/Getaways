@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import OnboardingHeader from './components/OnboardingHeader';
+import OnboardingFooter from './components/OnboardingFooter';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
 import { db } from '@/lib/firebase';
@@ -59,12 +60,13 @@ const PropertyStructure = () => {
   const { state, actions } = useOnboarding();
   const [isLoading, setIsLoading] = useState(false);
   const [draftRef, setDraftRef] = useState(null);
-  const [selectedType, setSelectedType] = useState(state.propertyStructure || '');
+  const [selectedType, setSelectedType] = useState(state.propertyStructure || 'House');
   let draftId = location.state?.draftId;
   // Restore draftId if missing (e.g., after browser navigation)
   useEffect(() => {
     const restoreDraftId = async () => {
-      if (!draftId) {
+      // Only try to restore draft if user is authenticated
+      if (!draftId && state.user?.uid) {
         // Try to fetch user's most recent draft
         try {
           const { getUserDrafts } = await import('@/pages/Host/services/draftService');
@@ -80,7 +82,7 @@ const PropertyStructure = () => {
       }
     };
     restoreDraftId();
-  }, [draftId]);
+  }, [draftId, state.user]);
 
   // Create or get draft on mount
   useEffect(() => {
@@ -95,8 +97,8 @@ const PropertyStructure = () => {
           if (snap.exists()) {
             const draftData = snap.data()?.data || {};
             if (draftData.propertyStructure) {
+              // Only update local state - don't trigger context updates/auto-save
               setSelectedType(draftData.propertyStructure);
-              actions.updateState({ propertyStructure: draftData.propertyStructure });
             }
           }
         } catch (error) {
@@ -105,20 +107,22 @@ const PropertyStructure = () => {
       };
       fetchDraft();
     }
-  }, [draftId, actions]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftId]); // Only depend on draftId, not actions
 
-  // Update selectedType when state changes (after loading draft)
+  // Set current step for progress bar when component mounts or route changes
   useEffect(() => {
-    if (state.propertyStructure) {
-      setSelectedType(state.propertyStructure);
-      actions.setLoading(false);
+    if (actions.setCurrentStep && state.currentStep !== 'propertystructure') {
+      console.log('📍 PropertyStructure page - Setting currentStep to propertystructure');
+      actions.setCurrentStep('propertystructure');
     }
-  }, [state.propertyStructure, actions]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]); // Run when route changes
 
   // Handle property type selection
   const handleTypeSelect = (type) => {
     setSelectedType(type);
-    actions.updateState({ propertyStructure: type });
+    // Don't update context state here - only save when Next or Save & Exit is clicked
   };
 
   // Enhanced navigation functions
@@ -180,80 +184,88 @@ const PropertyStructure = () => {
 
   return (
     <div className="min-h-screen bg-white">
-      {/* Header */}
-      <OnboardingHeader />
-
-      {/* Progress Bar at the top */}
-      <div className="w-full">
-        <div className="h-1 w-full flex space-x-2">
-          <div className="h-full bg-gray-200 flex-1 relative">
-            <div className="absolute left-0 top-0 h-full bg-[#FF385C] w-[33.33%]"></div>
-          </div>
-          <div className="h-full bg-gray-200 flex-1"></div>
-          <div className="h-full bg-gray-200 flex-1"></div>
-        </div>
-      </div>
+      <OnboardingHeader showProgress={true} />
 
       {/* Main Content */}
-      <main className="pt-20 px-8 pb-32">
+      <main className="pt-24 px-8 pb-32">
         <div className="max-w-[1024px] mx-auto">
-          <h1 className="text-[32px] font-medium text-gray-900 mb-12  text-center">
-            Which of these best describes your place?
+          <h1 className="text-[32px] font-medium text-gray-900 mb-8 text-center">
+            Which of these <span className="text-primary">best describes</span> your <span className="text-black">place</span>?
           </h1>
 
-          <div className="grid grid-cols-3 gap-4">
+          <div className="mt-10 grid grid-cols-3 gap-4">
             {propertyTypes.map((type) => (
               <button
                 key={type.label}
                 onClick={() => handleTypeSelect(type.label)}
-                className={`flex flex-col items-center justify-center p-6 rounded-xl border hover:border-black transition-colors ${
+                className={`group flex flex-col items-center justify-center p-6 rounded-xl border hover:border-primary hover:bg-gray-50 transition-all duration-300 ${
                   selectedType === type.label
-                    ? 'border-black bg-gray-50'
+                    ? 'border-primary bg-gray-50'
                     : 'border-gray-200'
                 }`}
               >
-                <type.icon className="w-8 h-8 mb-2" />
-                <span className="text-sm">{type.label}</span>
+                <type.icon 
+                  className={`w-8 h-8 mb-2 transition-all duration-300 group-hover:text-primary group-hover:animate-rotate ${
+                    selectedType === type.label
+                      ? 'text-primary animate-rotate'
+                      : ''
+                  }`}
+                  style={{ transformStyle: 'preserve-3d' }}
+                />
+                <span className={`text-sm transition-all duration-300 group-hover:text-primary group-hover:font-semibold ${
+                  selectedType === type.label
+                    ? 'text-primary font-semibold'
+                    : ''
+                }`}>{type.label}</span>
               </button>
             ))}
           </div>
+          
+          <style>{`
+            @keyframes rotate3d {
+              0% {
+                transform: scale(1.25) rotateY(0deg);
+              }
+              50% {
+                transform: scale(1.35) rotateY(180deg);
+              }
+              100% {
+                transform: scale(1.25) rotateY(360deg);
+              }
+            }
+            
+            .animate-rotate {
+              animation: rotate3d 2s ease-in-out infinite;
+              transform-style: preserve-3d;
+            }
+            
+            .group:hover .group-hover\\:animate-rotate {
+              animation: rotate3d 2s ease-in-out infinite;
+              transform-style: preserve-3d;
+            }
+            
+            .group:hover {
+              border-color: hsl(var(--primary)) !important;
+            }
+            
+            .group:hover svg {
+              color: hsl(var(--primary)) !important;
+            }
+            
+            .group:hover span {
+              color: hsl(var(--primary)) !important;
+            }
+          `}</style>
         </div>
       </main>
 
-      {/* Footer with Progress Bar */}
-      <footer className="fixed bottom-0 left-0 right-0 bg-white border-t">
-        <div className="max-w-none">
-          <div className="h-1 w-full flex space-x-2">
-            <div className="h-full bg-gray-200 flex-1 relative">
-              <div className="absolute left-0 top-0 h-full bg-[#FF385C] w-[33.33%]"></div>
-            </div>
-            <div className="h-full bg-gray-200 flex-1"></div>
-            <div className="h-full bg-gray-200 flex-1"></div>
-          </div>
-          
-          <div className="px-8 py-6 border-t">
-            <div className="flex justify-between items-center">
-              <button
-                onClick={() => navigate('/pages/propertydetails', { state: { draftId: location.state?.draftId } })}
-                className="hover:underline"
-              >
-                Back
-              </button>
-              <button 
-                className={`rounded-lg px-8 py-3.5 text-base font-medium ${
-                  selectedType
-                    ? 'bg-black text-white hover:bg-gray-800'
-                    : 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                }`}
-                onClick={handleNext}
-                disabled={!selectedType}
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        </div>
-      </footer>
+      <OnboardingFooter
+        onBack={() => navigate('/pages/propertydetails', { state: { draftId: location.state?.draftId } })}
+        onNext={handleNext}
+        backText="Back"
+        nextText="Next"
+        canProceed={selectedType !== null}
+      />
     </div>
   );
 };

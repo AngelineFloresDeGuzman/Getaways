@@ -1,10 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import OnboardingHeader from './components/OnboardingHeader';
+import OnboardingFooter from './components/OnboardingFooter';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
 
 const FinalDetails = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { state, actions } = useOnboarding();
   
   const [address, setAddress] = useState({
     country: 'Philippines',
@@ -26,6 +29,15 @@ const FinalDetails = () => {
     }));
   };
 
+  // Set current step for progress bar when component mounts or route changes
+  useEffect(() => {
+    if (actions.setCurrentStep && state.currentStep !== 'finaldetails') {
+      console.log('📍 FinalDetails page - Setting currentStep to finaldetails');
+      actions.setCurrentStep('finaldetails');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]); // Run when route changes
+
   const canProceed = address.street && address.city && address.province && isBusinessHost !== null;
 
   // Debug: Log the location state
@@ -34,7 +46,7 @@ const FinalDetails = () => {
   return (
     <div className="min-h-screen bg-white">
       <OnboardingHeader />
-      <main>
+      <main className="pt-20 px-8 pb-32">
         <div className="mb-12">
           <h2 className="text-lg font-medium text-gray-900 mb-2">
             What's your residential address?
@@ -154,16 +166,16 @@ const FinalDetails = () => {
       {/* Footer */}
       <footer className="fixed bottom-0 left-0 right-0 bg-white border-t">
         <div className="max-w-none">
-          <div className="px-8 py-6">
+          <div className="px-6 py-4">
             <div className="flex justify-between items-center">
               <button
-                onClick={() => navigate('/pages/safety-details')}
-                className="hover:underline"
+                onClick={() => navigate('/pages/safetydetails')}
+                className="hover:underline text-sm"
               >
                 Back
               </button>
               <button 
-                className={`rounded-lg px-8 py-3.5 text-base font-medium ${
+                className={`rounded-lg px-6 py-2.5 text-sm font-medium ${
                   canProceed
                     ? 'bg-black text-white hover:bg-gray-800'
                     : 'bg-gray-200 text-gray-500 cursor-not-allowed'

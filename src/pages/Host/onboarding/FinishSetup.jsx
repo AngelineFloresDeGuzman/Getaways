@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import OnboardingHeader from './components/OnboardingHeader';
+import OnboardingFooter from './components/OnboardingFooter';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useOnboardingAutoSave, useOnboardingNavigation } from './hooks/useOnboardingAutoSave';
 
@@ -14,9 +15,9 @@ const FinishSetup = () => {
     loadDraftIfNeeded, 
     saveAndExit, 
     isLoading 
-  } = useOnboardingAutoSave('finish-setup', []);
+  } = useOnboardingAutoSave('finishsetup', []);
   
-  const { navigateNext, navigateBack } = useOnboardingNavigation('finish-setup');
+  const { navigateNext, navigateBack } = useOnboardingNavigation('finishsetup');
 
   // Load draft if continuing from saved progress
   useEffect(() => {
@@ -111,19 +112,19 @@ const FinishSetup = () => {
       {/* Footer */}
       <footer className="fixed bottom-0 left-0 right-0 bg-white border-t">
         <div className="max-w-none">
-          <div className="px-8 py-6">
+          <div className="px-6 py-4">
             <div className="flex justify-between items-center">
               <button
-                onClick={() => navigate('/pages/description-details')}
-                className="hover:underline"
+                onClick={() => navigate('/pages/descriptiondetails')}
+                className="hover:underline text-sm"
               >
                 Back
               </button>
               <button 
-                className="bg-black text-white hover:bg-gray-800 rounded-lg px-8 py-3.5 text-base font-medium"
+                className="bg-black text-white hover:bg-gray-800 rounded-lg px-6 py-2.5 text-sm font-medium"
                 onClick={() => {
                   // Continue to pricing/booking settings
-                  navigate('/pages/booking-settings', { 
+                  navigate('/pages/bookingsettings', { 
                     state: { 
                       ...location.state,
                       finishedOnboarding: true

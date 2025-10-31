@@ -2,6 +2,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Plus, X, MoreHorizontal, GripVertical } from 'lucide-react';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
+import OnboardingHeader from './components/OnboardingHeader';
+import OnboardingFooter from './components/OnboardingFooter';
 
 const PhotosPreview = () => {
   const navigate = useNavigate();
@@ -43,7 +45,8 @@ const PhotosPreview = () => {
       actions.updatePhotos(photosForContext);
       console.log('PhotosPreview - Auto-saved photos to context:', photosForContext.length);
     }
-  }, [photos, actions.updatePhotos]); // Trigger when photos array changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [photos]); // Trigger when photos array changes
 
   // Helper to convert File to base64
   const fileToBase64 = (file) => {
@@ -265,12 +268,14 @@ const PhotosPreview = () => {
     loadDraftData();
   }, [location.state?.draftId, state.user]); // Added state.user dependency
 
-  // Set current step when component mounts
+  // Set current step when component mounts or route changes
   useEffect(() => {
-    if (actions.setCurrentStep) {
-      actions.setCurrentStep('photos-preview');
+    if (actions.setCurrentStep && state.currentStep !== 'photospreview') {
+      console.log('📍 PhotosPreview page - Setting currentStep to photospreview');
+      actions.setCurrentStep('photospreview');
     }
-  }, [actions]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]); // Run when route changes
 
   // Update photos when state changes (after loading draft)
   useEffect(() => {
@@ -311,17 +316,7 @@ const PhotosPreview = () => {
 
   return (
     <div className="min-h-screen bg-white">
-      {/* Header */}
-      <header className="fixed top-0 left-0 right-0 bg-white z-50 border-b">
-        <div className="py-4 px-8 flex justify-between items-center">
-          <svg viewBox="0 0 32 32" className="h-8 w-8">
-            <path d="m16 1c2.008 0 3.978.378 5.813 1.114 1.837.736 3.525 1.798 4.958 3.138 1.433 1.34 2.56 2.92 3.355 4.628.795 1.709 1.2 3.535 1.2 5.394 0 1.859-.405 3.685-1.2 5.394-.795 1.708-1.922 3.288-3.355 4.628-1.433 1.34-3.121 2.402-4.958 3.138-1.835.736-3.805 1.114-5.813 1.114s-3.978-.378-5.813-1.114c-1.837-.736-3.525-1.798-4.958-3.138-1.433-1.34-2.56-2.92-3.355-4.628-.795-1.709-1.2-3.535-1.2-5.394 0-1.859.405-3.685 1.2-5.394.795-1.708 1.922-3.288 3.355-4.628 1.433-1.34 3.121-2.402 4.958-3.138 1.835-.736 3.805-1.114 5.813-1.114z" fill="rgb(255, 56, 92)" />
-          </svg>
-          <div className="flex items-center gap-6">
-            <button className="font-medium text-sm hover:underline">Questions?</button>
-          </div>
-        </div>
-      </header>
+      <OnboardingHeader showProgress={true} />
 
       {/* Main Content */}
       <main className="pt-20 px-8 pb-32">
@@ -757,35 +752,19 @@ const PhotosPreview = () => {
         </div>
       </main>
 
-      {/* Footer */}
-      <footer className="fixed bottom-0 left-0 right-0 bg-white border-t">
-        <div className="max-w-none">
-          <div className="px-8 py-6">
-            <div className="flex justify-between items-center">
-              <button
-                onClick={async (e) => {
-                  e.preventDefault();
-                  await saveAndNavigate('/pages/photos');
-                }}
-                className="text-gray-900 font-medium underline hover:no-underline"
-              >
-                Back
-              </button>
-              
-              <button
-                onClick={async (e) => {
-                  e.preventDefault();
-                  await saveAndNavigate('/pages/title-description');
-                }}
-                disabled={photos.length === 0}
-                className="bg-gray-900 text-white px-6 py-3 rounded-lg hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        </div>
-      </footer>
+      <OnboardingFooter
+        onBack={async (e) => {
+          e.preventDefault();
+          await saveAndNavigate('/pages/photos');
+        }}
+        onNext={async (e) => {
+          e.preventDefault();
+          await saveAndNavigate('/pages/titledescription');
+        }}
+        backText="Back"
+        nextText="Next"
+        canProceed={photos.length > 0}
+      />
     </div>
   );
 };

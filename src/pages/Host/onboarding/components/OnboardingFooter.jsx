@@ -15,12 +15,12 @@ const OnboardingFooter = ({
       <div className="max-w-none">
         {/* Progress Bar removed as requested */}
         
-        <div className="px-8 py-6 border-t">
+        <div className="px-6 py-4 border-t">
           <div className="flex justify-between items-center">
             {onBack ? (
               <button
                 onClick={onBack}
-                className="hover:underline"
+                className="text-primary text-sm transition-all duration-300 hover:scale-105 hover:opacity-80"
               >
                 {backText}
               </button>
@@ -31,11 +31,14 @@ const OnboardingFooter = ({
             <button 
               onClick={onNext}
               disabled={!canProceed}
-              className={`rounded-lg px-8 py-3.5 text-base font-medium transition-colors ${
+              className={`rounded-lg px-6 py-2.5 text-sm font-medium transition-all duration-300 hover:shadow-lg hover:scale-105 ${
                 canProceed 
-                  ? 'bg-black text-white hover:bg-gray-800' 
+                  ? 'bg-primary text-white' 
                   : 'bg-gray-300 text-gray-500 cursor-not-allowed'
               }`}
+              style={canProceed ? { background: 'hsl(var(--primary))', color: 'white' } : {}}
+              onMouseEnter={(e) => { if (canProceed) { e.currentTarget.style.background = 'hsl(var(--primary))'; e.currentTarget.style.opacity = '0.9'; e.currentTarget.style.transform = 'scale(1.05)'; } }}
+              onMouseLeave={(e) => { if (canProceed) { e.currentTarget.style.background = 'hsl(var(--primary))'; e.currentTarget.style.opacity = '1'; e.currentTarget.style.transform = 'scale(1)'; } }}
             >
               {nextText}
             </button>

@@ -85,7 +85,7 @@ const initialState = {
   cancellationPolicy: 'flexible',
   
   // Meta
-  currentStep: 'property-details',
+  currentStep: 'propertydetails',
   user: null,
   isLoading: false,
   draftId: null,
@@ -335,7 +335,7 @@ export const OnboardingProvider = ({ children }) => {
         return state.draftId;
       }
       if (!dataToSave.currentStep) {
-        dataToSave.currentStep = state.currentStep || 'property-details';
+        dataToSave.currentStep = state.currentStep || 'propertydetails';
       }
       const draftId = await saveDraft(dataToSave, state.draftId);
       dispatch({ type: ACTIONS.SET_DRAFT_ID, payload: draftId });
@@ -353,14 +353,15 @@ export const OnboardingProvider = ({ children }) => {
     let autoSaveTimeout;
 
     // Auto-save only for the current onboarding step and only save relevant fields
-    if (state.currentStep && state.currentStep !== 'property-details') {
+    if (state.currentStep && state.currentStep !== 'propertydetails') {
       let hasData = false;
       let relevantFields = {};
       // Only consider fields relevant to the current step
       switch (state.currentStep) {
         case 'propertystructure':
-          hasData = !!state.propertyStructure;
-          relevantFields = { propertyStructure: state.propertyStructure };
+          // DISABLE auto-save for propertystructure - only save on Next/Save & Exit
+          hasData = false;
+          relevantFields = {};
           break;
         case 'privacytype':
           hasData = !!state.privacyType;
@@ -655,9 +656,9 @@ export const OnboardingProvider = ({ children }) => {
     // Utility function to get current progress percentage
     getProgress: () => {
       const steps = [
-        'property-details', 'property-structure', 'privacy-type', 'location',
-        'property-basics', 'make-it-stand-out', 'amenities', 'photos',
-        'title-description', 'finish-setup'
+        'propertydetails', 'propertystructure', 'privacytype', 'location',
+        'propertybasics', 'makeitstandout', 'amenities', 'photos',
+        'titledescription', 'finishsetup'
       ];
       const currentIndex = steps.indexOf(state.currentStep);
       return currentIndex >= 0 ? Math.round(((currentIndex + 1) / steps.length) * 100) : 0;
@@ -666,15 +667,15 @@ export const OnboardingProvider = ({ children }) => {
     // Utility function to validate current step data
     validateCurrentStep: () => {
       switch (state.currentStep) {
-        case 'property-details':
+        case 'propertydetails':
           return !!state.propertyType;
-        case 'property-structure':
+        case 'propertystructure':
           return !!state.propertyStructure;
-        case 'privacy-type':
+        case 'privacytype':
           return !!state.privacyType;
         case 'location':
           return !!(state.locationData.city && state.locationData.country);
-        case 'property-basics':
+        case 'propertybasics':
           return state.guestCapacity > 0 && state.bedrooms > 0;
         case 'amenities':
           return Array.isArray(state.selectedAmenities);
@@ -684,11 +685,11 @@ export const OnboardingProvider = ({ children }) => {
     }
   }), [dispatch, navigate]);
 
-  const value = {
+  const value = useMemo(() => ({
     state,
     actions,
     ACTIONS
-  };
+  }), [state, actions]);
 
   return (
     <OnboardingContext.Provider value={value}>

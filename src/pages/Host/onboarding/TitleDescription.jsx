@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import OnboardingHeader from './components/OnboardingHeader';
+import OnboardingFooter from './components/OnboardingFooter';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
 import { useSaveAndExitWithContext } from './hooks/useSaveAndExit';
 import { auth } from '@/lib/firebase';
@@ -53,12 +54,14 @@ const TitleDescription = () => {
     loadDraftData();
   }, [location.state?.draftId, state.user]); // Added state.user dependency
 
-  // Set current step when component mounts
+  // Set current step when component mounts or route changes
   useEffect(() => {
-    if (actions.setCurrentStep) {
-      actions.setCurrentStep('title-description');
+    if (actions.setCurrentStep && state.currentStep !== 'titledescription') {
+      console.log('📍 TitleDescription page - Setting currentStep to titledescription');
+      actions.setCurrentStep('titledescription');
     }
-  }, [actions]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]); // Run when route changes
 
   // Debug logging for title state changes
   useEffect(() => {
@@ -112,8 +115,8 @@ const TitleDescription = () => {
     try {
       // Set current step before saving so "Continue Editing" returns to this page
       if (actions.setCurrentStep) {
-        console.log('TitleDescription: Setting currentStep to title-description');
-        actions.setCurrentStep('title-description');
+        console.log('TitleDescription: Setting currentStep to titledescription');
+        actions.setCurrentStep('titledescription');
       }
       
       // Ensure title is updated in context
@@ -125,7 +128,7 @@ const TitleDescription = () => {
         
         // Create modified state data with forced currentStep and title
         const { user: contextUser, isLoading, ...dataToSave } = state;
-        dataToSave.currentStep = 'title-description'; // Force the currentStep
+        dataToSave.currentStep = 'titledescription'; // Force the currentStep
         dataToSave.title = title.trim(); // Save the current title
         
         console.log('TitleDescription: Data to save with forced currentStep and title:', dataToSave);
@@ -156,7 +159,7 @@ const TitleDescription = () => {
   return (
     <div className="min-h-screen bg-white">
       {/* Shared Onboarding Header */}
-      <OnboardingHeader showProgress={true} currentStep={2} totalSteps={3} />
+      <OnboardingHeader showProgress={true} />
 
       {/* Main Content */}
       <main className="pt-20 px-8 pb-32">
@@ -184,45 +187,23 @@ const TitleDescription = () => {
         </div>
       </main>
 
-      {/* Footer */}
-      <footer className="fixed bottom-0 left-0 right-0 bg-white border-t">
-        <div className="max-w-none">
-          <div className="px-8 py-6">
-            <div className="flex justify-between items-center">
-              <button
-                onClick={() => navigate('/pages/photos-preview')}
-                className="hover:underline"
-              >
-                Back
-              </button>
-              <button 
-                className={`rounded-lg px-8 py-3.5 text-base font-medium ${
-                  canProceed
-                    ? 'bg-black text-white hover:bg-gray-800'
-                    : 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                }`}
-                onClick={() => {
-                  if (canProceed) {
-                    // Update context before navigation
-                    updateTitleContext(title);
-                    
-                    // Continue to next step with title
-                    navigate('/pages/description', { 
-                      state: { 
-                        ...location.state,
-                        title: title
-                      } 
-                    });
-                  }
-                }}
-                disabled={!canProceed}
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        </div>
-      </footer>
+      <OnboardingFooter
+        onBack={() => navigate('/pages/photospreview')}
+        onNext={() => {
+          if (canProceed) {
+            updateTitleContext(title);
+            navigate('/pages/description', { 
+              state: { 
+                ...location.state,
+                title: title
+              } 
+            });
+          }
+        }}
+        backText="Back"
+        nextText="Next"
+        canProceed={canProceed}
+      />
     </div>
   );
 };

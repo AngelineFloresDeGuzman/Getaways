@@ -1,10 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import OnboardingHeader from './components/OnboardingHeader';
+import OnboardingFooter from './components/OnboardingFooter';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
 
 const Discounts = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { state, actions } = useOnboarding();
   
   const [discounts, setDiscounts] = useState({
     'new-listing': true,
@@ -47,6 +50,15 @@ const Discounts = () => {
     }));
   };
 
+  // Set current step for progress bar when component mounts or route changes
+  useEffect(() => {
+    if (actions.setCurrentStep && state.currentStep !== 'discounts') {
+      console.log('📍 Discounts page - Setting currentStep to discounts');
+      actions.setCurrentStep('discounts');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]); // Run when route changes
+
   const canProceed = true; // Can always proceed regardless of discount selection
 
   // Debug: Log the location state
@@ -54,7 +66,7 @@ const Discounts = () => {
 
   return (
     <div className="min-h-screen bg-white">
-      <OnboardingHeader showProgress={true} currentStep={1} totalSteps={3} />
+      <OnboardingHeader showProgress={true} />
 
       {/* Main Content */}
       <main className="pt-20 px-8 pb-32">
@@ -125,16 +137,16 @@ const Discounts = () => {
       {/* Footer */}
       <footer className="fixed bottom-0 left-0 right-0 bg-white border-t">
         <div className="max-w-none">
-          <div className="px-8 py-6">
+          <div className="px-6 py-4">
             <div className="flex justify-between items-center">
               <button
-                onClick={() => navigate('/pages/weekend-pricing')}
-                className="hover:underline"
+                onClick={() => navigate('/pages/weekendpricing')}
+                className="hover:underline text-sm"
               >
                 Back
               </button>
               <button 
-                className={`rounded-lg px-8 py-3.5 text-base font-medium ${
+                className={`rounded-lg px-6 py-2.5 text-sm font-medium ${
                   canProceed
                     ? 'bg-black text-white hover:bg-gray-800'
                     : 'bg-gray-200 text-gray-500 cursor-not-allowed'
@@ -142,7 +154,7 @@ const Discounts = () => {
                 onClick={() => {
                   if (canProceed) {
                     // Continue to safety details
-                    navigate('/pages/safety-details', { 
+                    navigate('/pages/safetydetails', { 
                       state: { 
                         ...location.state,
                         discounts: discounts

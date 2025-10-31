@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import OnboardingHeader from './components/OnboardingHeader';
+import OnboardingFooter from './components/OnboardingFooter';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   Wifi, 
@@ -171,7 +172,7 @@ const Amenities = () => {
 
   return (
     <div className="min-h-screen bg-white">
-      <OnboardingHeader showProgress={true} currentStep={1} totalSteps={3} />
+      <OnboardingHeader showProgress={true} />
 
       {/* Main Content */}
       <main className="pt-20 px-8 pb-32">
@@ -212,27 +213,13 @@ const Amenities = () => {
         </div>
       </main>
 
-      {/* Footer */}
-      <footer className="fixed bottom-0 left-0 right-0 bg-white border-t">
-        <div className="max-w-none">
-          <div className="px-8 py-6">
-            <div className="flex justify-between items-center">
-              <button
-                onClick={() => navigateBack(navigate, '/pages/make-it-stand-out')}
-                className="hover:underline"
-              >
-                Back
-              </button>
-              <button 
-                className="bg-black text-white hover:bg-gray-800 rounded-lg px-8 py-3.5 text-base font-medium"
-                onClick={handleNext}
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        </div>
-      </footer>
+      <OnboardingFooter
+        onBack={() => navigateBack(navigate, '/pages/makeitstandout')}
+        onNext={handleNext}
+        backText="Back"
+        nextText="Next"
+        canProceed={true}
+      />
     </div>
   );
 };

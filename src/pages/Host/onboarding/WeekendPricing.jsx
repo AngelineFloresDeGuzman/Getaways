@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
 import { useSaveAndExitWithContext } from './hooks/useSaveAndExit';
 import OnboardingHeader from './components/OnboardingHeader';
+import OnboardingFooter from './components/OnboardingFooter';
 
 const WeekendPricing = () => {
   const navigate = useNavigate();
@@ -28,12 +29,14 @@ const WeekendPricing = () => {
 
   const canProceed = true; // Always can proceed with any percentage
 
-  // Set current step when component mounts
+  // Set current step when component mounts or route changes
   useEffect(() => {
-    if (actions.setCurrentStep) {
-      actions.setCurrentStep('weekend-pricing');
+    if (actions.setCurrentStep && state.currentStep !== 'weekendpricing') {
+      console.log('📍 WeekendPricing page - Setting currentStep to weekendpricing');
+      actions.setCurrentStep('weekendpricing');
     }
-  }, [actions]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]); // Run when route changes
 
   // Initialize from context if available
   useEffect(() => {
@@ -92,7 +95,7 @@ const WeekendPricing = () => {
 
   return (
     <div className="min-h-screen bg-white">
-      <OnboardingHeader showProgress={true} currentStep={3} totalSteps={3} />
+      <OnboardingHeader showProgress={true} />
 
       {/* Main Content */}
       <main className="pt-20 px-8 pb-32">
@@ -156,16 +159,16 @@ const WeekendPricing = () => {
       {/* Footer */}
       <footer className="fixed bottom-0 left-0 right-0 bg-white border-t">
         <div className="max-w-none">
-          <div className="px-8 py-6">
+          <div className="px-6 py-4">
             <div className="flex justify-between items-center">
               <button
                 onClick={() => navigate('/pages/pricing')}
-                className="hover:underline"
+                className="hover:underline text-sm"
               >
                 Back
               </button>
               <button 
-                className={`rounded-lg px-8 py-3.5 text-base font-medium ${
+                className={`rounded-lg px-6 py-2.5 text-sm font-medium ${
                   canProceed
                     ? 'bg-black text-white hover:bg-gray-800'
                     : 'bg-gray-200 text-gray-500 cursor-not-allowed'

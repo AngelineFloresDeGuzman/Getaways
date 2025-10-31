@@ -39,7 +39,7 @@ export const useOnboardingAutoSave = (stepName, dependencies = []) => {
     }
 
     // Prevent auto-save on the first onboarding step
-    if (state.currentStep === 'hosting-steps') {
+    if (state.currentStep === 'hostingsteps') {
       console.log('Auto-save skipped: On hosting-steps, only lastModified should be updated manually');
       return;
     }
@@ -100,7 +100,8 @@ export const useOnboardingAutoSave = (stepName, dependencies = []) => {
     if (actions.setCurrentStep && stepName) {
       actions.setCurrentStep(stepName);
     }
-  }, [stepName, actions]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepName]);
 
   // Load draft data if available
   const loadDraftIfNeeded = useCallback(async (draftId) => {

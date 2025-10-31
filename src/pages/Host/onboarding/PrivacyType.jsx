@@ -3,6 +3,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, setDoc, updateDoc, deleteField } from 'firebase/firestore';
+import OnboardingHeader from './components/OnboardingHeader';
+import OnboardingFooter from './components/OnboardingFooter';
 
 const privacyOptions = [
   {
@@ -31,12 +33,24 @@ const PrivacyType = () => {
   const { state, actions } = useOnboarding();
   const [isLoading, setIsLoading] = useState(false);
   const [draftRef, setDraftRef] = useState(null);
-  const [selectedOption, setSelectedOption] = useState(state.privacyType || '');
+  const [selectedOption, setSelectedOption] = useState(state.privacyType || 'An entire place');
   let draftId = location.state?.draftId;
+
+  // Ensure lordicon script is loaded once
+  useEffect(() => {
+    const existingScript = document.querySelector('script[src="https://cdn.lordicon.com/lordicon.js"]');
+    if (!existingScript) {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.lordicon.com/lordicon.js';
+      script.async = true;
+      document.head.appendChild(script);
+    }
+  }, []);
   // Restore draftId if missing (e.g., after browser navigation)
   useEffect(() => {
     const restoreDraftId = async () => {
-      if (!draftId) {
+      // Only try to restore draft if user is authenticated
+      if (!draftId && state.user?.uid) {
         // Try to fetch user's most recent draft
         try {
           const { getUserDrafts } = await import('@/pages/Host/services/draftService');
@@ -61,7 +75,7 @@ const PrivacyType = () => {
       }
     };
     restoreDraftId();
-  }, [draftId]);
+  }, [draftId, state.user]);
 
   // Create or get draft on mount
   useEffect(() => {
@@ -87,6 +101,15 @@ const PrivacyType = () => {
       fetchDraft();
     }
   }, [draftId, state.user, actions]);
+
+  // Set current step for progress bar when component mounts or route changes
+  useEffect(() => {
+    if (actions.setCurrentStep && state.currentStep !== 'privacytype') {
+      console.log('📍 PrivacyType page - Setting currentStep to privacytype');
+      actions.setCurrentStep('privacytype');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]); // Run when route changes
 
   // Update selectedOption when state changes (after loading draft)
   useEffect(() => {
@@ -170,58 +193,90 @@ const PrivacyType = () => {
   };
 
   return (
-    <div className="min-h-screen bg-white">
-      {/* Header */}
-      <header className="fixed top-0 left-0 right-0 bg-white z-50 border-b">
-        <div className="py-4 px-8 flex justify-between items-center">
-          <svg viewBox="0 0 32 32" className="h-8 w-8">
-            <path d="m16 1c2.008 0 3.978.378 5.813 1.114 1.837.736 3.525 1.798 4.958 3.138 1.433 1.34 2.56 2.92 3.355 4.628.795 1.709 1.2 3.535 1.2 5.394 0 1.859-.405 3.685-1.2 5.394-.795 1.708-1.922 3.288-3.355 4.628-1.433 1.34-3.121 2.402-4.958 3.138-1.835.736-3.805 1.114-5.813 1.114s-3.978-.378-5.813-1.114c-1.837-.736-3.525-1.798-4.958-3.138-1.433-1.34-2.56-2.92-3.355-4.628-.795-1.709-1.2-3.535-1.2-5.394 0-1.859.405-3.685 1.2-5.394.795-1.708 1.922-3.288 3.355-4.628 1.433-1.34 3.121-2.402 4.958-3.138 1.835-.736 3.805-1.114 5.813-1.114z" fill="rgb(255, 56, 92)"/>
-          </svg>
-          <div className="flex items-center gap-6">
-            <button className="font-medium text-sm hover:underline">Questions?</button>
-            <button 
-              onClick={handleSaveAndExit}
-              disabled={isLoading}
-              className="font-medium text-sm hover:underline disabled:opacity-50"
-            >
-              {isLoading ? 'Saving...' : 'Save & exit'}
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* Progress Bar */}
-      <div className="w-full">
-        <div className="h-1 w-full flex space-x-2">
-          <div className="h-full bg-gray-200 flex-1 relative">
-            <div className="absolute left-0 top-0 h-full bg-[#FF385C] w-[66.66%]"></div>
-          </div>
-          <div className="h-full bg-gray-200 flex-1"></div>
-          <div className="h-full bg-gray-200 flex-1"></div>
-        </div>
-      </div>
+    <div className="h-screen bg-white overflow-hidden">
+      <OnboardingHeader showProgress={true} />
 
       {/* Main Content */}
-      <main className="pt-20 px-8 pb-32">
-        <div className="max-w-[640px] mx-auto">
-          <h1 className="text-[32px] font-medium text-gray-900 mb-12">
-            What type of place will guests have?
+      <main className="h-[calc(100vh-136px)] pt-24 px-8 pb-3 overflow-hidden">
+        <div className="max-w-[820px] mx-auto">
+          <h1 className="text-[30px] font-medium text-gray-900 mb-5 text-center">
+            What <span className="text-primary">type</span> of place will guests have?
           </h1>
 
-          <div className="flex flex-col gap-4">
+          <div className="mt-10 flex flex-col gap-2">
             {privacyOptions.map((option) => (
               <button
                 key={option.title}
                 onClick={() => handleOptionSelect(option.title)}
-                className={`flex items-center p-6 rounded-xl border hover:border-black transition-colors ${
+                className={`group flex items-center p-8 rounded-xl border transition-all duration-300 hover:border-primary group-hover:border-primary group-hover:bg-gray-50 group-hover:text-primary min-h-48 gap-7 ${
                   selectedOption === option.title
-                    ? 'border-black bg-gray-50'
+                    ? 'border-primary bg-white'
                     : 'border-gray-200'
                 }`}
               >
+                {(() => {
+                  let iconHtml = '';
+                  if (option.title === 'An entire place') {
+                    iconHtml = `
+                      <lord-icon
+                        src="https://cdn.lordicon.com/dznelzdk.json"
+                        trigger="loop"
+                        delay="2000"
+                        speed="0.5"
+                        state="morph-mantion"
+                        colors="primary:#faf9d1,secondary:#109173,tertiary:#b26836,quaternary:#109173,quinary:#646e78,senary:#ebe6ef"
+                        style="width:100%;height:100%">
+                      </lord-icon>
+                    `;
+                  } else if (option.title === 'A room') {
+                    iconHtml = `
+                      <lord-icon
+                        src="https://cdn.lordicon.com/prslbulo.json"
+                        trigger="loop"
+                        delay="1500"
+                        speed="0.5"
+                        colors="primary:#eeaa66,secondary:#2ca58d,tertiary:#000000,quaternary:#faf9d1"
+                        style="width:100%;height:100%">
+                      </lord-icon>
+                    `;
+                  } else if (option.title === 'A shared room in a hostel') {
+                    iconHtml = `
+                      <lord-icon
+                        src="https://cdn.lordicon.com/trsphbbf.json"
+                        trigger="loop"
+                        delay="1500"
+                        speed="0.5"
+                        colors="primary:#2ca58d,secondary:#000000,tertiary:#faefd1"
+                        style="width:100%;height:100%">
+                      </lord-icon>
+                    `;
+                  }
+                  return (
+                    <div
+                      className="w-32 h-32 md:w-36 md:h-36 flex-shrink-0"
+                      dangerouslySetInnerHTML={{ __html: iconHtml }}
+                    />
+                  );
+                })()}
                 <div className="flex-1 text-left">
-                  <h3 className="font-medium mb-1">{option.title}</h3>
-                  <p className="text-gray-600">{option.description}</p>
+                  <h3
+                    className={`font-medium mb-1 transition-colors duration-300 ${
+                      selectedOption === option.title
+                        ? 'text-primary'
+                        : 'text-gray-900 group-hover:text-primary group-hover:font-semibold'
+                    }`}
+                  >
+                    {option.title}
+                  </h3>
+                  <p
+                    className={`transition-colors duration-300 ${
+                      selectedOption === option.title
+                        ? 'text-primary'
+                        : 'text-gray-600 group-hover:text-primary'
+                    }`}
+                  >
+                    {option.description}
+                  </p>
                 </div>
               </button>
             ))}
@@ -230,31 +285,13 @@ const PrivacyType = () => {
       </main>
 
       {/* Footer */}
-      <footer className="fixed bottom-0 left-0 right-0 bg-white border-t">
-        <div className="max-w-none">
-          <div className="px-8 py-6">
-            <div className="flex justify-between items-center">
-              <button
-                onClick={() => navigate('/pages/propertystructure', { state: { draftId: location.state?.draftId } })}
-                className="hover:underline"
-              >
-                Back
-              </button>
-              <button 
-                className={`rounded-lg px-8 py-3.5 text-base font-medium ${
-                  selectedOption
-                    ? 'bg-black text-white hover:bg-gray-800'
-                    : 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                }`}
-                onClick={handleNext}
-                disabled={!selectedOption}
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        </div>
-      </footer>
+      <OnboardingFooter
+        onBack={() => navigate('/pages/propertystructure', { state: { draftId: location.state?.draftId } })}
+        onNext={handleNext}
+        backText="Back"
+        nextText="Next"
+        canProceed={selectedOption !== null}
+      />
     </div>
   );
 };

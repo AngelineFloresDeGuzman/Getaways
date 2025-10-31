@@ -99,28 +99,28 @@ const HostDashboard = () => {
 
   const handleContinueDraft = (draft) => {
     const stepRoutes = {
-      'hosting-steps': '/pages/hosting-steps', 'hostingsteps': '/pages/hostingsteps',
-      'property-details': '/pages/propertydetails', 'propertydetails': '/pages/propertydetails',
-      'property-structure': '/pages/propertystructure', 'propertystructure': '/pages/propertystructure',
-      'privacy-type': '/pages/privacytype', 'privacytype': '/pages/privacytype',
+      'hostingsteps': '/pages/hostingsteps',
+      'propertydetails': '/pages/propertydetails',
+      'propertystructure': '/pages/propertystructure',
+      'privacytype': '/pages/privacytype',
       'location': '/pages/location',
-      'location-confirmation': '/pages/locationconfirmation', 'locationconfirmation': '/pages/locationconfirmation',
-      'property-basics': '/pages/propertybasics', 'propertybasics': '/pages/propertybasics',
-      'make-it-stand-out': '/pages/makeitstandout', 'makeitstandout': '/pages/makeitstandout',
+      'locationconfirmation': '/pages/locationconfirmation',
+      'propertybasics': '/pages/propertybasics',
+      'makeitstandout': '/pages/makeitstandout',
       'amenities': '/pages/amenities',
       'photos': '/pages/photos',
-      'photos-preview': '/pages/photospreview', 'photospreview': '/pages/photospreview',
-      'title-description': '/pages/titleDescription', 'titledescription': '/pages/titleDescription',
+      'photospreview': '/pages/photospreview',
+      'titledescription': '/pages/titledescription',
       'description': '/pages/description',
-      'description-details': '/pages/descriptiondetails', 'descriptiondetails': '/pages/descriptiondetails',
-      'finish-setup': '/pages/finishsetup', 'finishsetup': '/pages/finishsetup',
-      'booking-settings': '/pages/bookingsettings', 'bookingsettings': '/pages/bookingsettings',
-      'guest-selection': '/pages/guestselection', 'guestselection': '/pages/guestselection',
+      'descriptiondetails': '/pages/descriptiondetails',
+      'finishsetup': '/pages/finishsetup',
+      'bookingsettings': '/pages/bookingsettings',
+      'guestselection': '/pages/guestselection',
       'pricing': '/pages/pricing',
-      'weekend-pricing': '/pages/weekendpricing', 'weekendpricing': '/pages/weekendpricing',
+      'weekendpricing': '/pages/weekendpricing',
       'discounts': '/pages/discounts',
-      'safety-details': '/pages/safetydetails', 'safetydetails': '/pages/safetydetails',
-      'final-details': '/pages/finaldetails', 'finaldetails': '/pages/finaldetails'
+      'safetydetails': '/pages/safetydetails',
+      'finaldetails': '/pages/finaldetails'
     };
     const route = stepRoutes[draft.currentStep] || '/pages/propertydetails';
     navigate(route, { state: { draftId: draft.id } });

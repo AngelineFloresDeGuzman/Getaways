@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import OnboardingHeader from './components/OnboardingHeader';
+import OnboardingFooter from './components/OnboardingFooter';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
 import { useSaveAndExitWithContext } from './hooks/useSaveAndExit.js';
@@ -33,12 +34,14 @@ const MakeItStandOut = () => {
     loadDraftData();
   }, [location.state?.draftId]);
 
-  // Set current step when component mounts
+  // Set current step when component mounts or route changes
   useEffect(() => {
-    if (actions.setCurrentStep) {
-      actions.setCurrentStep('make-it-stand-out');
+    if (actions.setCurrentStep && state.currentStep !== 'makeitstandout') {
+      console.log('📍 MakeItStandOut page - Setting currentStep to makeitstandout');
+      actions.setCurrentStep('makeitstandout');
     }
-  }, [actions]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]); // Run when route changes
 
   // Save & Exit handler
   const handleSaveAndExitClick = async () => {
@@ -47,8 +50,8 @@ const MakeItStandOut = () => {
     try {
       // Set current step before saving so "Continue Editing" returns to this page
       if (actions.setCurrentStep) {
-        console.log('MakeItStandOut: Setting currentStep to make-it-stand-out');
-        actions.setCurrentStep('make-it-stand-out');
+        console.log('MakeItStandOut: Setting currentStep to makeitstandout');
+        actions.setCurrentStep('makeitstandout');
       }
       
       // Override the saveDraft to ensure currentStep is set correctly
@@ -57,7 +60,7 @@ const MakeItStandOut = () => {
         
         // Create modified state data with forced currentStep
         const { user, isLoading, ...dataToSave } = state;
-        dataToSave.currentStep = 'make-it-stand-out'; // Force the currentStep
+        dataToSave.currentStep = 'makeitstandout'; // Force the currentStep
         
         console.log('MakeItStandOut: Data to save with forced currentStep:', dataToSave);
         
@@ -85,7 +88,7 @@ const MakeItStandOut = () => {
   return (
     <div className="min-h-screen bg-white">
       <OnboardingHeader />
-      <main className="flex-1">
+      <main className="pt-20 px-8 pb-32">
         <div className="relative z-0">
           <div className="absolute inset-0 -z-10 overflow-hidden">
             {/* Background Circles */}
@@ -219,16 +222,16 @@ const MakeItStandOut = () => {
       {/* Footer */}
       <footer className="fixed bottom-0 left-0 right-0 bg-white border-t">
         <div className="max-w-none">
-          <div className="px-8 py-6">
+          <div className="px-6 py-4">
             <div className="flex justify-between items-center">
               <button
-                onClick={() => navigate('/pages/property-basics')}
-                className="hover:underline"
+                onClick={() => navigate('/pages/propertybasics')}
+                className="hover:underline text-sm"
               >
                 Back
               </button>
               <button 
-                className="bg-black text-white hover:bg-gray-800 rounded-lg px-8 py-3.5 text-base font-medium"
+                className="bg-black text-white hover:bg-gray-800 rounded-lg px-6 py-2.5 text-sm font-medium"
                 onClick={() => {
                   // Navigate to amenities step
                   navigate('/pages/amenities', { 

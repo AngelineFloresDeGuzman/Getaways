@@ -125,12 +125,7 @@ const HostTypeModal = ({ isOpen, onClose, currentUser, forceHostTypeSelection, f
       const draftData = {
         category,
         currentStep: "hostingsteps",
-        data: {
-          // Initialize with category info for better tracking
-          category,
-          createdFrom: 'host-type-modal',
-          initializedAt: new Date().toISOString()
-        },
+        data: {},
       };
 
       // Always create a new draftId

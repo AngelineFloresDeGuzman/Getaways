@@ -317,27 +317,27 @@ export const markDraftAsCompleted = async (draftId) => {
  */
 export const getDraftSummary = (draftData) => {
   const steps = {
-    'property-details': 'Property Details',
-    'property-structure': 'Structure',
-    'privacy-type': 'Privacy Type',
+    'propertydetails': 'Property Details',
+    'propertystructure': 'Structure',
+    'privacytype': 'Privacy Type',
     'location': 'Location',
-    'location-confirmation': 'Location Confirmation',
-    'property-basics': 'Property Basics',
-    'make-it-stand-out': 'Highlights',
+    'locationconfirmation': 'Location Confirmation',
+    'propertybasics': 'Property Basics',
+    'makeitstandout': 'Highlights',
     'amenities': 'Amenities',
     'photos': 'Photos',
-    'photos-preview': 'Photo Preview',
-    'title-description': 'Title & Description',
+    'photospreview': 'Photo Preview',
+    'titledescription': 'Title & Description',
     'description': 'Description',
-    'description-details': 'Description Details',
-    'finish-setup': 'Finish Setup',
-    'booking-settings': 'Booking Settings',
-    'guest-selection': 'Guest Selection',
+    'descriptiondetails': 'Description Details',
+    'finishsetup': 'Finish Setup',
+    'bookingsettings': 'Booking Settings',
+    'guestselection': 'Guest Selection',
     'pricing': 'Pricing',
-    'weekend-pricing': 'Weekend Pricing',
+    'weekendpricing': 'Weekend Pricing',
     'discounts': 'Discounts',
-    'safety-details': 'Safety Details',
-    'final-details': 'Final Details'
+    'safetydetails': 'Safety Details',
+    'finaldetails': 'Final Details'
   };
 
   return {
@@ -365,11 +365,11 @@ export const getDraftSummary = (draftData) => {
  */
 const calculateProgress = (currentStep) => {
   const stepOrder = [
-    'property-details', 'property-structure', 'privacy-type', 'location',
-    'location-confirmation', 'property-basics', 'make-it-stand-out', 'amenities',
-    'photos', 'photos-preview', 'title-description', 'description',
-    'description-details', 'finish-setup', 'booking-settings', 'guest-selection',
-    'pricing', 'weekend-pricing', 'discounts', 'safety-details', 'final-details'
+    'propertydetails', 'propertystructure', 'privacytype', 'location',
+    'locationconfirmation', 'propertybasics', 'makeitstandout', 'amenities',
+    'photos', 'photospreview', 'titledescription', 'description',
+    'descriptiondetails', 'finishsetup', 'bookingsettings', 'guestselection',
+    'pricing', 'weekendpricing', 'discounts', 'safetydetails', 'finaldetails'
   ];
 
   const currentIndex = stepOrder.indexOf(currentStep);
