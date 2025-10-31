@@ -60,6 +60,115 @@ const homeIcon = L.divIcon({
   popupAnchor: [0, -65]
 });
 
+// Helper function to fetch from Nominatim with Vite proxy and fallback
+const fetchWithProxy = async (nominatimUrl) => {
+  // Extract the path from the full URL for Vite proxy
+  const url = new URL(nominatimUrl);
+  const proxyPath = `/api/nominatim${url.pathname}${url.search}`;
+  
+  // Try Vite dev proxy first (works in development)
+  try {
+    const response = await fetch(proxyPath, {
+      headers: {
+        'Accept': 'application/json',
+      }
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      return data;
+    }
+  } catch (proxyError) {
+    // Vite proxy failed (might be production build), try direct or other proxies
+    console.log('Vite proxy failed, trying alternatives...', proxyError.message);
+  }
+  
+  // Try direct request (works in some browsers/environments)
+  try {
+    const response = await fetch(nominatimUrl, {
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'Getaways/1.0 (contact: info@getaways.com)',
+        'Referer': window.location.origin
+      }
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      return data;
+    }
+  } catch (directError) {
+    // Direct request failed (likely CORS), try public proxies
+    console.log('Direct request failed, trying public proxies...', directError.message);
+  }
+  
+  // Try alternative proxy services as last resort
+  // Note: These are unreliable public proxies, but used as fallback
+  const proxyServices = [
+    `https://api.allorigins.win/get?url=${encodeURIComponent(nominatimUrl)}`,
+  ];
+  
+  let lastError = null;
+  
+  // Try each proxy service until one works
+  for (const proxyUrl of proxyServices) {
+    let timeoutId = null;
+    try {
+      // Create abort controller for timeout (more compatible than AbortSignal.timeout)
+      const controller = new AbortController();
+      timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+      
+      const response = await fetch(proxyUrl, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+        },
+        signal: controller.signal,
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      let data;
+      if (proxyUrl.includes('allorigins.win/get')) {
+        // AllOrigins get endpoint wraps in {contents: ...}
+        const proxyData = await response.json();
+        const contents = proxyData.contents || '{}';
+        try {
+          data = JSON.parse(contents);
+        } catch (parseError) {
+          // Sometimes contents is already an object
+          data = typeof contents === 'string' ? JSON.parse(contents) : contents;
+        }
+      } else {
+        data = await response.json();
+      }
+      
+      // Validate we got valid data
+      if (data && (Array.isArray(data) || typeof data === 'object')) {
+        if (timeoutId) clearTimeout(timeoutId); // Clear timeout on success
+        return data; // Success, return data
+      }
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        console.log(`Proxy ${proxyUrl} timed out`);
+      } else {
+        console.log(`Proxy ${proxyUrl} failed:`, error.message);
+      }
+      lastError = error;
+    } finally {
+      // Ensure timeout is always cleared
+      if (timeoutId) clearTimeout(timeoutId);
+    }
+  }
+  
+  // All methods failed
+  const errorMsg = lastError?.message || 'All methods failed to fetch from Nominatim';
+  console.error('❌ All geocoding methods failed:', errorMsg);
+  throw new Error(errorMsg);
+};
+
 function MapUpdater({ center, onClick }) {
   const map = useMap();
   useEffect(() => {
@@ -69,10 +178,18 @@ function MapUpdater({ center, onClick }) {
     };
   }, [map, onClick]);
   useEffect(() => {
-    const currentCenter = map.getCenter();
+    if (!center || center.length !== 2) return;
     const [lat, lng] = center;
-    if (Math.abs(currentCenter.lat - lat) > 0.001 || Math.abs(currentCenter.lng - lng) > 0.001) {
-      map.panTo([lat, lng]);
+    if (!lat || !lng || !isFinite(lat) || !isFinite(lng)) return;
+    
+    const currentCenter = map.getCenter();
+    const latDiff = Math.abs(currentCenter.lat - lat);
+    const lngDiff = Math.abs(currentCenter.lng - lng);
+    
+    // Update map view if center changed significantly (more than ~50 meters) or if zoom is not at 15
+    const threshold = 0.0005; // ~50 meters
+    if (latDiff > threshold || lngDiff > threshold || map.getZoom() !== 15) {
+      map.setView([lat, lng], 15, { animate: true, duration: 0.5 });
     }
   }, [map, center]);
   return null;
@@ -123,6 +240,8 @@ const Location = () => {
   // Handle navigation state from LocationConfirmation page
   useEffect(() => {
     if (location.state?.fromLocationConfirmation) {
+      console.log('📍 Location: Navigating back from LocationConfirmation, received state:', location.state);
+      
       // If coming from LocationConfirmation with showAddressForm flag, set it
       if (location.state.showAddressForm !== undefined) {
         setShowAddressForm(location.state.showAddressForm);
@@ -130,21 +249,127 @@ const Location = () => {
       
       // If location data is passed from LocationConfirmation, use it
       if (location.state.locationData) {
-        setSelectedLocation(location.state.locationData);
+        console.log('📍 Location: Setting selectedLocation from navigation state:', location.state.locationData);
+        // Ensure all fields are properly set, including defaults for missing fields
+        const locationDataFromBack = {
+          street: location.state.locationData.street || '',
+          barangay: location.state.locationData.barangay || '',
+          city: location.state.locationData.city || '',
+          province: location.state.locationData.province || '',
+          country: location.state.locationData.country || '',
+          zipCode: location.state.locationData.zipCode || '',
+          unit: location.state.locationData.unit || '',
+          building: location.state.locationData.building || '',
+          latitude: location.state.locationData.latitude || null,
+          longitude: location.state.locationData.longitude || null
+        };
+        setSelectedLocation(locationDataFromBack);
         setLocationFilled(true); // Mark location as filled since we have data
+        
+        // Also update context to keep it in sync
+        if (actions.updateLocationData) {
+          actions.updateLocationData(locationDataFromBack);
+        }
       }
       
       // If position is passed from LocationConfirmation, use it
       if (location.state.position) {
+        isManuallySettingPositionRef.current = true;
         setPosition(location.state.position);
+        setTimeout(() => { isManuallySettingPositionRef.current = false; }, 500);
+      }
+      
+      // Reset the address form prefilled ref so it can be used again if needed
+      addressFormPrefilledRef.current = false;
+    }
+  }, [location.state?.fromLocationConfirmation, location.state?.locationData, location.state?.position]);
+
+  // Use refs to track if position has been initialized to prevent infinite loops
+  const positionInitializedRef = useRef(false);
+  const lastInitializedCoordsRef = useRef(null);
+  const isManuallySettingPositionRef = useRef(false); // Track manual position updates (from user interaction)
+  
+  // Initialize position from context or navigation state when component mounts or data becomes available
+  // Only runs when locationData actually changes, not on every render
+  useEffect(() => {
+    // Don't auto-update position if user is manually setting it (e.g., from map click, confirm, etc.)
+    if (isManuallySettingPositionRef.current) {
+      return;
+    }
+    
+    // Priority: navigation state > context state > default
+    if (location.state?.position && Array.isArray(location.state.position) && location.state.position.length === 2) {
+      const navPos = location.state.position;
+      const navPosKey = `${navPos[0]}-${navPos[1]}`;
+      
+      // Only set if different from last initialized position
+      if (lastInitializedCoordsRef.current !== navPosKey) {
+        setPosition(navPos);
+        positionInitializedRef.current = true;
+        lastInitializedCoordsRef.current = navPosKey;
+      }
+      return;
+    }
+    
+    // Check context state for saved coordinates (only if not already initialized from nav state)
+    if (state?.locationData?.latitude && state?.locationData?.longitude) {
+      const savedLat = state.locationData.latitude;
+      const savedLng = state.locationData.longitude;
+      const savedKey = `${savedLat}-${savedLng}`;
+      
+      // Skip if we already initialized with these exact coordinates
+      if (lastInitializedCoordsRef.current === savedKey) {
+        return;
+      }
+      
+      // Only update if current position is default (Manila) or significantly different
+      const currentLat = position[0];
+      const currentLng = position[1];
+      const isDefaultPosition = currentLat === 14.5995 && currentLng === 120.9842;
+      const isSignificantlyDifferent = Math.abs(currentLat - savedLat) > 0.001 || Math.abs(currentLng - savedLng) > 0.001;
+      
+      if (isDefaultPosition || isSignificantlyDifferent) {
+        console.log('📍 Location: Updating position from context state:', [savedLat, savedLng]);
+        setPosition([savedLat, savedLng]);
+        setLocationFilled(true);
+        positionInitializedRef.current = true;
+        lastInitializedCoordsRef.current = savedKey;
       }
     }
-  }, [location.state]);
+  }, [state?.locationData?.latitude, state?.locationData?.longitude, location.state?.position]); // Keep position out of deps to prevent loop
 
+  // Use ref to track if address form data has been prefilled
+  const addressFormPrefilledRef = useRef(false);
+  
   // When opening the address confirmation form, prefill fields from saved draft (if present)
+  // Only run if we're not coming back from LocationConfirmation (which handles its own data)
   useEffect(() => {
-    if (showAddressForm && state?.locationData) {
+    // Skip if we just came back from LocationConfirmation (data already set in previous effect)
+    if (location.state?.fromLocationConfirmation && location.state?.locationData) {
+      console.log('📍 Location: Skipping address form prefilling - data already set from LocationConfirmation');
+      return;
+    }
+    
+    if (showAddressForm && state?.locationData && !addressFormPrefilledRef.current) {
       const d = state.locationData;
+      
+      console.log('📍 Location: Prefilling address form from context state:', d);
+      
+      // Update position if we have saved coordinates and they're different from current
+      if (d.latitude && d.longitude) {
+        const currentLat = position[0];
+        const currentLng = position[1];
+        const isDifferent = Math.abs(currentLat - d.latitude) > 0.0001 || Math.abs(currentLng - d.longitude) > 0.0001;
+        
+        // Only update if position is actually different (prevents infinite loop)
+        if (isDifferent) {
+          isManuallySettingPositionRef.current = true;
+          setPosition([d.latitude, d.longitude]);
+          setLocationFilled(true);
+          setTimeout(() => { isManuallySettingPositionRef.current = false; }, 500);
+        }
+      }
+      
       setSelectedLocation(prev => ({
         street: d.street || prev.street || '',
         barangay: d.barangay || prev.barangay || '',
@@ -157,13 +382,23 @@ const Location = () => {
         latitude: d.latitude ?? prev.latitude ?? position[0],
         longitude: d.longitude ?? prev.longitude ?? position[1],
       }));
+      
+      addressFormPrefilledRef.current = true;
     }
-  }, [showAddressForm, state?.locationData]);
+    
+    // Reset flag when address form is closed
+    if (!showAddressForm) {
+      addressFormPrefilledRef.current = false;
+    }
+  }, [showAddressForm, state?.locationData, location.state?.fromLocationConfirmation]); // Added location.state?.fromLocationConfirmation to deps
   const handleMapClick = async (e) => {
     const { lat, lng } = e.latlng;
+    isManuallySettingPositionRef.current = true;
     setPosition([lat, lng]);
     setLocationFilled(true);
     setShowConfirmation(true);
+    // Reset flag after a short delay to allow for auto-initialization later if needed
+    setTimeout(() => { isManuallySettingPositionRef.current = false; }, 1000);
     // Close search suggestions when pinning
     setSearchFocused(false);
     setSuggestions([]);
@@ -215,17 +450,11 @@ const Location = () => {
       
       // Fallback to Nominatim via CORS proxy
       const nominatimUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&addressdetails=1`;
-      const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(nominatimUrl)}`;
-      const response = await fetch(proxyUrl);
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const proxyData = await response.json();
       let data;
       try {
-        data = JSON.parse(proxyData.contents || '{}');
-      } catch (parseError) {
-        console.error('Error parsing Nominatim response:', parseError);
+        data = await fetchWithProxy(nominatimUrl);
+      } catch (proxyError) {
+        console.error('Error fetching from Nominatim:', proxyError);
         data = {};
       }
       
@@ -266,13 +495,7 @@ const Location = () => {
     // Reverse geocode to fill building, unit, etc.
     try {
       const nominatimUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`;
-      const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(nominatimUrl)}`;
-      const response = await fetch(proxyUrl);
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const proxyData = await response.json();
-      const data = JSON.parse(proxyData.contents || '{}');
+      const data = await fetchWithProxy(nominatimUrl);
       setSelectedLocation(prev => ({
         ...prev,
         barangay: data.address.suburb || data.address.village || data.address.neighbourhood || '',
@@ -299,14 +522,9 @@ const Location = () => {
     if (!query) return;
     try {
       const nominatimUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`;
-      const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(nominatimUrl)}`;
-      const response = await fetch(proxyUrl);
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const proxyData = await response.json();
-      const results = JSON.parse(proxyData.contents || '[]');
-      if (results && results[0]) {
+      const results = await fetchWithProxy(nominatimUrl);
+      
+      if (Array.isArray(results) && results[0]) {
         setPosition([parseFloat(results[0].lat), parseFloat(results[0].lon)]);
         setSelectedLocation(prev => ({
           ...prev,
@@ -315,7 +533,9 @@ const Location = () => {
         }));
         setLocationFilled(true);
       }
-    } catch {}
+    } catch (error) {
+      console.error('Error geocoding address:', error);
+    }
   };
 
   // Fetch suggestions as user types with debouncing
@@ -346,7 +566,7 @@ const Location = () => {
         const lonOffset = 0.5; // ~55km
         const viewbox = `${lon - lonOffset},${lat + latOffset},${lon + lonOffset},${lat - latOffset}`;
         
-        // Use CORS proxy for Nominatim to avoid CORS issues
+        // Build Nominatim URL
         const nominatimUrl = `https://nominatim.openstreetmap.org/search?` +
           `format=json&` +
           `q=${encodeURIComponent(searchValue)}&` +
@@ -355,19 +575,19 @@ const Location = () => {
           `viewbox=${viewbox}&` +
           `bounded=1`;
         
-        // Use CORS proxy
-        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(nominatimUrl)}`;
-        const response = await fetch(proxyUrl);
-        
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+        let results = [];
+        try {
+          results = await fetchWithProxy(nominatimUrl);
+          // Ensure results is an array
+          if (!Array.isArray(results)) {
+            results = [];
+          }
+        } catch (error) {
+          console.log('Bounded search failed, trying fallback:', error.message);
         }
         
-        const proxyData = await response.json();
-        const results = JSON.parse(proxyData.contents || '[]');
-        
         // If no results found in bounded area, try again without bounds
-        if (results.length === 0) {
+        if (!Array.isArray(results) || results.length === 0) {
           const fallbackUrl = `https://nominatim.openstreetmap.org/search?` +
             `format=json&` +
             `q=${encodeURIComponent(searchValue)}&` +
@@ -376,20 +596,18 @@ const Location = () => {
             `lat=${lat}&` +
             `lon=${lon}`;
           
-          const fallbackProxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(fallbackUrl)}`;
-          const fallbackResponse = await fetch(fallbackProxyUrl);
-          
-          if (!fallbackResponse.ok) {
-            throw new Error(`HTTP error! status: ${fallbackResponse.status}`);
+          try {
+            results = await fetchWithProxy(fallbackUrl);
+            if (!Array.isArray(results)) {
+              results = [];
+            }
+          } catch (error) {
+            console.log('Fallback search also failed:', error.message);
+            results = [];
           }
-          
-          const fallbackProxyData = await fallbackResponse.json();
-          const fallbackResults = JSON.parse(fallbackProxyData.contents || '[]');
-          setSuggestions(fallbackResults);
-        } else {
-        setSuggestions(results);
         }
         
+        setSuggestions(results);
         setIsSearching(false);
       } catch (error) {
         console.error('Error fetching location suggestions:', error);
@@ -419,12 +637,14 @@ const Location = () => {
     setSearchValue(suggestion.display_name);
     const lat = parseFloat(suggestion.lat);
     const lon = parseFloat(suggestion.lon);
+    isManuallySettingPositionRef.current = true;
     setPosition([lat, lon]);
     setLocationFilled(true);
     setSuggestions([]);
     setSearchFocused(false);
     setIsSearching(false);
     setShowConfirmation(true);
+    setTimeout(() => { isManuallySettingPositionRef.current = false; }, 1000);
     
     // Comprehensive parsing of address details from suggestion
     const addr = suggestion.address || {};
@@ -511,11 +731,14 @@ const Location = () => {
       navigator.geolocation.getCurrentPosition(async (pos) => {
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
+        isManuallySettingPositionRef.current = true;
         setPosition([lat, lng]);
           setSuggestions([]);
           setLocationFilled(true);
         setSearchFocused(false);
         setShowConfirmation(true);
+        // Reset flag after a short delay
+        setTimeout(() => { isManuallySettingPositionRef.current = false; }, 1000);
         
         // Reverse geocode to get address - try BigDataCloud first
         try {
@@ -564,17 +787,11 @@ const Location = () => {
           
           // Fallback to Nominatim via CORS proxy
           const nominatimUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&addressdetails=1`;
-          const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(nominatimUrl)}`;
-          const response = await fetch(proxyUrl);
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
-          const proxyData = await response.json();
           let data;
           try {
-            data = JSON.parse(proxyData.contents || '{}');
-          } catch (parseError) {
-            console.error('Error parsing Nominatim response:', parseError);
+            data = await fetchWithProxy(nominatimUrl);
+          } catch (proxyError) {
+            console.error('Error fetching from Nominatim:', proxyError);
             data = {};
           }
           
@@ -678,13 +895,7 @@ const Location = () => {
         // Reverse geocode to fill address fields
         try {
           const nominatimUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`;
-          const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(nominatimUrl)}`;
-          const response = await fetch(proxyUrl);
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
-          const proxyData = await response.json();
-          const data = JSON.parse(proxyData.contents || '{}');
+          const data = await fetchWithProxy(nominatimUrl);
           setSelectedLocation(prev => ({
             ...prev,
             barangay: data.address.suburb || data.address.village || data.address.neighbourhood || '',
@@ -1046,13 +1257,13 @@ const Location = () => {
                             } else {
                               // Fallback to Nominatim if BigDataCloud fails
                               const nominatimUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&addressdetails=1`;
-                              const nominatimProxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(nominatimUrl)}`;
-                              const nominatimResponse = await fetch(nominatimProxyUrl);
-                              if (!nominatimResponse.ok) {
-                                throw new Error(`HTTP error! status: ${nominatimResponse.status}`);
+                              let nominatimData;
+                              try {
+                                nominatimData = await fetchWithProxy(nominatimUrl);
+                              } catch (proxyError) {
+                                console.error('Error fetching from Nominatim:', proxyError);
+                                nominatimData = {};
                               }
-                              const nominatimProxyData = await nominatimResponse.json();
-                              const nominatimData = JSON.parse(nominatimProxyData.contents || '{}');
                               const addr = nominatimData.address || {};
                               
                               // Comprehensive extraction similar to handleSuggestionClick
@@ -1136,11 +1347,17 @@ const Location = () => {
                         // Normalize location data
                         const currentLocationData = normalizeLocationData(normalizedLocationData);
                         
+                        // Mark that we're manually setting position to prevent useEffect loop
+                        isManuallySettingPositionRef.current = true;
+                        
                         // Update context
                         actions.updateLocationData(currentLocationData);
                         if (actions.setCurrentStep) {
                           actions.setCurrentStep('location');
                         }
+                        
+                        // Reset flag after context update completes
+                        setTimeout(() => { isManuallySettingPositionRef.current = false; }, 500);
                         
                         // Try to get draftId and save to Firebase
                         let draftIdToUse = state?.draftId || location.state?.draftId;
@@ -1722,11 +1939,17 @@ const Location = () => {
                           return out;
                         };
 
+                        // Log what we're about to normalize to debug
+                        console.log('📍 Location page: selectedLocation before normalization:', selectedLocation);
+                        
                         const currentLocationData = normalizeLocationData({
                           ...selectedLocation,
                           latitude: position[0],
                           longitude: position[1]
                         });
+                        
+                        // Log normalized data to ensure fields are preserved
+                        console.log('📍 Location page: currentLocationData after normalization:', currentLocationData);
                         
                         // Update context first
                         actions.updateLocationData(currentLocationData);
@@ -1795,7 +2018,7 @@ const Location = () => {
                           }
                         }
                         
-                        // Only save if we have a valid (non-temp) draftId
+                        // Always try to save to Firebase, creating draft if necessary
                         if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
                           try {
                             // Update the existing document directly
@@ -1805,15 +2028,17 @@ const Location = () => {
                             const docSnap = await getDoc(draftRef);
                             
                             if (docSnap.exists()) {
+                              // Update both locationData and currentStep
                               await updateDoc(draftRef, {
                                 'data.locationData': currentLocationData,
+                                currentStep: 'location', // Update current step
                                 lastModified: new Date()
                               });
-                              console.log('Location page: ✅ Successfully saved locationData to existing document:', draftIdToUse);
-                              console.log('Location page: Saved data:', currentLocationData);
+                              console.log('📍 Location page: ✅ Successfully saved locationData to existing document:', draftIdToUse);
+                              console.log('📍 Location page: Saved data:', currentLocationData);
                             } else {
                               // Document doesn't exist, create it
-                              console.log('Location page: Document does not exist, creating new one');
+                              console.log('📍 Location page: Document does not exist, creating new one');
                               const { saveDraft } = await import('@/pages/Host/services/draftService');
                               const newDraftData = {
                                 currentStep: 'location',
@@ -1823,28 +2048,47 @@ const Location = () => {
                                 }
                               };
                               draftIdToUse = await saveDraft(newDraftData, draftIdToUse);
-                              console.log('Location page: Created document with ID:', draftIdToUse);
+                              console.log('📍 Location page: Created document with ID:', draftIdToUse);
                               if (actions.setDraftId) {
                                 actions.setDraftId(draftIdToUse);
                               }
                             }
                           } catch (updateError) {
-                            console.error('Location page: ❌ Error updating document:', updateError);
-                            console.error('Location page: Error details:', {
+                            console.error('📍 Location page: ❌ Error updating document:', updateError);
+                            console.error('📍 Location page: Error details:', {
                               message: updateError.message,
                               code: updateError.code,
                               stack: updateError.stack
                             });
-                            throw updateError; // Re-throw to be caught by outer catch
+                            // Don't throw - continue navigation even if save fails (data is in context)
+                          }
+                        } else if (state.user?.uid) {
+                          // No valid draftId but user is authenticated - try to create a new draft
+                          try {
+                            console.log('📍 Location page: No valid draftId but user authenticated, creating new draft');
+                            const { saveDraft } = await import('@/pages/Host/services/draftService');
+                            const newDraftData = {
+                              currentStep: 'location',
+                              category: state.category || 'accommodation',
+                              data: {
+                                locationData: currentLocationData
+                              }
+                            };
+                            draftIdToUse = await saveDraft(newDraftData, null);
+                            console.log('📍 Location page: ✅ Created new draft with locationData:', draftIdToUse);
+                            if (actions.setDraftId) {
+                              actions.setDraftId(draftIdToUse);
+                            }
+                          } catch (createError) {
+                            console.error('📍 Location page: ❌ Error creating new draft:', createError);
+                            // Continue navigation - data is in context
                           }
                         } else {
-                          const errorMsg = 'Location page: ❌ No valid draftId found. User may not be authenticated or draft creation failed.';
-                          console.warn(errorMsg);
-                          console.warn('Location page: State draftId:', state?.draftId);
-                          console.warn('Location page: Location state draftId:', location.state?.draftId);
-                          console.warn('Location page: User uid:', state.user?.uid);
-                          // Don't throw error, just navigate without saving - data is in context and navigation state
-                          console.warn('Location page: Navigating without Firebase save - data will be lost if page is refreshed');
+                          console.warn('📍 Location page: ⚠️ Cannot save to Firebase - no valid draftId and user not authenticated');
+                          console.warn('📍 Location page: State draftId:', state?.draftId);
+                          console.warn('📍 Location page: Location state draftId:', location.state?.draftId);
+                          console.warn('📍 Location page: User uid:', state.user?.uid);
+                          console.warn('📍 Location page: Data is saved in context and will be saved when user authenticates');
                         }
                         
                         navigate('/pages/locationconfirmation', { 

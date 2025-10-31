@@ -14,4 +14,21 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  server: {
+    proxy: {
+      '/api/nominatim': {
+        target: 'https://nominatim.openstreetmap.org',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/nominatim/, ''),
+        configure: (proxy, _options) => {
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            // Set required headers for Nominatim
+            proxyReq.setHeader('User-Agent', 'Getaways/1.0 (contact: info@getaways.com)');
+            proxyReq.setHeader('Accept', 'application/json');
+            proxyReq.setHeader('Referer', req.headers.referer || 'http://localhost:5173');
+          });
+        },
+      },
+    },
+  },
 })

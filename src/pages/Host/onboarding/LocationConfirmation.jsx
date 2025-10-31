@@ -129,9 +129,46 @@ const LocationConfirmation = () => {
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
   
+  // Keep only fields we actually use across pages and normalize values
+  // Define this BEFORE using it to avoid "Cannot access before initialization" error
+  const normalizeLocationData = (input) => {
+    if (!input) return {};
+    // Only keep the same fields as Location page's locationData
+    const allowedKeys = [
+      'street', 'barangay', 'city', 'province', 'country', 'zipCode',
+      'unit', 'building', 'latitude', 'longitude'
+    ];
+    const out = {};
+    for (const key of allowedKeys) {
+      let val = input[key];
+      if (val === undefined || val === null) continue;
+      if (typeof val === 'string') {
+        // Trim and drop placeholders
+        val = val.trim();
+        if (!val) continue;
+        // Clean up country name: remove "(the)" and country code suffixes
+        if (key === 'country') {
+          // Remove "(the)" from country names like "Philippines (the)"
+          val = val.replace(/\s*\(the\)\s*/gi, '');
+          // Remove country code suffix like " - PH" or " (PH)"
+          val = val.replace(/\s*-\s*[A-Z]{2,3}\s*$/i, ''); // Remove " - PH" at end
+          val = val.replace(/\s*\([A-Z]{2,3}\)\s*$/i, ''); // Remove " (PH)" at end
+          val = val.trim();
+        }
+      }
+      if ((key === 'latitude' || key === 'longitude') && typeof val === 'string') {
+        const num = Number(val);
+        if (!Number.isFinite(num)) continue;
+        val = num;
+      }
+      out[key] = val;
+    }
+    return out;
+  };
+  
   // Get location data from previous page or use default
   // Prioritize navigation state (from "Is your address correct?" modal) over context
-  const initialLocationData = location.state?.locationData || 
+  const initialLocationDataRaw = location.state?.locationData || 
     state?.locationData || {
       country: '',
       unit: '',
@@ -143,6 +180,12 @@ const LocationConfirmation = () => {
       province: '',
       showPreciseLocation: false
     };
+  
+  // Normalize the initial data to ensure all fields are properly formatted
+  const initialLocationData = normalizeLocationData(initialLocationDataRaw);
+  
+  console.log('📍 LocationConfirmation: initialLocationDataRaw:', initialLocationDataRaw);
+  console.log('📍 LocationConfirmation: initialLocationData (normalized):', initialLocationData);
   
   const [locationData, setLocationData] = useState(initialLocationData);
   
@@ -180,42 +223,6 @@ const LocationConfirmation = () => {
   
   const [position, setPosition] = useState(initialPosition);
 
-  // Keep only fields we actually use across pages and normalize values
-  const normalizeLocationData = (input) => {
-    if (!input) return {};
-    // Only keep the same fields as Location page's locationData
-    const allowedKeys = [
-      'street', 'barangay', 'city', 'province', 'country', 'zipCode',
-      'unit', 'building', 'latitude', 'longitude'
-    ];
-    const out = {};
-    for (const key of allowedKeys) {
-      let val = input[key];
-      if (val === undefined || val === null) continue;
-      if (typeof val === 'string') {
-        // Trim and drop placeholders
-        val = val.trim();
-        if (!val) continue;
-        // Clean up country name: remove "(the)" and country code suffixes
-        if (key === 'country') {
-          // Remove "(the)" from country names like "Philippines (the)"
-          val = val.replace(/\s*\(the\)\s*/gi, '');
-          // Remove country code suffix like " - PH" or " (PH)"
-          val = val.replace(/\s*-\s*[A-Z]{2,3}\s*$/i, ''); // Remove " - PH" at end
-          val = val.replace(/\s*\([A-Z]{2,3}\)\s*$/i, ''); // Remove " (PH)" at end
-          val = val.trim();
-        }
-      }
-      if ((key === 'latitude' || key === 'longitude') && typeof val === 'string') {
-        const num = Number(val);
-        if (!Number.isFinite(num)) continue;
-        val = num;
-      }
-      out[key] = val;
-    }
-    return out;
-  };
-
   // Load draft if draftId is provided (from navigation state or context)
   useEffect(() => {
     const loadDraftData = async () => {
@@ -248,21 +255,70 @@ const LocationConfirmation = () => {
   }, [location.state?.draftId, state?.draftId, hasLoadedDraft, state.locationData]);
 
   // Update local state when context state changes (after draft is loaded)
+  // IMPORTANT: This effect should NOT overwrite address fields when only coordinates change
+  // It should only sync if the context has significantly different data (like from draft load)
   useEffect(() => {
     if (state.locationData && hasLoadedDraft) {
-      console.log('LocationConfirmation: Updating local state from context:', state.locationData);
-      setLocationData(state.locationData);
-      if (state.locationData.latitude && state.locationData.longitude) {
-        setPosition([state.locationData.latitude, state.locationData.longitude]);
-      }
+      // Use a functional update to access current locationData and prevent overwriting on coordinate-only changes
+      setLocationData(prevLocationData => {
+        // Only update if the data is significantly different (not just coordinate changes)
+        // Compare key address fields to see if it's a meaningful update
+        const hasDifferentAddressFields = 
+          (state.locationData.street !== prevLocationData.street) ||
+          (state.locationData.city !== prevLocationData.city) ||
+          (state.locationData.province !== prevLocationData.province) ||
+          (state.locationData.country !== prevLocationData.country);
+        
+        // If address fields are the same, only update coordinates if needed
+        // This prevents overwriting address when user drags pin
+        if (hasDifferentAddressFields || !prevLocationData.street) {
+          // Only update if address fields actually differ or if we don't have address data yet
+          console.log('LocationConfirmation: Updating local state from context (address fields differ):', state.locationData);
+          if (state.locationData.latitude && state.locationData.longitude) {
+            setPosition([state.locationData.latitude, state.locationData.longitude]);
+          }
+          return state.locationData;
+        } else if (state.locationData.latitude && state.locationData.longitude) {
+          // Only update coordinates if address fields are the same
+          const currentLat = prevLocationData.latitude;
+          const currentLng = prevLocationData.longitude;
+          const newLat = state.locationData.latitude;
+          const newLng = state.locationData.longitude;
+          
+          // Only update position if coordinates are significantly different
+          if (Math.abs(currentLat - newLat) > 0.0001 || Math.abs(currentLng - newLng) > 0.0001) {
+            console.log('LocationConfirmation: Only updating coordinates from context (address fields preserved)');
+            setPosition([newLat, newLng]);
+            return {
+              ...prevLocationData,
+              latitude: newLat,
+              longitude: newLng
+            };
+          }
+        }
+        
+        // No change needed
+        return prevLocationData;
+      });
     }
   }, [state.locationData, hasLoadedDraft]);
 
   // Update locationData when navigation state provides it (priority - from "Is your address correct?" modal)
   useEffect(() => {
     if (location.state?.locationData) {
-      console.log('LocationConfirmation: Using locationData from navigation state (from confirmation modal):', location.state.locationData);
+      console.log('📍 LocationConfirmation: Using locationData from navigation state (from confirmation modal):', location.state.locationData);
       const normalizedData = normalizeLocationData(location.state.locationData);
+      console.log('📍 LocationConfirmation: Normalized locationData:', normalizedData);
+      console.log('📍 LocationConfirmation: Address fields in normalized data:', {
+        unit: normalizedData.unit,
+        building: normalizedData.building,
+        street: normalizedData.street,
+        barangay: normalizedData.barangay,
+        city: normalizedData.city,
+        zipCode: normalizedData.zipCode,
+        province: normalizedData.province,
+        country: normalizedData.country
+      });
       setLocationData(normalizedData);
       if (location.state.locationData.latitude && location.state.locationData.longitude) {
         setPosition([location.state.locationData.latitude, location.state.locationData.longitude]);
@@ -482,19 +538,28 @@ const LocationConfirmation = () => {
     setSuggestions([]);
     setIsSearching(false);
     setSearchFocused(false);
-    // Update locationData with parsed address
+    // Update locationData with parsed address from suggestion
+    // This is when user explicitly selects a new address from search
     const addr = s.address || {};
     const updatedLocationData = normalizeLocationData({
-      ...locationData,
-      street: addr.road || locationData.street || '',
-      barangay: addr.suburb || addr.village || addr.neighbourhood || locationData.barangay || '',
-      city: addr.city || addr.town || addr.municipality || locationData.city || '',
-      province: addr.state || addr.region || addr.county || addr.state_district || locationData.province || '',
-      zipCode: addr.postcode || locationData.zipCode || '',
-      country: addr.country || locationData.country || '',
+      // Use suggestion address fields, but preserve existing unit/building if not in suggestion
+      street: addr.road || addr.pedestrian || addr.footway || addr.path || addr.street || addr.road_reference || '',
+      barangay: addr.suburb || addr.village || addr.neighbourhood || addr.quarter || addr.district || addr.residential || addr.city_district || '',
+      city: addr.city || addr.town || addr.municipality || addr.city_district || addr.locality || '',
+      province: addr.state || addr.region || addr.county || addr.state_district || addr.province || addr.administrative || '',
+      zipCode: addr.postcode || '',
+      country: addr.country || '',
+      // Preserve unit and building from current locationData if suggestion doesn't have them
+      unit: locationData.unit || '',
+      building: locationData.building || '',
+      showPreciseLocation: locationData.showPreciseLocation || false,
       latitude: lat,
       longitude: lon
     });
+    
+    // Also update displayAddressAtPin to match
+    setDisplayAddressAtPin(s.display_name);
+    
     setLocationData(updatedLocationData);
     actionsRef.current.updateLocationData(updatedLocationData);
     // Don't save to Firebase here - only save on Next or Save & Exit
@@ -696,54 +761,100 @@ const LocationConfirmation = () => {
     setPosition([lat, lng]);
     
     // Update display address for search bar (performs reverse geocoding for display only)
-    console.log('LocationConfirmation: Pin dragged, fetching new address at:', lat, lng);
+    // This is ONLY for display purposes in the search bar, NOT for the actual address data
+    console.log('LocationConfirmation: Pin dragged, fetching new display address at:', lat, lng);
     const displayAddr = await getDisplayAddressAtLocation(lat, lng);
     console.log('LocationConfirmation: New display address received:', displayAddr);
     setDisplayAddressAtPin(displayAddr);
     console.log('LocationConfirmation: displayAddressAtPin state updated');
     
-    // ALWAYS preserve existing address fields when pin is moved - only update coordinates
-    // The address was confirmed by the user, so we should never auto-update it from geocoding
-    console.log(`Pin moved ${distanceMoved.toFixed(2)} meters - only updating coordinates, preserving ALL address fields`);
+    // CRITICAL: ALWAYS preserve ALL existing address fields when pin is moved - ONLY update coordinates
+    // The address was confirmed by the user, so we should NEVER auto-update it from geocoding
+    // We explicitly spread locationData first to preserve all fields, then ONLY override lat/lng
+    console.log(`Pin moved ${distanceMoved.toFixed(2)} meters - ONLY updating coordinates (lat/lng), preserving ALL address fields`);
+    console.log('LocationConfirmation: Preserving address fields:', {
+      street: locationData.street,
+      barangay: locationData.barangay,
+      city: locationData.city,
+      province: locationData.province,
+      country: locationData.country,
+      zipCode: locationData.zipCode,
+      unit: locationData.unit,
+      building: locationData.building
+    });
+    
     const updatedLocation = normalizeLocationData({
-      ...locationData,
+      // Preserve ALL address fields exactly as they were
+      street: locationData.street || '',
+      barangay: locationData.barangay || '',
+      city: locationData.city || '',
+      province: locationData.province || '',
+      country: locationData.country || '',
+      zipCode: locationData.zipCode || '',
+      unit: locationData.unit || '',
+      building: locationData.building || '',
+      showPreciseLocation: locationData.showPreciseLocation || false,
+      // ONLY update coordinates
       latitude: lat,
       longitude: lng
-      // Keep ALL other address fields unchanged (street, barangay, city, province, country, zipCode, unit, building)
     });
+    
+    console.log('LocationConfirmation: Updated location (address fields preserved):', {
+      street: updatedLocation.street,
+      barangay: updatedLocation.barangay,
+      city: updatedLocation.city,
+      province: updatedLocation.province,
+      country: updatedLocation.country,
+      zipCode: updatedLocation.zipCode,
+      unit: updatedLocation.unit,
+      building: updatedLocation.building,
+      latitude: updatedLocation.latitude,
+      longitude: updatedLocation.longitude
+    });
+    
     setLocationData(updatedLocation);
     actionsRef.current.updateLocationData(updatedLocation);
-    // Note: We update displayAddressAtPin for search bar, but locationData (confirmed address) remains unchanged
+    
+    // Note: displayAddressAtPin is updated for search bar display, but locationData address fields remain unchanged
   };
 
-  // Format the display address - show actual location at current pin position
-  // Use useMemo to ensure it updates when displayAddressAtPin or locationData changes
+  // Format the display address - ALWAYS show the CONFIRMED address from locationData
+  // This should match EXACTLY the format shown in the "Is your address correct?" modal on Location page
+  // NEVER show the reverse geocoded address (displayAddressAtPin) in the main display
+  // displayAddressAtPin is only used internally for suggestions, not for display
   const displayAddress = useMemo(() => {
-    // If we have a display address from reverse geocoding, use it (shows current pin location)
-    if (displayAddressAtPin && displayAddressAtPin.trim()) {
-      console.log('LocationConfirmation: Using displayAddressAtPin:', displayAddressAtPin);
-      return displayAddressAtPin;
-    }
+    // ALWAYS use the confirmed address from locationData (the address the user confirmed)
+    // This ensures the address shown never changes when the pin is dragged
+    // Format matches Location page modal exactly: unit, building, street, barangay, city, zipCode, province, country
+    const addressParts = [
+      locationData.unit,
+      locationData.building,
+      locationData.street,
+      locationData.barangay,
+      locationData.city,
+      locationData.zipCode,
+      locationData.province,
+      locationData.country
+    ];
     
-    // Otherwise, fallback to confirmed address from locationData
-    const parts = [];
+    // Filter out empty/null/undefined values and join with comma-space
+    // Using filter(Boolean) to match the Location page modal exactly
+    const filteredParts = addressParts.filter(part => part && String(part).trim());
+    const addressString = filteredParts.join(', ');
     
-    if (locationData.unit) parts.push(locationData.unit);
-    if (locationData.building) parts.push(locationData.building);
-    if (locationData.street) parts.push(locationData.street);
-    if (locationData.barangay) parts.push(locationData.barangay);
-    if (locationData.city) parts.push(locationData.city);
-    if (locationData.zipCode) parts.push(locationData.zipCode);
-    if (locationData.province) parts.push(locationData.province);
-    if (locationData.country) parts.push(locationData.country);
-    
-    const addressString = parts.filter(part => part && part.trim()).join(', ');
+    // Debug logging to see what's being displayed
+    console.log('📍 LocationConfirmation: displayAddress calculation:', {
+      locationData,
+      addressParts,
+      filteredParts,
+      addressString
+    });
     
     // Fallback to coordinates if no address
     return addressString || (position && position.length === 2 
       ? `Location: ${position[0].toFixed(6)}, ${position[1].toFixed(6)}`
       : 'Address not available');
-  }, [displayAddressAtPin, locationData, position]);
+  }, [locationData, position]); // Removed displayAddressAtPin from dependencies - we never want to show it
   
   // Track if we've initialized the display address to prevent overwriting when pin is moved
   const hasInitializedDisplayAddress = useRef(false);
