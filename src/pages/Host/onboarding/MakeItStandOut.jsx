@@ -1,9 +1,11 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useRef } from 'react';
 import OnboardingHeader from './components/OnboardingHeader';
 import OnboardingFooter from './components/OnboardingFooter';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
 import { useSaveAndExitWithContext } from './hooks/useSaveAndExit.js';
+import { db } from '@/lib/firebase';
+import { doc, updateDoc, getDoc } from 'firebase/firestore';
 
 const MakeItStandOut = () => {
   const navigate = useNavigate();
@@ -34,14 +36,42 @@ const MakeItStandOut = () => {
     loadDraftData();
   }, [location.state?.draftId]);
 
-  // Set current step when component mounts or route changes
-  useEffect(() => {
-    if (actions.setCurrentStep && state.currentStep !== 'makeitstandout') {
-      console.log('📍 MakeItStandOut page - Setting currentStep to makeitstandout');
+  // Set current step immediately when component mounts to ensure progress bar detects forward navigation
+  // Use useLayoutEffect to set it synchronously before paint
+  useLayoutEffect(() => {
+    if (actions?.setCurrentStep) {
+      console.log('📍 MakeItStandOut: Setting currentStep to makeitstandout (useLayoutEffect)');
       actions.setCurrentStep('makeitstandout');
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.pathname]); // Run when route changes
+  }, [actions]);
+  
+  // Ensure currentStep is correct after mount (in case draft overwrote it)
+  useEffect(() => {
+    if (actions?.setCurrentStep) {
+      // Always set currentStep to makeitstandout to ensure progress bar updates
+      if (state.currentStep !== 'makeitstandout') {
+        console.log('📍 MakeItStandOut: Resetting currentStep to makeitstandout after mount');
+        actions.setCurrentStep('makeitstandout');
+      }
+      
+      // Note: sessionStorage was already set correctly by PropertyBasics before navigation
+      // Just verify it's correct (but don't overwrite if PropertyBasics already set it)
+      const storagePrevStepKey = 'onb_prev_step_name';
+      const storageStepKey = 'onb_progress_step';
+      const storageKey = 'onb_progress_value';
+      const currentStep = sessionStorage.getItem(storageStepKey);
+      const currentProgress = sessionStorage.getItem(storageKey);
+      
+      // Only update if not already set correctly by PropertyBasics
+      if (currentStep !== '2' || !currentProgress || Number(currentProgress) < 10) {
+        console.log('📍 MakeItStandOut: Correcting sessionStorage (was set incorrectly)');
+        sessionStorage.setItem(storagePrevStepKey, 'propertybasics');
+        const makeitstandoutProgress = ((0 + 1) / 7) * 100;
+        sessionStorage.setItem(storageStepKey, '2');
+        sessionStorage.setItem(storageKey, String(makeitstandoutProgress));
+      }
+    }
+  }, [actions, state.currentStep]);
 
   // Save & Exit handler
   const handleSaveAndExitClick = async () => {
@@ -219,32 +249,41 @@ const MakeItStandOut = () => {
         </div>
       </main>
 
-      {/* Footer */}
-      <footer className="fixed bottom-0 left-0 right-0 bg-white border-t">
-        <div className="max-w-none">
-          <div className="px-6 py-4">
-            <div className="flex justify-between items-center">
-              <button
-                onClick={() => navigate('/pages/propertybasics')}
-                className="hover:underline text-sm"
-              >
-                Back
-              </button>
-              <button 
-                className="bg-black text-white hover:bg-gray-800 rounded-lg px-6 py-2.5 text-sm font-medium"
-                onClick={() => {
-                  // Navigate to amenities step
-                  navigate('/pages/amenities', { 
-                    state: location.state
-                  });
-                }}
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        </div>
-      </footer>
+      <OnboardingFooter
+        onBack={() => navigate('/pages/propertybasics')}
+        onNext={async () => {
+          // Set currentStep to 'amenities' in context
+          if (actions.setCurrentStep) {
+            actions.setCurrentStep('amenities');
+          }
+          
+          // Save currentStep to Firebase
+          const draftIdToUse = state?.draftId || location.state?.draftId;
+          if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
+            try {
+              const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
+              const docSnap = await getDoc(draftRef);
+              
+              if (docSnap.exists()) {
+                await updateDoc(draftRef, {
+                  currentStep: 'amenities',
+                  lastModified: new Date()
+                });
+                console.log('📍 MakeItStandOut: ✅ Updated currentStep to amenities in Firebase');
+              }
+            } catch (error) {
+              console.error('📍 MakeItStandOut: Error updating currentStep in Firebase:', error);
+              // Continue navigation even if save fails
+            }
+          }
+          
+          // Navigate to amenities step
+          navigate('/pages/amenities', { 
+            state: location.state
+          });
+        }}
+        canProceed={true}
+      />
     </div>
   );
 };

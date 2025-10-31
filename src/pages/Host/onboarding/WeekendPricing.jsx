@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
-import { useSaveAndExitWithContext } from './hooks/useSaveAndExit';
+import { auth, db } from '@/lib/firebase';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import OnboardingHeader from './components/OnboardingHeader';
 import OnboardingFooter from './components/OnboardingFooter';
 
@@ -12,20 +13,25 @@ const WeekendPricing = () => {
   // OnboardingContext integration
   const { state, actions } = useOnboarding();
   
-  // Get weekday price from previous page, default to 1511
-  const weekdayPrice = location.state?.weekdayPrice || 1511;
+  // Get weekday price from previous page or state, default to 1511
+  const weekdayPrice = location.state?.weekdayPrice || state.weekdayPrice || 1511;
   
-  const [premiumPercentage, setPremiumPercentage] = useState(5);
+  const [premiumPercentage, setPremiumPercentage] = useState(3);
+  const [isPriceBreakdownOpen, setIsPriceBreakdownOpen] = useState(false);
+  const [isEditingPercentage, setIsEditingPercentage] = useState(false);
+  const [editPercentageValue, setEditPercentageValue] = useState('');
   
   // Ref to track initialization
   const hasInitialized = useRef(false);
 
-  // Save and Exit hook integration
-  const { handleSaveAndExit } = useSaveAndExitWithContext(actions);
-  
   // Calculate weekend price based on premium
   const weekendPrice = Math.round(weekdayPrice * (1 + premiumPercentage / 100));
-  const guestPrice = Math.round(weekendPrice * 1.14); // Roughly 14% markup for taxes/fees
+  
+  // Calculate pricing breakdown for weekend price
+  const guestServiceFee = Math.round(weekendPrice * 0.141); // ~14.1% service fee
+  const guestPriceBeforeTaxes = weekendPrice + guestServiceFee;
+  const platformFee = Math.round(weekendPrice * 0.033); // ~3.3% platform fee on host
+  const youEarn = weekendPrice - platformFee;
 
   const canProceed = true; // Always can proceed with any percentage
 
@@ -75,21 +81,192 @@ const WeekendPricing = () => {
     updateWeekendPricingContext(newPercentage);
   };
 
+  const handlePercentageInputChange = (e) => {
+    const value = e.target.value.replace(/[^0-9]/g, ''); // Only allow numbers
+    setEditPercentageValue(value);
+  };
+
+  const handlePercentageInputBlur = () => {
+    if (editPercentageValue) {
+      const numValue = parseInt(editPercentageValue, 10);
+      if (!isNaN(numValue) && numValue >= 0 && numValue <= 99) {
+        setPremiumPercentage(numValue);
+        updateWeekendPricingContext(numValue);
+      } else {
+        setEditPercentageValue(premiumPercentage.toString());
+      }
+    }
+    setIsEditingPercentage(false);
+  };
+
+  const handlePercentageInputKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      handlePercentageInputBlur();
+    } else if (e.key === 'Escape') {
+      setEditPercentageValue('');
+      setIsEditingPercentage(false);
+    }
+  };
+
+  const handlePercentageClick = () => {
+    setIsEditingPercentage(true);
+    setEditPercentageValue(premiumPercentage.toString());
+  };
+
   // Debug: Log the location state
   console.log('WeekendPricing - location.state:', location.state);
   console.log('WeekendPricing - weekdayPrice:', weekdayPrice);
 
+  // Helper function to ensure we have a valid draftId and save weekend pricing to Firebase
+  const ensureDraftAndSave = async (weekendPricingData, targetRoute = '/pages/discounts') => {
+    let draftIdToUse = state?.draftId || location.state?.draftId;
+    
+    // If draftId is temp, reset it to find/create a real one
+    if (draftIdToUse && draftIdToUse.startsWith('temp_')) {
+      console.log('📍 WeekendPricing: Found temp ID, resetting to find/create real draft');
+      draftIdToUse = null;
+    }
+    
+    // If user is authenticated, ensure we have a draft
+    if (!draftIdToUse && state.user?.uid) {
+      try {
+        const { getUserDrafts, saveDraft } = await import('@/pages/Host/services/draftService');
+        const drafts = await getUserDrafts();
+        
+        if (drafts.length > 0) {
+          // Use the most recent draft
+          draftIdToUse = drafts[0].id;
+          console.log('📍 WeekendPricing: Using existing draft:', draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        } else {
+          // No drafts exist, create a new one
+          console.log('📍 WeekendPricing: No existing drafts, creating new draft');
+          const nextStep = targetRoute === '/pages/discounts' ? 'discounts' : 'weekendpricing';
+          const newDraftData = {
+            currentStep: nextStep,
+            category: state.category || 'accommodation',
+            data: {
+              pricing: weekendPricingData
+            }
+          };
+          draftIdToUse = await saveDraft(newDraftData, null);
+          console.log('📍 WeekendPricing: ✅ Created new draft:', draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        }
+      } catch (error) {
+        console.error('📍 WeekendPricing: Error finding/creating draft:', error);
+        throw error;
+      }
+    }
+    
+    // Save to Firebase if we have a valid draftId
+    if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
+      try {
+        const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
+        const docSnap = await getDoc(draftRef);
+        
+        if (docSnap.exists()) {
+          // Update existing document - update data.pricing with weekendPrice and currentStep
+          const nextStep = targetRoute === '/pages/discounts' ? 'discounts' : 'weekendpricing';
+          
+          // Get existing pricing data if it exists
+          const existingData = docSnap.data();
+          const existingPricing = existingData.data?.pricing || {};
+          
+          await updateDoc(draftRef, {
+            'data.pricing': {
+              ...existingPricing,
+              weekdayPrice: existingPricing.weekdayPrice || weekdayPrice,
+              weekendPrice: weekendPricingData.weekendPrice
+            },
+            currentStep: nextStep,
+            lastModified: new Date()
+          });
+          console.log('📍 WeekendPricing: ✅ Saved weekend pricing to data.pricing and currentStep to Firebase:', draftIdToUse, '- pricing:', { ...existingPricing, weekdayPrice: existingPricing.weekdayPrice || weekdayPrice, weekendPrice: weekendPricingData.weekendPrice }, ', currentStep:', nextStep);
+        } else {
+          // Document doesn't exist, create it
+          console.log('📍 WeekendPricing: Document not found, creating new one');
+          const { saveDraft } = await import('@/pages/Host/services/draftService');
+          const nextStep = targetRoute === '/pages/discounts' ? 'discounts' : 'weekendpricing';
+          const newDraftData = {
+            currentStep: nextStep,
+            category: state.category || 'accommodation',
+            data: {
+              pricing: weekendPricingData
+            }
+          };
+          draftIdToUse = await saveDraft(newDraftData, draftIdToUse);
+          console.log('📍 WeekendPricing: ✅ Created new draft with weekend pricing:', draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        }
+        return draftIdToUse;
+      } catch (error) {
+        console.error('📍 WeekendPricing: ❌ Error saving to Firebase:', error);
+        throw error;
+      }
+    } else if (state.user?.uid) {
+      console.warn('📍 WeekendPricing: ⚠️ User authenticated but no valid draftId after ensureDraftAndSave');
+      throw new Error('Failed to create draft for authenticated user');
+    } else {
+      console.warn('📍 WeekendPricing: ⚠️ User not authenticated, cannot save to Firebase');
+      return null;
+    }
+  };
+
   // Save & Exit handler
   const handleSaveAndExitClick = async () => {
     console.log('WeekendPricing Save & Exit clicked');
+    console.log('Current premium percentage:', premiumPercentage);
+    console.log('Current weekend price:', weekendPrice);
+    
+    if (!auth.currentUser) {
+      console.error('WeekendPricing: No authenticated user');
+      alert('Please log in to save your progress');
+      return;
+    }
+    
     try {
-      // Ensure context is up to date
+      // Set current step before saving so "Continue Editing" returns to this page
+      if (actions.setCurrentStep) {
+        console.log('WeekendPricing: Setting currentStep to weekendpricing');
+        actions.setCurrentStep('weekendpricing');
+      }
+      
+      // Ensure weekend pricing is updated in context
       updateWeekendPricingContext(premiumPercentage);
       
-      // Use the hook's save and exit functionality
-      await handleSaveAndExit();
+      // Prepare weekend pricing data to save
+      const weekendPricingData = {
+        weekdayPrice: weekdayPrice,
+        weekendPrice: weekendPrice
+      };
+      
+      // Save weekend pricing to Firebase under data.pricing
+      let draftIdToUse;
+      try {
+        draftIdToUse = await ensureDraftAndSave(weekendPricingData, '/pages/weekendpricing');
+        console.log('📍 WeekendPricing: ✅ Saved weekend pricing to Firebase on Save & Exit');
+      } catch (saveError) {
+        console.error('📍 WeekendPricing: Error saving to Firebase on Save & Exit:', saveError);
+        // Continue with save & exit even if Firebase save fails
+      }
+      
+      // Navigate to dashboard
+      navigate('/host/hostdashboard', { 
+        state: { 
+          message: 'Draft saved successfully!',
+          draftSaved: true 
+        }
+      });
     } catch (error) {
       console.error('Error during save and exit:', error);
+      alert('Error saving progress: ' + error.message);
     }
   };
 
@@ -114,12 +291,62 @@ const WeekendPricing = () => {
             <div className="text-6xl font-medium text-gray-900 mb-4">
               ₱{weekendPrice.toLocaleString()}
             </div>
-            <button className="text-gray-600 hover:text-gray-800 flex items-center gap-1 mx-auto">
-              Guest price before taxes ₱{guestPrice.toLocaleString()}
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <button 
+              onClick={() => setIsPriceBreakdownOpen(!isPriceBreakdownOpen)}
+              className="text-gray-600 hover:text-gray-800 flex items-center gap-1 mx-auto transition-colors"
+            >
+              Guest price before taxes ₱{guestPriceBeforeTaxes.toLocaleString()}
+              <svg 
+                className={`w-4 h-4 transition-transform ${isPriceBreakdownOpen ? 'rotate-180' : ''}`}
+                fill="none" 
+                stroke="currentColor" 
+                viewBox="0 0 24 24"
+              >
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
               </svg>
             </button>
+            
+            {/* Price Breakdown */}
+            {isPriceBreakdownOpen && (
+              <div className="mt-6 bg-white border border-gray-200 rounded-lg p-6 max-w-md mx-auto shadow-sm">
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-600">Base price</span>
+                    <span className="text-gray-900 font-medium">₱{weekendPrice.toLocaleString()}</span>
+                  </div>
+                  
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-600">Guest service fee</span>
+                    <span className="text-gray-900 font-medium">₱{guestServiceFee.toLocaleString()}</span>
+                  </div>
+                  
+                  <div className="border-t border-gray-200 pt-4 flex justify-between items-center">
+                    <span className="text-gray-600 font-medium">Guest price before taxes</span>
+                    <span className="text-gray-900 font-semibold">₱{guestPriceBeforeTaxes.toLocaleString()}</span>
+                  </div>
+                  
+                  <div className="border-t border-gray-200 pt-4 flex justify-between items-center">
+                    <span className="text-gray-600">You earn</span>
+                    <span className="text-gray-900 font-semibold">₱{youEarn.toLocaleString()}</span>
+                  </div>
+                </div>
+                
+                <button
+                  onClick={() => setIsPriceBreakdownOpen(false)}
+                  className="mt-6 w-full flex items-center justify-center gap-2 text-gray-600 hover:text-gray-800 transition-colors"
+                >
+                  <span>Show less</span>
+                  <svg 
+                    className="w-4 h-4" 
+                    fill="none" 
+                    stroke="currentColor" 
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                  </svg>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Weekend Premium Control */}
@@ -127,11 +354,37 @@ const WeekendPricing = () => {
             <div className="flex justify-between items-center">
               <div>
                 <h3 className="text-lg font-medium text-gray-900">Weekend premium</h3>
-                <p className="text-sm text-gray-600">Tip: Try 5%</p>
+                <p className="text-sm text-gray-600">Tip: 3%</p>
               </div>
-              <div className="text-2xl font-medium text-gray-900">
-                {premiumPercentage}%
-              </div>
+              {isEditingPercentage ? (
+                <div className="text-2xl font-medium text-gray-900">
+                  <input
+                    type="text"
+                    value={editPercentageValue}
+                    onChange={handlePercentageInputChange}
+                    onBlur={handlePercentageInputBlur}
+                    onKeyDown={handlePercentageInputKeyDown}
+                    className="text-2xl font-medium text-gray-900 bg-transparent border-b-2 border-gray-400 focus:border-black focus:outline-none w-16 text-center"
+                    autoFocus
+                  />
+                  <span className="text-2xl font-medium text-gray-900">%</span>
+                </div>
+              ) : (
+                <div 
+                  className="text-2xl font-medium text-gray-900 cursor-pointer relative group"
+                  onClick={handlePercentageClick}
+                >
+                  {premiumPercentage}%
+                  <svg 
+                    className="w-4 h-4 inline-block ml-2 opacity-0 group-hover:opacity-100 transition-opacity" 
+                    fill="none" 
+                    stroke="currentColor" 
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                </div>
+              )}
             </div>
 
             {/* Slider */}
@@ -156,46 +409,52 @@ const WeekendPricing = () => {
         </div>
       </main>
 
-      {/* Footer */}
-      <footer className="fixed bottom-0 left-0 right-0 bg-white border-t">
-        <div className="max-w-none">
-          <div className="px-6 py-4">
-            <div className="flex justify-between items-center">
-              <button
-                onClick={() => navigate('/pages/pricing')}
-                className="hover:underline text-sm"
-              >
-                Back
-              </button>
-              <button 
-                className={`rounded-lg px-6 py-2.5 text-sm font-medium ${
-                  canProceed
-                    ? 'bg-black text-white hover:bg-gray-800'
-                    : 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                }`}
-                onClick={() => {
-                  if (canProceed) {
-                    // Update context before navigation
-                    updateWeekendPricingContext(premiumPercentage);
-                    
-                    // Continue to discounts
-                    navigate('/pages/discounts', { 
-                      state: { 
-                        ...location.state,
-                        weekendPrice: weekendPrice,
-                        premiumPercentage: premiumPercentage
-                      } 
-                    });
-                  }
-                }}
-                disabled={!canProceed}
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        </div>
-      </footer>
+      <OnboardingFooter
+        onBack={() => navigate('/pages/pricing')}
+        onNext={async () => {
+          if (canProceed) {
+            try {
+              // Update context first
+              updateWeekendPricingContext(premiumPercentage);
+              
+              // Prepare weekend pricing data to save
+              const weekendPricingData = {
+                weekdayPrice: weekdayPrice,
+                weekendPrice: weekendPrice
+              };
+              
+              // Save weekend pricing to Firebase
+              let draftIdToUse;
+              try {
+                draftIdToUse = await ensureDraftAndSave(weekendPricingData, '/pages/discounts');
+                console.log('📍 WeekendPricing: ✅ Saved weekend pricing to Firebase on Next click');
+              } catch (saveError) {
+                console.error('📍 WeekendPricing: Error saving to Firebase on Next:', saveError);
+                // Continue navigation even if save fails - data is in context
+              }
+              
+              // Update current step in context
+              if (actions.setCurrentStep) {
+                actions.setCurrentStep('discounts');
+              }
+              
+              // Navigate to discounts page
+              navigate('/pages/discounts', { 
+                state: { 
+                  ...location.state,
+                  weekendPrice: weekendPrice,
+                  premiumPercentage: premiumPercentage,
+                  draftId: draftIdToUse || state?.draftId || location.state?.draftId
+                } 
+              });
+            } catch (error) {
+              console.error('Error saving weekend pricing:', error);
+              alert('Error saving progress. Please try again.');
+            }
+          }
+        }}
+        canProceed={canProceed}
+      />
 
       <style>{`
         .slider::-webkit-slider-thumb {

@@ -89,7 +89,7 @@ const StepProgress = ({ currentStepName = 'hostingsteps' }) => {
   // Define the 3 main steps with their respective pages
   const stepGroups = {
     1: ['hostingsteps', 'propertydetails', 'propertystructure', 'privacytype', 'location', 'locationconfirmation', 'propertybasics'],
-    2: ['makeitstandout', 'amenities', 'photos', 'photospreview', 'titledescription', 'description', 'descriptiondetails'],
+    2: ['makeitstandout', 'amenities', 'photos', 'titledescription', 'description', 'descriptiondetails'],
     3: ['finishsetup', 'bookingsettings', 'guestselection', 'pricing', 'weekendpricing', 'discounts', 'safetydetails', 'finaldetails']
   };
 
@@ -147,10 +147,15 @@ const StepProgress = ({ currentStepName = 'hostingsteps' }) => {
   const isNavigatingBackward = prevStepInfo.mainStep === currentStepInfo.mainStep && 
                                prevStepInfo.index > currentStepInfo.index;
   
+  // Check if we're moving to a different step group synchronously (before useEffect)
+  const isMovingToNewStepGroupSync = storedStepSync !== currentMainStep && storedStepSync > 0 && currentMainStep > 0;
+  const isMovingForwardBetweenGroupsSync = isMovingToNewStepGroupSync && currentMainStep > storedStepSync;
+  
   // On HostingSteps, start rendered at the last value so it can animate DOWN to 0
+  // When moving forward to a new step group, always start at 0 (not the previous step's progress)
   const initialDisplayed = isHostingSteps
     ? storedValSync
-    : (storedStepSync === currentMainStep ? storedValSync : 0);
+    : (isMovingForwardBetweenGroupsSync ? 0 : (storedStepSync === currentMainStep ? storedValSync : 0));
   const prevProgressRef = React.useRef(initialDisplayed);
   const [displayedProgress, setDisplayedProgress] = React.useState(initialDisplayed);
 
@@ -181,9 +186,14 @@ const StepProgress = ({ currentStepName = 'hostingsteps' }) => {
                              currentStepInfo.index > prevStepInfo.index &&
                              currentStepInfo.index >= 0 && prevStepInfo.index >= 0;
     
+    // Check if we're moving to a different step group (Step 1 -> Step 2, Step 2 -> Step 3)
+    const isMovingToNewStepGroup = prevStoredStep !== currentMainStep && prevStoredStep > 0 && currentMainStep > 0;
+    const isMovingForwardBetweenGroups = isMovingToNewStepGroup && currentMainStep > prevStoredStep;
+    
     // Determine starting progress point
     let startProgress;
     if (prevStoredStep === currentMainStep) {
+      // Same step group - use existing logic
       if (isForwardByIndex) {
         // Forward navigation: if stored value is higher than calculated (stale data), 
         // start from calculated to avoid backward animation
@@ -201,25 +211,49 @@ const StepProgress = ({ currentStepName = 'hostingsteps' }) => {
           startProgress = prevStoredVal;
         }
       }
+    } else if (isMovingForwardBetweenGroups) {
+      // CRITICAL FIX: When moving forward to a NEW step group (e.g., Step 1 -> Step 2)
+      // Start from 0% of the new step group, NOT from the previous step's progress
+      // This prevents the jump to 100% then decrease animation
+      startProgress = 0;
+      // Update ref immediately to prevent any flash of incorrect progress
+      prevProgressRef.current = 0;
+      console.log('✅ Moving forward to new step group - starting from 0%', {
+        fromStep: prevStoredStep,
+        toStep: currentMainStep,
+        fromStepName: prevStepName,
+        toStepName: currentStepName,
+        targetProgress: progressInStep
+      });
     } else {
-      // Different step or first time: start from current displayed or 0
+      // Different step (backward or uncertain) or first time: start from current displayed or 0
       startProgress = prevProgressRef.current || 0;
     }
     
-    // Determine target progress - prioritize step index comparison over stored values
+    // Determine target progress - always use calculated progress for current step
     let targetProgress = progressInStep;
     
     // Handle forward navigation: always move forward if step index indicates forward movement
     if (isForwardByIndex) {
-      // Forward navigation - always use calculated progress, even if stored value is higher
+      // Forward navigation within same step group - always use calculated progress
       targetProgress = progressInStep;
-      console.log('✅ Forward navigation detected - moving progress forward', {
+      console.log('✅ Forward navigation detected (same step group) - moving progress forward', {
         from: prevStepName,
         to: currentStepName,
         fromIndex: prevStepInfo.index,
         toIndex: currentStepInfo.index,
         fromProgress: prevStoredVal,
         toProgress: progressInStep
+      });
+    } else if (isMovingForwardBetweenGroups) {
+      // Forward navigation to new step group - animate from 0% to calculated progress
+      targetProgress = progressInStep;
+      console.log('✅ Forward navigation to new step group - animating from 0% to', progressInStep + '%', {
+        fromStep: prevStoredStep,
+        toStep: currentMainStep,
+        fromStepName: prevStepName,
+        toStepName: currentStepName,
+        targetProgress: progressInStep
       });
     } else if (isNavigatingBackward && prevStoredStep === currentMainStep) {
       // User clicked back button - allow backward movement
@@ -257,8 +291,14 @@ const StepProgress = ({ currentStepName = 'hostingsteps' }) => {
       targetProgress = progressInStep;
     }
     
-    // Jump to start progress, then animate to target
-    setDisplayedProgress(startProgress);
+    // For forward movement to new step group, immediately set to start (0%) to prevent flash
+    if (isMovingForwardBetweenGroups) {
+      setDisplayedProgress(startProgress);
+      prevProgressRef.current = startProgress;
+    } else {
+      // Jump to start progress, then animate to target
+      setDisplayedProgress(startProgress);
+    }
     
     // Force a double rAF to guarantee a layout pass before transitioning (fixes 0% -> X% jump)
     const id = requestAnimationFrame(() => {

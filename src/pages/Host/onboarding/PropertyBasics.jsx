@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useOnboardingAutoSave, useOnboardingNavigation } from './hooks/useOnboardingAutoSave';
+import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
+import { db } from '@/lib/firebase';
+import { doc, updateDoc, getDoc } from 'firebase/firestore';
 import OnboardingHeader from './components/OnboardingHeader';
 import OnboardingFooter from './components/OnboardingFooter';
 
@@ -8,23 +10,159 @@ const PropertyBasics = () => {
   const navigate = useNavigate();
   const location = useLocation();
   
-  // Enhanced auto-save and state management
-  const { 
-    state, 
-    actions, 
-    loadDraftIfNeeded, 
-    saveAndExit, 
-    isLoading 
-  } = useOnboardingAutoSave('propertybasics', []);
+  // Direct context access - NO AUTOSAVE
+  const { state, actions } = useOnboarding();
   
-  const { navigateNext, navigateBack } = useOnboardingNavigation('propertybasics');
+  // Helper function to build propertyBasics data based on privacyType
+  const buildPropertyBasicsData = (propertyBasicsData) => {
+    const currentPrivacyType = privacyType || state.privacyType || 'An entire place';
+    
+    // Base structure with guestCapacity (always required)
+    const baseData = {
+      guestCapacity: propertyBasicsData.guests
+    };
+    
+    // Add fields based on privacyType
+    if (currentPrivacyType === 'An entire place') {
+      // An entire place: guests, bedrooms, beds, bathrooms
+      return {
+        ...baseData,
+        bedrooms: propertyBasicsData.bedrooms,
+        beds: propertyBasicsData.beds,
+        bathrooms: propertyBasicsData.bathrooms
+      };
+    } else if (currentPrivacyType === 'A room') {
+      // A room: guests, bedrooms, beds, bedroomLock
+      return {
+        ...baseData,
+        bedrooms: propertyBasicsData.bedrooms,
+        beds: propertyBasicsData.beds,
+        bedroomLock: propertyBasicsData.bedroomLock || null
+      };
+    } else if (currentPrivacyType === 'A shared room in a hostel') {
+      // A shared room in a hostel: guests, beds, bathrooms
+      return {
+        ...baseData,
+        beds: propertyBasicsData.beds,
+        bathrooms: propertyBasicsData.bathrooms
+      };
+    } else {
+      // Default fallback: save all fields (backward compatibility)
+      return {
+        ...baseData,
+        bedrooms: propertyBasicsData.bedrooms,
+        beds: propertyBasicsData.beds,
+        bathrooms: propertyBasicsData.bathrooms,
+        bedroomLock: propertyBasicsData.bedroomLock || null
+      };
+    }
+  };
+
+  // Helper function to ensure we have a valid draftId and save to Firebase
+  const ensureDraftAndSave = async (propertyBasicsData) => {
+    let draftIdToUse = state?.draftId || location.state?.draftId;
+    
+    // Build the propertyBasics data based on privacyType
+    const propertyBasicsToSave = buildPropertyBasicsData(propertyBasicsData);
+    
+    // If draftId is temp, reset it to find/create a real one
+    if (draftIdToUse && draftIdToUse.startsWith('temp_')) {
+      console.log('📍 PropertyBasics: Found temp ID, resetting to find/create real draft');
+      draftIdToUse = null;
+    }
+    
+    // If user is authenticated, ensure we have a draft
+    if (!draftIdToUse && state.user?.uid) {
+      try {
+        const { getUserDrafts, saveDraft } = await import('@/pages/Host/services/draftService');
+        const drafts = await getUserDrafts();
+        
+        if (drafts.length > 0) {
+          // Use the most recent draft
+          draftIdToUse = drafts[0].id;
+          console.log('📍 PropertyBasics: Using existing draft:', draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        } else {
+          // No drafts exist, create a new one
+          console.log('📍 PropertyBasics: No existing drafts, creating new draft');
+          const newDraftData = {
+            currentStep: 'makeitstandout',
+            category: state.category || 'accommodation',
+            data: {
+              propertyBasics: propertyBasicsToSave
+            }
+          };
+          draftIdToUse = await saveDraft(newDraftData, null);
+          console.log('📍 PropertyBasics: ✅ Created new draft:', draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        }
+      } catch (error) {
+        console.error('📍 PropertyBasics: Error finding/creating draft:', error);
+        throw error;
+      }
+    }
+    
+    // Save to Firebase if we have a valid draftId
+    if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
+      try {
+        const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
+        const docSnap = await getDoc(draftRef);
+        
+        if (docSnap.exists()) {
+          // Update existing document - save as nested propertyBasics object (similar to locationData)
+          // Only save fields relevant to the current privacyType
+          await updateDoc(draftRef, {
+            'data.propertyBasics': propertyBasicsToSave,
+            currentStep: 'makeitstandout',
+            lastModified: new Date()
+          });
+          console.log('📍 PropertyBasics: ✅ Saved propertyBasics to Firebase (privacyType:', privacyType || state.privacyType, '):', propertyBasicsToSave);
+        } else {
+          // Document doesn't exist, create it
+          console.log('📍 PropertyBasics: Document not found, creating new one');
+          const { saveDraft } = await import('@/pages/Host/services/draftService');
+          const newDraftData = {
+            currentStep: 'makeitstandout',
+            category: state.category || 'accommodation',
+            data: {
+              propertyBasics: propertyBasicsToSave
+            }
+          };
+          draftIdToUse = await saveDraft(newDraftData, draftIdToUse);
+          console.log('📍 PropertyBasics: ✅ Created new draft with propertyBasics:', draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        }
+        return draftIdToUse;
+      } catch (error) {
+        console.error('📍 PropertyBasics: ❌ Error saving to Firebase:', error);
+        throw error;
+      }
+    } else if (state.user?.uid) {
+      // User authenticated but no draftId - this shouldn't happen after ensureDraftAndSave logic
+      console.warn('📍 PropertyBasics: ⚠️ User authenticated but no valid draftId after ensureDraftAndSave');
+      throw new Error('Failed to create draft for authenticated user');
+    } else {
+      console.warn('📍 PropertyBasics: ⚠️ User not authenticated, cannot save to Firebase');
+      return null; // Return null instead of throwing - data is in context
+    }
+  };
   
-  // State for property basics
+  // Get privacyType from state or draft data
+  const [privacyType, setPrivacyType] = useState(state.privacyType || null);
+  
+  // State for property basics - default guests to 4
   const [propertyBasics, setPropertyBasics] = useState({
-    guests: state.guestCapacity || 4,
+    guests: state.guestCapacity ?? 4, // Default to 4 (context initializes to 4 now)
     bedrooms: state.bedrooms || 1,
     beds: state.beds || 2,
-    bathrooms: state.bathrooms || 1
+    bathrooms: state.bathrooms || 1,
+    bedroomLock: state.bedroomLock || null // For "A room" option
   });
 
   // Ref to track initialization
@@ -40,24 +178,55 @@ const PropertyBasics = () => {
     }
   }, [actions]);
 
-  // Load draft if continuing from saved progress
+  // Load draft if continuing from saved progress (manual, no autosave)
   useEffect(() => {
     const initializePage = async () => {
-      if (location.state?.draftId) {
+      if (location.state?.draftId && actions.loadDraft) {
         try {
-          await loadDraftIfNeeded(location.state.draftId);
+          console.log('PropertyBasics: Loading draft with ID:', location.state.draftId);
+          actions.setLoading(true);
+          await actions.loadDraft(location.state.draftId);
           setHasLoadedDraft(true);
+          console.log('PropertyBasics: Draft loaded successfully');
+          
+          // Load privacyType from draft data
+          if (state.draftId || location.state?.draftId) {
+            const draftIdToUse = state.draftId || location.state.draftId;
+            const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
+            const draftSnap = await getDoc(draftRef);
+            if (draftSnap.exists()) {
+              const draftData = draftSnap.data();
+              const privacyTypeFromDraft = draftData.data?.privacyType || draftData.privacyType || null;
+              if (privacyTypeFromDraft) {
+                setPrivacyType(privacyTypeFromDraft);
+                console.log('PropertyBasics: Loaded privacyType from draft:', privacyTypeFromDraft);
+              }
+            }
+          }
         } catch (error) {
           console.error('Error loading draft in PropertyBasics:', error);
           setHasLoadedDraft(true); // Set to true even on error to allow step correction
+        } finally {
+          actions.setLoading(false);
         }
       } else {
         setHasLoadedDraft(true);
+        // Try to get privacyType from state
+        if (state.privacyType) {
+          setPrivacyType(state.privacyType);
+        }
       }
     };
 
     initializePage();
-  }, [location.state, loadDraftIfNeeded]);
+  }, [location.state?.draftId, actions]);
+  
+  // Also update privacyType when state changes
+  useEffect(() => {
+    if (state.privacyType) {
+      setPrivacyType(state.privacyType);
+    }
+  }, [state.privacyType]);
 
   // Ensure currentStep is correct after draft loads (in case draft overwrote it)
   useEffect(() => {
@@ -91,27 +260,53 @@ const PropertyBasics = () => {
 
   // Update propertyBasics when state changes (after loading draft)
   useEffect(() => {
-    if (state.guestCapacity !== undefined || state.bedrooms || state.beds || state.bathrooms) {
+    if (state.guestCapacity !== undefined || state.bedrooms || state.beds || state.bathrooms || state.bedroomLock !== undefined) {
       const newBasics = {
-        guests: state.guestCapacity || state.guests || 4,
-        bedrooms: state.bedrooms || 1,
+        guests: state.guestCapacity ?? state.guests ?? 4, // Default to 4
+        bedrooms: state.bedrooms || (privacyType === 'A shared room in a hostel' ? 0 : 1),
         beds: state.beds || 2,
-        bathrooms: state.bathrooms || 1
+        bathrooms: state.bathrooms || (privacyType === 'A room' ? 0 : 1),
+        bedroomLock: state.bedroomLock || null
       };
       setPropertyBasics(newBasics);
+    } else {
+      // If no state values exist, ensure guests defaults to 4
+      setPropertyBasics(prev => ({
+        ...prev,
+        guests: 4 // Always default to 4 if no state values
+      }));
     }
-  }, [state.guestCapacity, state.guests, state.bedrooms, state.beds, state.bathrooms]);
+  }, [state.guestCapacity, state.guests, state.bedrooms, state.beds, state.bathrooms, state.bedroomLock, privacyType]);
 
   // Real-time context updates (moved to handleCounterChange)
   const updatePropertyBasics = (newBasics) => {
     console.log('PropertyBasics - Updating context with:', newBasics);
-    // Map local state structure to context structure
+    const currentPrivacyType = privacyType || state.privacyType || 'An entire place';
+    
+    // Map local state structure to context structure based on privacyType
     const contextBasics = {
-      guestCapacity: newBasics.guests,
-      bedrooms: newBasics.bedrooms,
-      beds: newBasics.beds,
-      bathrooms: newBasics.bathrooms
+      guestCapacity: newBasics.guests
     };
+    
+    // Add fields based on privacyType
+    if (currentPrivacyType === 'An entire place') {
+      contextBasics.bedrooms = newBasics.bedrooms;
+      contextBasics.beds = newBasics.beds;
+      contextBasics.bathrooms = newBasics.bathrooms;
+    } else if (currentPrivacyType === 'A room') {
+      contextBasics.bedrooms = newBasics.bedrooms;
+      contextBasics.beds = newBasics.beds;
+      contextBasics.bedroomLock = newBasics.bedroomLock || null;
+    } else if (currentPrivacyType === 'A shared room in a hostel') {
+      contextBasics.beds = newBasics.beds;
+      contextBasics.bathrooms = newBasics.bathrooms;
+    } else {
+      // Default fallback: include all fields
+      contextBasics.bedrooms = newBasics.bedrooms;
+      contextBasics.beds = newBasics.beds;
+      contextBasics.bathrooms = newBasics.bathrooms;
+      contextBasics.bedroomLock = newBasics.bedroomLock || null;
+    }
     
     actions.updatePropertyBasics(contextBasics);
     // Removed setCurrentStep to prevent infinite loops
@@ -122,7 +317,12 @@ const PropertyBasics = () => {
     setPropertyBasics(prev => {
       const newValue = increment ? prev[field] + 1 : prev[field] - 1;
       // Ensure minimum values
-      const minValue = field === 'guests' ? 1 : (field === 'bathrooms' ? 0.5 : 1);
+      // For beds and guests, minimum is 1
+      // For bedrooms, minimum is 0
+      // For bathrooms, minimum is 0.5 (for half bathrooms)
+      const minValue = field === 'guests' || field === 'beds' 
+        ? 1 
+        : (field === 'bedrooms' ? 0 : (field === 'bathrooms' ? 0.5 : 1));
       const updatedBasics = {
         ...prev,
         [field]: Math.max(minValue, newValue)
@@ -130,12 +330,32 @@ const PropertyBasics = () => {
       
       // Schedule context update after render using setTimeout
       setTimeout(() => {
+        const currentPrivacyType = privacyType || state.privacyType || 'An entire place';
+        
+        // Map to context structure based on privacyType
         const contextBasics = {
-          guestCapacity: updatedBasics.guests,
-          bedrooms: updatedBasics.bedrooms,
-          beds: updatedBasics.beds,
-          bathrooms: updatedBasics.bathrooms
+          guestCapacity: updatedBasics.guests
         };
+        
+        // Add fields based on privacyType
+        if (currentPrivacyType === 'An entire place') {
+          contextBasics.bedrooms = updatedBasics.bedrooms;
+          contextBasics.beds = updatedBasics.beds;
+          contextBasics.bathrooms = updatedBasics.bathrooms;
+        } else if (currentPrivacyType === 'A room') {
+          contextBasics.bedrooms = updatedBasics.bedrooms;
+          contextBasics.beds = updatedBasics.beds;
+          contextBasics.bedroomLock = updatedBasics.bedroomLock || null;
+        } else if (currentPrivacyType === 'A shared room in a hostel') {
+          contextBasics.beds = updatedBasics.beds;
+          contextBasics.bathrooms = updatedBasics.bathrooms;
+        } else {
+          // Default fallback: include all fields
+          contextBasics.bedrooms = updatedBasics.bedrooms;
+          contextBasics.beds = updatedBasics.beds;
+          contextBasics.bathrooms = updatedBasics.bathrooms;
+          contextBasics.bedroomLock = updatedBasics.bedroomLock || null;
+        }
         
         console.log('Counter changed, updating context:', contextBasics);
         actions.updatePropertyBasics(contextBasics);
@@ -146,7 +366,7 @@ const PropertyBasics = () => {
     });
   };
 
-  // Save & Exit handler
+  // Save & Exit handler (manual save, no autosave)
   const handleSaveAndExitClick = async () => {
     try {
       console.log('PropertyBasics: Saving and exiting...');
@@ -155,17 +375,12 @@ const PropertyBasics = () => {
       // Update context with current values first
       updatePropertyBasics(propertyBasics);
       
-      // Create current page data with proper mapping
-      const currentPageData = {
-        guestCapacity: propertyBasics.guests,
-        guests: propertyBasics.guests,
-        bedrooms: propertyBasics.bedrooms,
-        beds: propertyBasics.beds,
-        bathrooms: propertyBasics.bathrooms
-      };
-      
-      // Save current data and exit
-      await saveAndExit(currentPageData);
+      // Use context's saveAndExit function
+      if (actions.saveAndExit) {
+        await actions.saveAndExit();
+      } else {
+        console.warn('PropertyBasics: saveAndExit action not available');
+      }
     } catch (error) {
       console.error('Error saving and exiting:', error);
       alert('Error saving progress: ' + error.message);
@@ -174,7 +389,12 @@ const PropertyBasics = () => {
 
   // Counter component
   const Counter = ({ label, value, field, step = 1 }) => {
-    const canDecrement = field === 'guests' ? value > 1 : (field === 'bathrooms' ? value > 0.5 : value > 1);
+    // For beds and guests, disable decrease when value is 1
+    // For bedrooms, can decrease to 0
+    // For bathrooms, can decrease to 0.5 (half bathroom)
+    const canDecrement = field === 'guests' || field === 'beds' 
+      ? value > 1 
+      : (field === 'bedrooms' ? value > 0 : (field === 'bathrooms' ? value > 0.5 : value > 1));
     
     return (
       <div className="flex items-center justify-between py-6 border-b border-gray-200 last:border-b-0">
@@ -212,15 +432,19 @@ const PropertyBasics = () => {
       {/* Main Content */}
       <main className="pt-20 px-8 pb-32">
         <div className="max-w-[640px] mx-auto">
-          <h1 className="text-[32px] font-medium text-gray-900 mb-4">
+          <h1 className="text-[32px] font-medium text-gray-900 mb-2">
             Share some basics about your place
           </h1>
-          <p className="text-gray-600 mb-12">
+          <p className="text-base text-gray-600 mb-12">
             You'll add more details later, like bed types.
           </p>
 
           {/* Counters Container */}
           <div className="bg-white border border-gray-200 rounded-xl p-8">
+            {/* Conditional fields based on privacyType */}
+            {/* Default to "An entire place" if privacyType is not set */}
+            {(privacyType === 'An entire place' || !privacyType) && (
+              <>
             <Counter 
               label="Guests" 
               value={propertyBasics.guests} 
@@ -241,6 +465,125 @@ const PropertyBasics = () => {
               value={propertyBasics.bathrooms} 
               field="bathrooms" 
             />
+              </>
+            )}
+            
+            {privacyType === 'A room' && (
+              <>
+                <div className="pb-6 border-b border-gray-200 mb-6">
+                  <h2 className="text-lg font-normal text-gray-900 mb-6">
+                    How many people can stay here?
+                  </h2>
+                  <Counter 
+                    label="Guests" 
+                    value={propertyBasics.guests} 
+                    field="guests" 
+                  />
+                </div>
+                <Counter 
+                  label="Bedrooms" 
+                  value={propertyBasics.bedrooms} 
+                  field="bedrooms" 
+                />
+                <Counter 
+                  label="Beds" 
+                  value={propertyBasics.beds} 
+                  field="beds" 
+                />
+                {/* Bedroom Lock Question */}
+                <div className="pt-6 border-t border-gray-200">
+                  <h2 className="text-lg font-normal text-gray-900 mb-6">
+                    Does every bedroom have a lock?
+                  </h2>
+                  <div className="flex items-center gap-6">
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="bedroomLock"
+                        value="yes"
+                        checked={propertyBasics.bedroomLock === 'yes'}
+                        onChange={(e) => {
+                          const updated = { ...propertyBasics, bedroomLock: 'yes' };
+                          setPropertyBasics(updated);
+                          setTimeout(() => {
+                            actions.updatePropertyBasics({
+                              guestCapacity: updated.guests,
+                              bedrooms: updated.bedrooms,
+                              beds: updated.beds,
+                              bathrooms: updated.bathrooms,
+                              bedroomLock: 'yes'
+                            });
+                          }, 0);
+                        }}
+                        className="w-5 h-5 text-primary border-gray-300 focus:ring-primary focus:ring-2"
+                      />
+                      <span className="text-base text-gray-700">Yes</span>
+                    </label>
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="bedroomLock"
+                        value="no"
+                        checked={propertyBasics.bedroomLock === 'no'}
+                        onChange={(e) => {
+                          const updated = { ...propertyBasics, bedroomLock: 'no' };
+                          setPropertyBasics(updated);
+                          setTimeout(() => {
+                            actions.updatePropertyBasics({
+                              guestCapacity: updated.guests,
+                              bedrooms: updated.bedrooms,
+                              beds: updated.beds,
+                              bathrooms: updated.bathrooms,
+                              bedroomLock: 'no'
+                            });
+                          }, 0);
+                        }}
+                        className="w-5 h-5 text-primary border-gray-300 focus:ring-primary focus:ring-2"
+                      />
+                      <span className="text-base text-gray-700">No</span>
+                    </label>
+                  </div>
+                  {/* Warning message when No is selected */}
+                  {propertyBasics.bedroomLock === 'no' && (
+                    <div className="mt-4 pl-8">
+                      <p className="text-sm text-gray-600 mb-1">
+                        Guests expect a lock for their room. We strongly recommend adding one.
+                      </p>
+                      <button
+                        type="button"
+                        className="text-sm text-gray-600 underline hover:text-gray-800"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          // TODO: Add "Learn more" functionality
+                        }}
+                      >
+                        Learn more
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+            
+            {privacyType === 'A shared room in a hostel' && (
+              <>
+                <Counter 
+                  label="Guests" 
+                  value={propertyBasics.guests} 
+                  field="guests" 
+                />
+                <Counter 
+                  label="Beds" 
+                  value={propertyBasics.beds} 
+                  field="beds" 
+                />
+                <Counter 
+                  label="Bathrooms" 
+                  value={propertyBasics.bathrooms} 
+                  field="bathrooms" 
+                />
+              </>
+            )}
           </div>
         </div>
       </main>
@@ -253,12 +596,52 @@ const PropertyBasics = () => {
             draftId: state?.draftId || location.state?.draftId
           }
         })}
-        onNext={() => {
+        onNext={async () => {
+          // Update context first
           updatePropertyBasics(propertyBasics);
+          
+          // CRITICAL: Set currentStep to 'propertybasics' BEFORE updating sessionStorage
+          // This ensures the progress bar knows we're leaving propertybasics
+          if (actions.setCurrentStep) {
+            actions.setCurrentStep('propertybasics');
+          }
+          
+          // CRITICAL: Set sessionStorage for the NEXT step (MakeItStandOut) BEFORE navigation
+          // This ensures OnboardingHeader reads the correct values when MakeItStandOut loads
+          const storagePrevStepKey = 'onb_prev_step_name';
+          const storageStepKey = 'onb_progress_step';
+          const storageKey = 'onb_progress_value';
+          
+          // Store propertybasics as the previous step (so progress bar knows where we came from)
+          sessionStorage.setItem(storagePrevStepKey, 'propertybasics');
+          
+          // CRITICAL: Set Step 2 values NOW, not Step 1 values
+          // MakeItStandOut is index 0 in Step 2 (7 pages total), so progress = ((0+1)/7)*100 = ~14.29%
+          const makeitstandoutProgress = ((0 + 1) / 7) * 100; // makeitstandout index 0, total 7 pages in step 2
+          sessionStorage.setItem(storageStepKey, '2'); // We're navigating to Step 2
+          sessionStorage.setItem(storageKey, String(makeitstandoutProgress)); // Start at ~14.29% for Step 2
+          
+          console.log('📍 PropertyBasics: Set sessionStorage for MakeItStandOut - previousStep: propertybasics, step: 2, progress:', Math.round(makeitstandoutProgress) + '%');
+          
+          // Small delay to ensure React processes state updates and sessionStorage is set
+          await new Promise(resolve => setTimeout(resolve, 100));
+          
+          // Ensure we have a valid draft and save to Firebase (no temp documents)
+          let draftIdToUse;
+          try {
+            draftIdToUse = await ensureDraftAndSave(propertyBasics);
+            console.log('📍 PropertyBasics: ✅ Saved propertyBasics to Firebase on Next click');
+          } catch (saveError) {
+            console.error('📍 PropertyBasics: Error saving to Firebase on Next:', saveError);
+            // Continue navigation even if save fails - data is in context
+          }
+          
+          // Navigate to next step
           navigate('/pages/makeitstandout', { 
             state: { 
               ...location.state,
-              propertyBasics
+              propertyBasics,
+              draftId: draftIdToUse || state?.draftId || location.state?.draftId
             } 
           });
         }}

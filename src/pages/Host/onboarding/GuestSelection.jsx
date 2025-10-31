@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useOnboardingAutoSave, useOnboardingNavigation } from './hooks/useOnboardingAutoSave';
+import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
+import { auth, db } from '@/lib/firebase';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import OnboardingHeader from './components/OnboardingHeader';
 import OnboardingFooter from './components/OnboardingFooter';
 
@@ -8,16 +10,8 @@ const GuestSelection = () => {
   const navigate = useNavigate();
   const location = useLocation();
   
-  // Enhanced auto-save and state management
-  const { 
-    state, 
-    actions, 
-    loadDraftIfNeeded, 
-    saveAndExit, 
-    isLoading 
-  } = useOnboardingAutoSave('guestselection', []);
-  
-  const { navigateNext, navigateBack } = useOnboardingNavigation('guestselection');
+  // OnboardingContext integration
+  const { state, actions } = useOnboarding();
   
   // Ref to track initialization
   const hasInitialized = useRef(false);
@@ -27,13 +21,13 @@ const GuestSelection = () => {
   const guestOptions = [
     {
       id: 'any-guest',
-      title: 'Any Airbnb guest',
-      description: 'Get reservations faster when you welcome anyone from the Airbnb community.',
+      title: 'Any Getaways guest',
+      description: 'Get reservations faster when you welcome anyone from the Getaways community.',
     },
     {
       id: 'experienced-guest',
       title: 'An experienced guest',
-      description: 'For your first guest, welcome someone with a good track record on Airbnb who can offer tips for how to be a great Host.',
+      description: 'For your first guest, welcome someone with a good track record on Getaways who can offer tips for how to be a great Host.',
     }
   ];
 
@@ -42,17 +36,20 @@ const GuestSelection = () => {
   // Load draft if continuing from saved progress
   useEffect(() => {
     const initializePage = async () => {
-      if (location.state?.draftId) {
+      if (location.state?.draftId && !hasInitialized.current && actions.loadDraft && state.user) {
+        console.log('GuestSelection - Loading draft with ID:', location.state.draftId);
         try {
-          await loadDraftIfNeeded(location.state.draftId);
+          await actions.loadDraft(location.state.draftId);
+          hasInitialized.current = true;
+          console.log('GuestSelection - Draft loaded successfully');
         } catch (error) {
-          console.error('Error loading draft in GuestSelection:', error);
+          console.error('GuestSelection - Error loading draft:', error);
         }
       }
     };
 
     initializePage();
-  }, [location.state, loadDraftIfNeeded]);
+  }, [location.state?.draftId, state.user, actions.loadDraft]);
 
   // Update selectedOption when state changes (after loading draft)
   useEffect(() => {
@@ -70,16 +67,13 @@ const GuestSelection = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]); // Run when route changes
 
-  // Initialize from context if available (after draft loading or direct navigation)
+  // Ensure context is updated when selectedOption changes, so Save & Exit in header saves the current selection
   useEffect(() => {
-    if (state.guestSelection && (hasInitialized.current || !location.state?.draftId)) {
-      console.log('GuestSelection - Initializing from context:', state.guestSelection);
-      setSelectedOption(state.guestSelection);
-      if (!hasInitialized.current) {
-        hasInitialized.current = true;
-      }
+    if (selectedOption && actions.updateGuestSelection) {
+      updateGuestSelectionContext(selectedOption);
     }
-  }, [state.guestSelection, hasInitialized.current, location.state?.draftId]);
+  }, [selectedOption]);
+
 
   // Real-time context updates
   const updateGuestSelectionContext = (selection) => {
@@ -87,7 +81,6 @@ const GuestSelection = () => {
     if (actions.updateGuestSelection) {
       actions.updateGuestSelection(selection);
     }
-    // Removed setCurrentStep from here to prevent setState during render
   };
 
   // Handle option selection with context update
@@ -96,23 +89,137 @@ const GuestSelection = () => {
     updateGuestSelectionContext(optionId);
   };
 
+  // Helper function to ensure we have a valid draftId and save guestSelection to Firebase
+  const ensureDraftAndSave = async (guestSelectionData, targetRoute = '/pages/pricing') => {
+    let draftIdToUse = state?.draftId || location.state?.draftId;
+    
+    // If draftId is temp, reset it to find/create a real one
+    if (draftIdToUse && draftIdToUse.startsWith('temp_')) {
+      console.log('📍 GuestSelection: Found temp ID, resetting to find/create real draft');
+      draftIdToUse = null;
+    }
+    
+    // If user is authenticated, ensure we have a draft
+    if (!draftIdToUse && state.user?.uid) {
+      try {
+        const { getUserDrafts, saveDraft } = await import('@/pages/Host/services/draftService');
+        const drafts = await getUserDrafts();
+        
+        if (drafts.length > 0) {
+          // Use the most recent draft
+          draftIdToUse = drafts[0].id;
+          console.log('📍 GuestSelection: Using existing draft:', draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        } else {
+          // No drafts exist, create a new one
+          console.log('📍 GuestSelection: No existing drafts, creating new draft');
+          const nextStep = targetRoute === '/pages/pricing' ? 'pricing' : 'guestselection';
+          const newDraftData = {
+            currentStep: nextStep,
+            category: state.category || 'accommodation',
+            data: {
+              guestSelection: guestSelectionData
+            }
+          };
+          draftIdToUse = await saveDraft(newDraftData, null);
+          console.log('📍 GuestSelection: ✅ Created new draft:', draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        }
+      } catch (error) {
+        console.error('📍 GuestSelection: Error finding/creating draft:', error);
+        throw error;
+      }
+    }
+    
+    // Save to Firebase if we have a valid draftId
+    if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
+      try {
+        const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
+        const docSnap = await getDoc(draftRef);
+        
+        if (docSnap.exists()) {
+          // Update existing document - save guestSelection under data.guestSelection and currentStep
+          const nextStep = targetRoute === '/pages/pricing' ? 'pricing' : 'guestselection';
+          await updateDoc(draftRef, {
+            'data.guestSelection': guestSelectionData,
+            currentStep: nextStep,
+            lastModified: new Date()
+          });
+          console.log('📍 GuestSelection: ✅ Saved guestSelection to data.guestSelection and currentStep to Firebase:', draftIdToUse, '- guestSelection:', guestSelectionData, ', currentStep:', nextStep);
+        } else {
+          // Document doesn't exist, create it
+          console.log('📍 GuestSelection: Document not found, creating new one');
+          const { saveDraft } = await import('@/pages/Host/services/draftService');
+          const nextStep = targetRoute === '/pages/pricing' ? 'pricing' : 'guestselection';
+          const newDraftData = {
+            currentStep: nextStep,
+            category: state.category || 'accommodation',
+            data: {
+              guestSelection: guestSelectionData
+            }
+          };
+          draftIdToUse = await saveDraft(newDraftData, draftIdToUse);
+          console.log('📍 GuestSelection: ✅ Created new draft with guestSelection:', draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        }
+        return draftIdToUse;
+      } catch (error) {
+        console.error('📍 GuestSelection: ❌ Error saving to Firebase:', error);
+        throw error;
+      }
+    } else if (state.user?.uid) {
+      console.warn('📍 GuestSelection: ⚠️ User authenticated but no valid draftId after ensureDraftAndSave');
+      throw new Error('Failed to create draft for authenticated user');
+    } else {
+      console.warn('📍 GuestSelection: ⚠️ User not authenticated, cannot save to Firebase');
+      return null;
+    }
+  };
+
   // Save & Exit handler
   const handleSaveAndExitClick = async () => {
+    console.log('GuestSelection Save & Exit clicked');
+    console.log('Current guest selection:', selectedOption);
+    
+    if (!auth.currentUser) {
+      console.error('GuestSelection: No authenticated user');
+      alert('Please log in to save your progress');
+      return;
+    }
+    
     try {
-      console.log('GuestSelection: Saving and exiting...');
-      console.log('Current guest selection:', selectedOption);
+      // Set current step before saving so "Continue Editing" returns to this page
+      if (actions.setCurrentStep) {
+        console.log('GuestSelection: Setting currentStep to guestselection');
+        actions.setCurrentStep('guestselection');
+      }
       
-      // Update context with current selection first
+      // Ensure guest selection is updated in context
       updateGuestSelectionContext(selectedOption);
       
-      // Create current page data
-      const currentPageData = {
-        selectedGuestOption: selectedOption,
-        guestSelection: selectedOption  // Legacy support
-      };
+      // Save guestSelection to Firebase under data.guestSelection
+      let draftIdToUse;
+      try {
+        draftIdToUse = await ensureDraftAndSave(selectedOption, '/pages/guestselection');
+        console.log('📍 GuestSelection: ✅ Saved guestSelection to Firebase on Save & Exit');
+      } catch (saveError) {
+        console.error('📍 GuestSelection: Error saving to Firebase on Save & Exit:', saveError);
+        // Continue with save & exit even if Firebase save fails
+      }
       
-      // Save current data and exit
-      await saveAndExit(currentPageData);
+      // Navigate to dashboard
+      navigate('/host/hostdashboard', { 
+        state: { 
+          message: 'Draft saved successfully!',
+          draftSaved: true 
+        }
+      });
     } catch (error) {
       console.error('Error saving and exiting:', error);
       alert('Error saving progress: ' + error.message);
@@ -182,15 +289,39 @@ const GuestSelection = () => {
       {/* Footer */}
       <OnboardingFooter
         onBack={() => navigate('/pages/bookingsettings')}
-        onNext={() => {
+        onNext={async () => {
           if (canProceed) {
-            updateGuestSelectionContext(selectedOption);
-            navigate('/pages/pricing', { 
-              state: { 
-                ...location.state,
-                guestSelection: selectedOption
-              } 
-            });
+            try {
+              // Update context first
+              updateGuestSelectionContext(selectedOption);
+              
+              // Save guestSelection to Firebase
+              let draftIdToUse;
+              try {
+                draftIdToUse = await ensureDraftAndSave(selectedOption, '/pages/pricing');
+                console.log('📍 GuestSelection: ✅ Saved guestSelection to Firebase on Next click');
+              } catch (saveError) {
+                console.error('📍 GuestSelection: Error saving to Firebase on Next:', saveError);
+                // Continue navigation even if save fails - data is in context
+              }
+              
+              // Update current step in context
+              if (actions.setCurrentStep) {
+                actions.setCurrentStep('pricing');
+              }
+              
+              // Navigate to pricing page
+              navigate('/pages/pricing', { 
+                state: { 
+                  ...location.state,
+                  guestSelection: selectedOption,
+                  draftId: draftIdToUse || state?.draftId || location.state?.draftId
+                } 
+              });
+            } catch (error) {
+              console.error('Error saving guest selection:', error);
+              alert('Error saving progress. Please try again.');
+            }
           }
         }}
         backText="Back"

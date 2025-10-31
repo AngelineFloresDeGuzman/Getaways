@@ -34,11 +34,12 @@ const initialState = {
   },
   
   // Property Basics
-  guestCapacity: 1,
+  guestCapacity: 4,
   guests: 4,
   bedrooms: 1,
   beds: 1,
   bathrooms: 1,
+  bedroomLock: null, // For "A room" privacy type
   
   // Highlights/Make It Stand Out
   highlights: [],
@@ -52,6 +53,7 @@ const initialState = {
   // Title & Description
   title: '',
   description: '',
+  descriptionHighlights: [],
   
   // Pricing
   weekdayPrice: 0,
@@ -64,7 +66,8 @@ const initialState = {
   discounts: {
     weekly: 0,
     monthly: 0,
-    earlyBird: 0
+    earlyBird: 0,
+    lastMinute: 0
   },
   
   // Guest Selection
@@ -108,6 +111,7 @@ const ACTIONS = {
   UPDATE_AMENITIES: 'UPDATE_AMENITIES',
   UPDATE_PHOTOS: 'UPDATE_PHOTOS',
   UPDATE_TITLE_DESCRIPTION: 'UPDATE_TITLE_DESCRIPTION',
+  UPDATE_DESCRIPTION_HIGHLIGHTS: 'UPDATE_DESCRIPTION_HIGHLIGHTS',
   UPDATE_PRICING: 'UPDATE_PRICING',
   UPDATE_WEEKEND_PRICING: 'UPDATE_WEEKEND_PRICING',
   UPDATE_DISCOUNTS: 'UPDATE_DISCOUNTS',
@@ -162,6 +166,9 @@ const onboardingReducer = (state, action) => {
     
     case ACTIONS.UPDATE_TITLE_DESCRIPTION:
       return { ...state, title: action.payload.title, description: action.payload.description };
+    
+    case ACTIONS.UPDATE_DESCRIPTION_HIGHLIGHTS:
+      return { ...state, descriptionHighlights: action.payload };
     
     case ACTIONS.UPDATE_PRICING:
       return { ...state, weekdayPrice: action.payload.weekdayPrice, weekendPrice: action.payload.weekendPrice };
@@ -297,6 +304,60 @@ export const OnboardingProvider = ({ children }) => {
           case 'propertydetails':
             if (state.propertyType) dataToSave.propertyType = state.propertyType;
             break;
+          case 'guestselection':
+            if (state.selectedGuestOption) {
+              // Save under data.guestSelection to match explicit save format
+              if (!dataToSave.data) dataToSave.data = {};
+              dataToSave.data.guestSelection = state.selectedGuestOption;
+            }
+            break;
+          case 'pricing':
+            if (state.weekdayPrice || state.weekendPrice) {
+              // Save under data.pricing to match explicit save format
+              if (!dataToSave.data) dataToSave.data = {};
+              dataToSave.data.pricing = {
+                weekdayPrice: state.weekdayPrice || 0,
+                weekendPrice: state.weekendPrice || 0
+              };
+            }
+            break;
+          case 'weekendpricing':
+            if (state.weekdayPrice || state.weekendPrice) {
+              // Save under data.pricing to match explicit save format
+              if (!dataToSave.data) dataToSave.data = {};
+              dataToSave.data.pricing = {
+                weekdayPrice: state.weekdayPrice || 0,
+                weekendPrice: state.weekendPrice || 0
+              };
+            }
+            break;
+          case 'discounts':
+            if (state.discounts) {
+              // Save under data.discounts to match explicit save format
+              if (!dataToSave.data) dataToSave.data = {};
+              dataToSave.data.discounts = {
+                weekly: state.discounts.weekly || 0,
+                monthly: state.discounts.monthly || 0,
+                earlyBird: state.discounts.earlyBird || 0,
+                lastMinute: state.discounts.lastMinute || 0
+              };
+            }
+            break;
+          case 'safetydetails':
+            if (state.safetyAmenities && Array.isArray(state.safetyAmenities)) {
+              // Save under data.safetyDetails to match explicit save format
+              if (!dataToSave.data) dataToSave.data = {};
+              dataToSave.data.safetyDetails = state.safetyAmenities;
+            }
+            break;
+          case 'finaldetails':
+            // For final details, we need to save residential address and business host status
+            // These might not be in context state, so we'll let the explicit save handle it
+            // But if they are in context, we can save them
+            if (!dataToSave.data) dataToSave.data = {};
+            // Note: residentialAddress and isBusinessHost might not be in context state
+            // The explicit save in FinalDetails component handles this
+            break;
           // Add more cases for other steps as needed
           default:
             break;
@@ -360,6 +421,21 @@ export const OnboardingProvider = ({ children }) => {
       switch (state.currentStep) {
         case 'propertystructure':
           // DISABLE auto-save for propertystructure - only save on Next/Save & Exit
+          hasData = false;
+          relevantFields = {};
+          break;
+        case 'propertybasics':
+          // DISABLE auto-save for propertybasics - only save on Next/Save & Exit
+          hasData = false;
+          relevantFields = {};
+          break;
+        case 'amenities':
+          // DISABLE auto-save for amenities - only save on Next/Save & Exit
+          hasData = false;
+          relevantFields = {};
+          break;
+        case 'makeitstandout':
+          // DISABLE auto-save for makeitstandout - only save on Next/Save & Exit
           hasData = false;
           relevantFields = {};
           break;
@@ -588,6 +664,10 @@ export const OnboardingProvider = ({ children }) => {
       dispatch({ type: ACTIONS.UPDATE_TITLE_DESCRIPTION, payload: { title, description } });
     },
 
+    updateDescriptionHighlights: (highlights) => {
+      dispatch({ type: ACTIONS.UPDATE_DESCRIPTION_HIGHLIGHTS, payload: highlights });
+    },
+
     updatePricing: (weekdayPrice, weekendPrice) => {
       dispatch({ type: ACTIONS.UPDATE_PRICING, payload: { weekdayPrice, weekendPrice } });
     },
@@ -632,8 +712,59 @@ export const OnboardingProvider = ({ children }) => {
         console.log('Loading draft with ID:', draftId); // Debug log
         const draftData = await loadDraft(draftId);
         if (draftData) {
-          // Load the draft data AND set the draftId
-          dispatch({ type: ACTIONS.LOAD_DRAFT, payload: draftData });
+          // Extract nested data fields and map to state properties
+          const data = draftData.data || {};
+          const mappedData = { ...draftData };
+          
+          // Extract propertyStructure from nested data
+          if (data.propertyStructure) {
+            mappedData.propertyStructure = data.propertyStructure;
+            console.log('📍 OnboardingContext: Loaded propertyStructure from Firebase:', data.propertyStructure);
+          }
+          
+          // Extract propertyBasics from nested data
+          // PropertyBasics structure varies based on privacyType, so handle missing fields gracefully
+          if (data.propertyBasics) {
+            mappedData.guestCapacity = data.propertyBasics.guestCapacity;
+            // These fields may not exist depending on privacyType
+            if (data.propertyBasics.bedrooms !== undefined) {
+              mappedData.bedrooms = data.propertyBasics.bedrooms;
+            }
+            if (data.propertyBasics.beds !== undefined) {
+              mappedData.beds = data.propertyBasics.beds;
+            }
+            if (data.propertyBasics.bathrooms !== undefined) {
+              mappedData.bathrooms = data.propertyBasics.bathrooms;
+            }
+            if (data.propertyBasics.bedroomLock !== undefined) {
+              mappedData.bedroomLock = data.propertyBasics.bedroomLock || null;
+            }
+          }
+          
+          // Extract privacyType from nested data
+          if (data.privacyType) {
+            mappedData.privacyType = data.privacyType;
+          }
+          
+          // Extract locationData from nested data
+          if (data.locationData) {
+            mappedData.locationData = { ...mappedData.locationData, ...data.locationData };
+          }
+          
+          // Extract title from nested data
+          if (data.title) {
+            mappedData.title = data.title;
+            console.log('📍 OnboardingContext: Loaded title from Firebase:', data.title);
+          }
+          
+          // Extract descriptionHighlights from nested data
+          if (data.descriptionHighlights) {
+            mappedData.descriptionHighlights = data.descriptionHighlights;
+            console.log('📍 OnboardingContext: Loaded descriptionHighlights from Firebase:', data.descriptionHighlights);
+          }
+          
+          // Load the mapped draft data AND set the draftId
+          dispatch({ type: ACTIONS.LOAD_DRAFT, payload: mappedData });
           dispatch({ type: ACTIONS.SET_DRAFT_ID, payload: draftId });
           console.log('Draft loaded and draftId set to:', draftId); // Debug log
         }

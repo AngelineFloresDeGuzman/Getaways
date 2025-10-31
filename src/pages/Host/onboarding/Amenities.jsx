@@ -22,39 +22,38 @@ import {
   AlertTriangle,
   Flame as FireIcon
 } from 'lucide-react';
-import { useOnboardingAutoSave, useOnboardingNavigation } from './hooks/useOnboardingAutoSave';
+import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
+import { db } from '@/lib/firebase';
+import { doc, updateDoc, getDoc } from 'firebase/firestore';
 
 const Amenities = () => {
   const navigate = useNavigate();
   const location = useLocation();
   
-  // Enhanced auto-save and state management
-  const { 
-    state, 
-    actions, 
-    loadDraftIfNeeded, 
-    saveAndExit, 
-    isLoading 
-  } = useOnboardingAutoSave('amenities', []);
-  
-  const { navigateNext, navigateBack } = useOnboardingNavigation('amenities');
+  // Direct context access - NO AUTOSAVE
+  const { state, actions } = useOnboarding();
   
   const [selectedAmenities, setSelectedAmenities] = useState(state.selectedAmenities || []);
 
-  // Load draft if continuing from saved progress
+  // Load draft if continuing from saved progress (manual, no autosave)
   useEffect(() => {
     const initializePage = async () => {
-      if (location.state?.draftId) {
+      if (location.state?.draftId && actions.loadDraft) {
         try {
-          await loadDraftIfNeeded(location.state.draftId);
+          console.log('Amenities: Loading draft with ID:', location.state.draftId);
+          actions.setLoading(true);
+          await actions.loadDraft(location.state.draftId);
+          console.log('Amenities: Draft loaded successfully');
         } catch (error) {
           console.error('Error loading draft in Amenities:', error);
+        } finally {
+          actions.setLoading(false);
         }
       }
     };
 
     initializePage();
-  }, [location.state, loadDraftIfNeeded]);
+  }, [location.state?.draftId, actions]);
 
   // Update selectedAmenities when state changes (after loading draft)
   useEffect(() => {
@@ -124,9 +123,54 @@ const Amenities = () => {
   // Enhanced navigation functions
   const handleNext = async () => {
     try {
-      // Ensure latest amenities are saved
+      // Update context with latest amenities
       actions.updateState({ selectedAmenities });
-  await navigateNext(navigate, '/pages/photos', 'photos', state.draftId);
+      
+      // Save amenities to Firebase as amenities field map with 3 subcategories
+      const draftIdToUse = state?.draftId || location.state?.draftId;
+      
+      if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
+        try {
+          const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
+          const docSnap = await getDoc(draftRef);
+          
+          if (docSnap.exists()) {
+            // Categorize selected amenities into favorites, standout, and safety
+            const favoritesIds = ['wifi', 'tv', 'kitchen', 'washer', 'free_parking', 'paid_parking', 'air_conditioning', 'dedicated_workspace'];
+            const standoutIds = ['pool', 'hot_tub', 'patio', 'bbq_grill', 'outdoor_dining', 'fire_pit', 'pool_table', 'indoor_fireplace', 'piano', 'exercise_equipment', 'lake_access', 'beach_access', 'ski_in_out', 'outdoor_shower'];
+            const safetyIds = ['smoke_alarm', 'first_aid_kit', 'fire_extinguisher', 'carbon_monoxide_alarm'];
+            
+            const favorites = selectedAmenities.filter(id => favoritesIds.includes(id));
+            const standout = selectedAmenities.filter(id => standoutIds.includes(id));
+            const safety = selectedAmenities.filter(id => safetyIds.includes(id));
+            
+            // Create amenities field map with 3 subcategories (empty arrays if no selections)
+            const amenitiesData = {
+              favorites: favorites.length > 0 ? favorites : [],
+              standout: standout.length > 0 ? standout : [],
+              safety: safety.length > 0 ? safety : []
+            };
+            
+            await updateDoc(draftRef, {
+              'data.amenities': amenitiesData,
+              currentStep: 'photos',
+              lastModified: new Date()
+            });
+            console.log('📍 Amenities: ✅ Saved amenities to Firebase with 3 subcategories:', amenitiesData);
+          }
+        } catch (saveError) {
+          console.error('📍 Amenities: Error saving to Firebase:', saveError);
+          // Continue navigation even if save fails
+        }
+      }
+      
+      // Navigate to photos page
+      navigate('/pages/photos', {
+        state: {
+          ...location.state,
+          draftId: draftIdToUse || state?.draftId || location.state?.draftId
+        }
+      });
     } catch (error) {
       console.error('Error navigating to next step:', error);
       // Continue navigation even if save fails
@@ -136,9 +180,57 @@ const Amenities = () => {
 
   const handleSaveAndExit = async () => {
     try {
-      // Pass current page data to ensure it's saved
-      const currentPageData = { selectedAmenities };
-      await saveAndExit(currentPageData);
+      // Update context with latest amenities
+      actions.updateState({ selectedAmenities });
+      
+      // Save amenities to Firebase before exiting
+      const draftIdToUse = state?.draftId || location.state?.draftId;
+      
+      if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
+        try {
+          const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
+          const docSnap = await getDoc(draftRef);
+          
+          if (docSnap.exists()) {
+            // Categorize selected amenities into favorites, standout, and safety
+            const favoritesIds = ['wifi', 'tv', 'kitchen', 'washer', 'free_parking', 'paid_parking', 'air_conditioning', 'dedicated_workspace'];
+            const standoutIds = ['pool', 'hot_tub', 'patio', 'bbq_grill', 'outdoor_dining', 'fire_pit', 'pool_table', 'indoor_fireplace', 'piano', 'exercise_equipment', 'lake_access', 'beach_access', 'ski_in_out', 'outdoor_shower'];
+            const safetyIds = ['smoke_alarm', 'first_aid_kit', 'fire_extinguisher', 'carbon_monoxide_alarm'];
+            
+            const favorites = selectedAmenities.filter(id => favoritesIds.includes(id));
+            const standout = selectedAmenities.filter(id => standoutIds.includes(id));
+            const safety = selectedAmenities.filter(id => safetyIds.includes(id));
+            
+            // Create amenities field map with 3 subcategories (empty arrays if no selections)
+            const amenitiesData = {
+              favorites: favorites.length > 0 ? favorites : [],
+              standout: standout.length > 0 ? standout : [],
+              safety: safety.length > 0 ? safety : []
+            };
+            
+            await updateDoc(draftRef, {
+              'data.amenities': amenitiesData,
+              currentStep: 'amenities',
+              lastModified: new Date()
+            });
+            console.log('📍 Amenities: ✅ Saved amenities to Firebase on Save & Exit:', amenitiesData);
+          }
+        } catch (saveError) {
+          console.error('📍 Amenities: Error saving to Firebase on Save & Exit:', saveError);
+        }
+      }
+      
+      // Use context's saveAndExit function for navigation
+      if (actions.saveAndExit) {
+        await actions.saveAndExit();
+      } else {
+        navigate('/host/hostdashboard', { 
+          state: { 
+            message: 'Draft saved successfully!',
+            draftSaved: true 
+          }
+        });
+      }
     } catch (error) {
       console.error('Error saving and exiting:', error);
       alert('Error saving progress: ' + error.message);
@@ -214,7 +306,12 @@ const Amenities = () => {
       </main>
 
       <OnboardingFooter
-        onBack={() => navigateBack(navigate, '/pages/makeitstandout')}
+        onBack={() => navigate('/pages/makeitstandout', {
+          state: {
+            ...location.state,
+            draftId: state?.draftId || location.state?.draftId
+          }
+        })}
         onNext={handleNext}
         backText="Back"
         nextText="Next"

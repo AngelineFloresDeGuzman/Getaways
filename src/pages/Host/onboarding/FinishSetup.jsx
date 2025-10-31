@@ -3,6 +3,9 @@ import OnboardingHeader from './components/OnboardingHeader';
 import OnboardingFooter from './components/OnboardingFooter';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useOnboardingAutoSave, useOnboardingNavigation } from './hooks/useOnboardingAutoSave';
+import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
+import { auth, db } from '@/lib/firebase';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
 
 const FinishSetup = () => {
   const navigate = useNavigate();
@@ -18,6 +21,9 @@ const FinishSetup = () => {
   } = useOnboardingAutoSave('finishsetup', []);
   
   const { navigateNext, navigateBack } = useOnboardingNavigation('finishsetup');
+  
+  // Direct context access for Firebase saving
+  const { state: contextState, actions: contextActions } = useOnboarding();
 
   // Load draft if continuing from saved progress
   useEffect(() => {
@@ -109,35 +115,51 @@ const FinishSetup = () => {
           </div>
         </div>
       </main>
-      {/* Footer */}
-      <footer className="fixed bottom-0 left-0 right-0 bg-white border-t">
-        <div className="max-w-none">
-          <div className="px-6 py-4">
-            <div className="flex justify-between items-center">
-              <button
-                onClick={() => navigate('/pages/descriptiondetails')}
-                className="hover:underline text-sm"
-              >
-                Back
-              </button>
-              <button 
-                className="bg-black text-white hover:bg-gray-800 rounded-lg px-6 py-2.5 text-sm font-medium"
-                onClick={() => {
-                  // Continue to pricing/booking settings
-                  navigate('/pages/bookingsettings', { 
-                    state: { 
-                      ...location.state,
-                      finishedOnboarding: true
-                    } 
+      <OnboardingFooter
+        onBack={() => navigate('/pages/descriptiondetails')}
+        onNext={async () => {
+          try {
+            // Update current step in context
+            if (contextActions.setCurrentStep) {
+              contextActions.setCurrentStep('bookingsettings');
+            }
+            
+            // Save currentStep to Firebase
+            const draftIdToUse = contextState?.draftId || location.state?.draftId;
+            
+            if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
+              try {
+                const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
+                const docSnap = await getDoc(draftRef);
+                
+                if (docSnap.exists()) {
+                  await updateDoc(draftRef, {
+                    currentStep: 'bookingsettings',
+                    lastModified: new Date()
                   });
-                }}
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        </div>
-      </footer>
+                  console.log('📍 FinishSetup: ✅ Saved currentStep to Firebase:', draftIdToUse, '- currentStep: bookingsettings');
+                }
+              } catch (saveError) {
+                console.error('📍 FinishSetup: Error saving to Firebase:', saveError);
+                // Continue navigation even if save fails
+              }
+            }
+            
+            // Continue to pricing/booking settings
+            navigate('/pages/bookingsettings', { 
+              state: { 
+                ...location.state,
+                finishedOnboarding: true,
+                draftId: draftIdToUse || contextState?.draftId || location.state?.draftId
+              } 
+            });
+          } catch (error) {
+            console.error('Error in FinishSetup Next:', error);
+            alert('Error saving progress. Please try again.');
+          }
+        }}
+        canProceed={true}
+      />
     </div>
   );
 }

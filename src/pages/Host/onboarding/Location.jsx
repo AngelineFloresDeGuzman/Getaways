@@ -237,6 +237,98 @@ const Location = () => {
   const [showConfirmation, setShowConfirmation] = useState(false);
   const searchTimeoutRef = useRef(null);
 
+  // Helper function to ensure we have a valid draftId and save to Firebase
+  // This prevents creating temp documents and ensures data is always saved properly
+  const ensureDraftAndSave = async (locationData, currentStep = 'location') => {
+    let draftIdToUse = state?.draftId || location.state?.draftId;
+    
+    // If draftId is temp, reset it to find/create a real one
+    if (draftIdToUse && draftIdToUse.startsWith('temp_')) {
+      console.log('📍 Location: Found temp ID, resetting to find/create real draft');
+      draftIdToUse = null;
+    }
+    
+    // If user is authenticated, ensure we have a draft
+    if (!draftIdToUse && state.user?.uid) {
+      try {
+        const { getUserDrafts, saveDraft } = await import('@/pages/Host/services/draftService');
+        const drafts = await getUserDrafts();
+        
+        if (drafts.length > 0) {
+          // Use the most recent draft
+          draftIdToUse = drafts[0].id;
+          console.log('📍 Location: Using existing draft:', draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        } else {
+          // No drafts exist, create a new one
+          console.log('📍 Location: No existing drafts, creating new draft');
+          const newDraftData = {
+            currentStep: currentStep,
+            category: state.category || 'accommodation',
+            data: {
+              locationData: locationData
+            }
+          };
+          draftIdToUse = await saveDraft(newDraftData, null);
+          console.log('📍 Location: ✅ Created new draft:', draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        }
+      } catch (error) {
+        console.error('📍 Location: Error finding/creating draft:', error);
+        throw error;
+      }
+    }
+    
+    // Save to Firebase if we have a valid draftId
+    if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
+      try {
+        const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
+        const docSnap = await getDoc(draftRef);
+        
+        if (docSnap.exists()) {
+          // Update existing document
+          await updateDoc(draftRef, {
+            'data.locationData': locationData,
+            currentStep: currentStep,
+            lastModified: new Date()
+          });
+          console.log('📍 Location: ✅ Saved locationData to Firebase:', draftIdToUse);
+        } else {
+          // Document doesn't exist, create it
+          console.log('📍 Location: Document not found, creating new one');
+          const { saveDraft } = await import('@/pages/Host/services/draftService');
+          const newDraftData = {
+            currentStep: currentStep,
+            category: state.category || 'accommodation',
+            data: {
+              locationData: locationData
+            }
+          };
+          draftIdToUse = await saveDraft(newDraftData, draftIdToUse);
+          console.log('📍 Location: ✅ Created new draft with locationData:', draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        }
+        return draftIdToUse;
+      } catch (error) {
+        console.error('📍 Location: ❌ Error saving to Firebase:', error);
+        throw error;
+      }
+    } else if (state.user?.uid) {
+      // User authenticated but no draftId - this shouldn't happen after ensureDraftAndSave logic
+      console.warn('📍 Location: ⚠️ User authenticated but no valid draftId after ensureDraftAndSave');
+      throw new Error('Failed to create draft for authenticated user');
+    } else {
+      console.warn('📍 Location: ⚠️ User not authenticated, cannot save to Firebase');
+      return null; // Return null instead of throwing - data is in context
+    }
+  };
+
   // Handle navigation state from LocationConfirmation page
   useEffect(() => {
     if (location.state?.fromLocationConfirmation) {
@@ -340,7 +432,7 @@ const Location = () => {
 
   // Use ref to track if address form data has been prefilled
   const addressFormPrefilledRef = useRef(false);
-  
+
   // When opening the address confirmation form, prefill fields from saved draft (if present)
   // Only run if we're not coming back from LocationConfirmation (which handles its own data)
   useEffect(() => {
@@ -391,6 +483,47 @@ const Location = () => {
       addressFormPrefilledRef.current = false;
     }
   }, [showAddressForm, state?.locationData, location.state?.fromLocationConfirmation]); // Added location.state?.fromLocationConfirmation to deps
+  
+  // Track if we've restored position when closing address form
+  const hasRestoredOnCloseRef = useRef(false);
+  
+  // When closing address form (going back to map view), ensure position is set to saved location
+  useEffect(() => {
+    // When address form closes (showAddressForm becomes false), restore saved location
+    if (!showAddressForm) {
+      // Check if we have saved location data
+      const savedLocationData = state?.locationData || selectedLocation;
+      
+      if (savedLocationData?.latitude && savedLocationData?.longitude && !hasRestoredOnCloseRef.current) {
+        const savedLat = savedLocationData.latitude;
+        const savedLng = savedLocationData.longitude;
+        const currentLat = position[0];
+        const currentLng = position[1];
+        
+        // Only update if position is significantly different from saved location
+        const isDifferent = Math.abs(currentLat - savedLat) > 0.0001 || Math.abs(currentLng - savedLng) > 0.0001;
+        const isDefaultPosition = currentLat === 14.5995 && currentLng === 120.9842;
+        
+        // Update position if it's default or different from saved location
+        if (isDefaultPosition || isDifferent) {
+          console.log('📍 Location: Address form closed, restoring map position to saved location:', [savedLat, savedLng]);
+          isManuallySettingPositionRef.current = true;
+          setPosition([savedLat, savedLng]);
+          setLocationFilled(true);
+          hasRestoredOnCloseRef.current = true;
+          setTimeout(() => { 
+            isManuallySettingPositionRef.current = false;
+            hasRestoredOnCloseRef.current = false; // Reset after restore
+          }, 500);
+        } else {
+          hasRestoredOnCloseRef.current = false; // Already at saved location, no need to restore
+        }
+      }
+    } else {
+      // Reset flag when address form opens
+      hasRestoredOnCloseRef.current = false;
+    }
+  }, [showAddressForm, state?.locationData?.latitude, state?.locationData?.longitude, selectedLocation?.latitude, selectedLocation?.longitude]); // Include location data in deps to react to saved data
   const handleMapClick = async (e) => {
     const { lat, lng } = e.latlng;
     isManuallySettingPositionRef.current = true;
@@ -1359,81 +1492,14 @@ const Location = () => {
                         // Reset flag after context update completes
                         setTimeout(() => { isManuallySettingPositionRef.current = false; }, 500);
                         
-                        // Try to get draftId and save to Firebase
-                        let draftIdToUse = state?.draftId || location.state?.draftId;
-                        
-                        // If draftId starts with 'temp_', it's a temporary ID - we need to find/create a real one
-                        if (draftIdToUse && draftIdToUse.startsWith('temp_')) {
-                          console.log('Location page: Found temp ID on Confirm, attempting to find or create real draft');
-                          draftIdToUse = null; // Reset to null so we can find/create a real one
-                        }
-                        
-                        // If no draftId found, try to restore it from user's drafts
-                        if (!draftIdToUse && state.user?.uid) {
-                          try {
-                            const { getUserDrafts, saveDraft } = await import('@/pages/Host/services/draftService');
-                            const drafts = await getUserDrafts();
-                            if (drafts.length > 0) {
-                              draftIdToUse = drafts[0].id;
-                              console.log('Location page: Restored draftId from getUserDrafts:', draftIdToUse);
-                              if (actions.setDraftId) {
-                                actions.setDraftId(draftIdToUse);
-                              }
-                            } else {
-                              // No drafts exist, create a new one
-                              console.log('Location page: No existing drafts found, creating new draft on Confirm');
-                              const newDraftData = {
-                                currentStep: 'location',
-                                category: state.category || 'accommodation',
-                                data: {
-                                  locationData: currentLocationData
-                                }
-                              };
-                              draftIdToUse = await saveDraft(newDraftData, null);
-                              console.log('Location page: Created new draft on Confirm:', draftIdToUse);
-                              if (actions.setDraftId) {
-                                actions.setDraftId(draftIdToUse);
-                              }
-                            }
-                          } catch (error) {
-                            console.error('Location page: Error restoring/creating draftId on Confirm:', error);
-                          }
-                        }
-                        
-                        // Save to Firebase if we have a valid (non-temp) draftId
-                        if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
-                          try {
-                            const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
-                            const docSnap = await getDoc(draftRef);
-                            
-                            if (docSnap.exists()) {
-                              await updateDoc(draftRef, {
-                                'data.locationData': currentLocationData,
-                                lastModified: new Date()
-                              });
-                              console.log('Location page: ✅ Saved complete locationData to Firebase on Confirm click', currentLocationData);
-                            } else {
-                              // Document doesn't exist, create it
-                              console.log('Location page: Document does not exist on Confirm, creating new one');
-                              const { saveDraft } = await import('@/pages/Host/services/draftService');
-                              const newDraftData = {
-                                currentStep: 'location',
-                                category: state.category || 'accommodation',
-                                data: {
-                                  locationData: currentLocationData
-                                }
-                              };
-                              draftIdToUse = await saveDraft(newDraftData, draftIdToUse);
-                              console.log('Location page: Created document on Confirm with ID:', draftIdToUse);
-                              if (actions.setDraftId) {
-                                actions.setDraftId(draftIdToUse);
-                              }
-                            }
-                          } catch (firebaseError) {
-                            console.error('Location page: Error saving to Firebase on Confirm:', firebaseError);
-                          }
-                        } else {
-                          console.warn('Location page: No draftId found, cannot save on Confirm');
+                        // Ensure we have a valid draft and save to Firebase
+                        let draftIdToUse;
+                        try {
+                          draftIdToUse = await ensureDraftAndSave(currentLocationData, 'location');
+                          console.log('📍 Location page: ✅ Saved locationData to Firebase on Confirm click');
+                        } catch (saveError) {
+                          console.error('📍 Location page: Error saving to Firebase on Confirm:', saveError);
+                          // Continue navigation even if save fails - data is in context
                         }
                         
                         setShowAddressForm(true);
@@ -1854,7 +1920,43 @@ const Location = () => {
       </div>
           </div>
           <OnboardingFooter
-            onBack={() => setShowAddressForm(false)}
+            onBack={() => {
+              // When going back from address form, restore the saved location on the map
+              console.log('📍 Location: Going back from address form, restoring saved location');
+              
+              // Use saved location data if available
+              const savedLocationData = state?.locationData || selectedLocation;
+              
+              // Update position if we have saved coordinates
+              if (savedLocationData?.latitude && savedLocationData?.longitude) {
+                console.log('📍 Location: Restoring position from saved location:', [savedLocationData.latitude, savedLocationData.longitude]);
+                isManuallySettingPositionRef.current = true;
+                setPosition([savedLocationData.latitude, savedLocationData.longitude]);
+                setTimeout(() => { isManuallySettingPositionRef.current = false; }, 500);
+              }
+              
+              // Update searchValue to show the saved address if available
+              if (savedLocationData) {
+                const addressParts = [
+                  savedLocationData.unit,
+                  savedLocationData.building,
+                  savedLocationData.street,
+                  savedLocationData.barangay,
+                  savedLocationData.city,
+                  savedLocationData.zipCode,
+                  savedLocationData.province,
+                  savedLocationData.country
+                ].filter(Boolean);
+                
+                if (addressParts.length > 0) {
+                  setSearchValue(addressParts.join(', '));
+                  setLocationFilled(true);
+                }
+              }
+              
+              // Close the address form to show the map view
+              setShowAddressForm(false);
+            }}
             onNext={() => {
               // All required fields are validated by canProceed prop
               // Ensure currentStep is 'location' before showing modal
@@ -1941,7 +2043,7 @@ const Location = () => {
 
                         // Log what we're about to normalize to debug
                         console.log('📍 Location page: selectedLocation before normalization:', selectedLocation);
-                        
+
                         const currentLocationData = normalizeLocationData({
                           ...selectedLocation,
                           latitude: position[0],
@@ -1975,120 +2077,14 @@ const Location = () => {
                         // Small delay to ensure React processes state updates and sessionStorage is set
                         await new Promise(resolve => setTimeout(resolve, 50));
                         
-                        // Try to get draftId from multiple sources and restore if needed
-                        let draftIdToUse = state?.draftId || location.state?.draftId;
-                        
-                        // If draftId starts with 'temp_', it's a temporary ID - we need to find/create a real one
-                        if (draftIdToUse && draftIdToUse.startsWith('temp_')) {
-                          console.log('Location page: Found temp ID, attempting to find or create real draft');
-                          draftIdToUse = null; // Reset to null so we can find/create a real one
-                        }
-                        
-                        // If no draftId found, try to restore it from user's drafts
-                        if (!draftIdToUse && state.user?.uid) {
-                          try {
-                            const { getUserDrafts, saveDraft } = await import('@/pages/Host/services/draftService');
-                            const drafts = await getUserDrafts();
-                            if (drafts.length > 0) {
-                              draftIdToUse = drafts[0].id;
-                              console.log('Location page: Restored draftId from getUserDrafts:', draftIdToUse);
-                              // Update context with restored draftId
-                              if (actions.setDraftId) {
-                                actions.setDraftId(draftIdToUse);
-                              }
-                            } else {
-                              // No drafts exist, create a new one
-                              console.log('Location page: No existing drafts found, creating new draft');
-                              const newDraftData = {
-                                currentStep: 'location',
-                                category: state.category || 'accommodation',
-                                data: {
-                                  locationData: currentLocationData
-                                }
-                              };
-                              draftIdToUse = await saveDraft(newDraftData, null);
-                              console.log('Location page: Created new draft:', draftIdToUse);
-                              if (actions.setDraftId) {
-                                actions.setDraftId(draftIdToUse);
-                              }
-                            }
-                          } catch (error) {
-                            console.error('Location page: Error restoring/creating draftId:', error);
-                            // If we can't find or create a draft, try to save anyway with existing temp ID handling
-                          }
-                        }
-                        
-                        // Always try to save to Firebase, creating draft if necessary
-                        if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
-                          try {
-                            // Update the existing document directly
-                            const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
-                            
-                            // Check if document exists before updating
-                            const docSnap = await getDoc(draftRef);
-                            
-                            if (docSnap.exists()) {
-                              // Update both locationData and currentStep
-                              await updateDoc(draftRef, {
-                                'data.locationData': currentLocationData,
-                                currentStep: 'location', // Update current step
-                                lastModified: new Date()
-                              });
-                              console.log('📍 Location page: ✅ Successfully saved locationData to existing document:', draftIdToUse);
-                              console.log('📍 Location page: Saved data:', currentLocationData);
-                            } else {
-                              // Document doesn't exist, create it
-                              console.log('📍 Location page: Document does not exist, creating new one');
-                              const { saveDraft } = await import('@/pages/Host/services/draftService');
-                              const newDraftData = {
-                                currentStep: 'location',
-                                category: state.category || 'accommodation',
-                                data: {
-                                  locationData: currentLocationData
-                                }
-                              };
-                              draftIdToUse = await saveDraft(newDraftData, draftIdToUse);
-                              console.log('📍 Location page: Created document with ID:', draftIdToUse);
-                              if (actions.setDraftId) {
-                                actions.setDraftId(draftIdToUse);
-                              }
-                            }
-                          } catch (updateError) {
-                            console.error('📍 Location page: ❌ Error updating document:', updateError);
-                            console.error('📍 Location page: Error details:', {
-                              message: updateError.message,
-                              code: updateError.code,
-                              stack: updateError.stack
-                            });
-                            // Don't throw - continue navigation even if save fails (data is in context)
-                          }
-                        } else if (state.user?.uid) {
-                          // No valid draftId but user is authenticated - try to create a new draft
-                          try {
-                            console.log('📍 Location page: No valid draftId but user authenticated, creating new draft');
-                            const { saveDraft } = await import('@/pages/Host/services/draftService');
-                            const newDraftData = {
-                              currentStep: 'location',
-                              category: state.category || 'accommodation',
-                              data: {
-                                locationData: currentLocationData
-                              }
-                            };
-                            draftIdToUse = await saveDraft(newDraftData, null);
-                            console.log('📍 Location page: ✅ Created new draft with locationData:', draftIdToUse);
-                            if (actions.setDraftId) {
-                              actions.setDraftId(draftIdToUse);
-                            }
-                          } catch (createError) {
-                            console.error('📍 Location page: ❌ Error creating new draft:', createError);
-                            // Continue navigation - data is in context
-                          }
-                        } else {
-                          console.warn('📍 Location page: ⚠️ Cannot save to Firebase - no valid draftId and user not authenticated');
-                          console.warn('📍 Location page: State draftId:', state?.draftId);
-                          console.warn('📍 Location page: Location state draftId:', location.state?.draftId);
-                          console.warn('📍 Location page: User uid:', state.user?.uid);
-                          console.warn('📍 Location page: Data is saved in context and will be saved when user authenticates');
+                        // Ensure we have a valid draft and save to Firebase (no temp documents)
+                        let draftIdToUse;
+                        try {
+                          draftIdToUse = await ensureDraftAndSave(currentLocationData, 'location');
+                          console.log('📍 Location page: ✅ Saved locationData to Firebase on "Yes, it\'s correct"');
+                        } catch (saveError) {
+                          console.error('📍 Location page: Error saving to Firebase on "Yes, it\'s correct":', saveError);
+                          // Continue navigation even if save fails - data is in context
                         }
                         
                         navigate('/pages/locationconfirmation', { 

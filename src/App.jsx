@@ -33,7 +33,6 @@ import PropertyBasics from "./pages/Host/onboarding/PropertyBasics";
 import MakeItStandOut from "./pages/Host/onboarding/MakeItStandOut";
 import Amenities from "./pages/Host/onboarding/Amenities";
 import Photos from "./pages/Host/onboarding/Photos";
-import PhotosPreview from "./pages/Host/onboarding/PhotosPreview";
 import TitleDescription from "./pages/Host/onboarding/TitleDescription";
 import Description from "./pages/Host/onboarding/Description";
 import DescriptionDetails from "./pages/Host/onboarding/DescriptionDetails";
@@ -107,7 +106,6 @@ const App = () => {
                   <Route path="makeitstandout" element={<MakeItStandOut />} />
                   <Route path="amenities" element={<Amenities />} />
                   <Route path="photos" element={<Photos />} />
-                  <Route path="photospreview" element={<PhotosPreview />} />
                   <Route path="titledescription" element={<TitleDescription />} />
                   <Route path="description" element={<Description />} />
                   <Route path="descriptiondetails" element={<DescriptionDetails />} />

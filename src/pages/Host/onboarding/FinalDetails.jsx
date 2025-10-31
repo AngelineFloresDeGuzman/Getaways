@@ -3,6 +3,8 @@ import OnboardingHeader from './components/OnboardingHeader';
 import OnboardingFooter from './components/OnboardingFooter';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
+import { auth, db } from '@/lib/firebase';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
 
 const FinalDetails = () => {
   const navigate = useNavigate();
@@ -39,6 +41,144 @@ const FinalDetails = () => {
   }, [location.pathname]); // Run when route changes
 
   const canProceed = address.street && address.city && address.province && isBusinessHost !== null;
+
+  // Helper function to ensure we have a valid draftId and save final details to Firebase
+  const ensureDraftAndSave = async (finalDetailsData, targetRoute = '/host/hostdashboard') => {
+    let draftIdToUse = state?.draftId || location.state?.draftId;
+    
+    // If draftId is temp, reset it to find/create a real one
+    if (draftIdToUse && draftIdToUse.startsWith('temp_')) {
+      console.log('📍 FinalDetails: Found temp ID, resetting to find/create real draft');
+      draftIdToUse = null;
+    }
+    
+    // If user is authenticated, ensure we have a draft
+    if (!draftIdToUse && state.user?.uid) {
+      try {
+        const { getUserDrafts, saveDraft } = await import('@/pages/Host/services/draftService');
+        const drafts = await getUserDrafts();
+        
+        if (drafts.length > 0) {
+          // Use the most recent draft
+          draftIdToUse = drafts[0].id;
+          console.log('📍 FinalDetails: Using existing draft:', draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        } else {
+          // No drafts exist, create a new one
+          console.log('📍 FinalDetails: No existing drafts, creating new draft');
+          const newDraftData = {
+            currentStep: 'completed',
+            category: state.category || 'accommodation',
+            data: {
+              finalDetails: finalDetailsData
+            }
+          };
+          draftIdToUse = await saveDraft(newDraftData, null);
+          console.log('📍 FinalDetails: ✅ Created new draft:', draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        }
+      } catch (error) {
+        console.error('📍 FinalDetails: Error finding/creating draft:', error);
+        throw error;
+      }
+    }
+    
+    // Save to Firebase if we have a valid draftId
+    if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
+      try {
+        const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
+        const docSnap = await getDoc(draftRef);
+        
+        if (docSnap.exists()) {
+          // Update existing document - save finalDetails under data.finalDetails and currentStep
+          await updateDoc(draftRef, {
+            'data.finalDetails': finalDetailsData,
+            currentStep: 'completed',
+            lastModified: new Date()
+          });
+          console.log('📍 FinalDetails: ✅ Saved finalDetails to data.finalDetails and currentStep to Firebase:', draftIdToUse, '- finalDetails:', finalDetailsData, ', currentStep: completed');
+        } else {
+          // Document doesn't exist, create it
+          console.log('📍 FinalDetails: Document not found, creating new one');
+          const { saveDraft } = await import('@/pages/Host/services/draftService');
+          const newDraftData = {
+            currentStep: 'completed',
+            category: state.category || 'accommodation',
+            data: {
+              finalDetails: finalDetailsData
+            }
+          };
+          draftIdToUse = await saveDraft(newDraftData, draftIdToUse);
+          console.log('📍 FinalDetails: ✅ Created new draft with finalDetails:', draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        }
+        return draftIdToUse;
+      } catch (error) {
+        console.error('📍 FinalDetails: ❌ Error saving to Firebase:', error);
+        throw error;
+      }
+    } else if (state.user?.uid) {
+      console.warn('📍 FinalDetails: ⚠️ User authenticated but no valid draftId after ensureDraftAndSave');
+      throw new Error('Failed to create draft for authenticated user');
+    } else {
+      console.warn('📍 FinalDetails: ⚠️ User not authenticated, cannot save to Firebase');
+      return null;
+    }
+  };
+
+  // Save & Exit handler
+  const handleSaveAndExitClick = async () => {
+    console.log('FinalDetails Save & Exit clicked');
+    console.log('Current address:', address);
+    console.log('Current isBusinessHost:', isBusinessHost);
+    
+    if (!auth.currentUser) {
+      console.error('FinalDetails: No authenticated user');
+      alert('Please log in to save your progress');
+      return;
+    }
+    
+    try {
+      // Set current step before saving so "Continue Editing" returns to this page
+      if (actions.setCurrentStep) {
+        console.log('FinalDetails: Setting currentStep to finaldetails');
+        actions.setCurrentStep('finaldetails');
+      }
+      
+      // Prepare final details data to save
+      const finalDetailsData = {
+        residentialAddress: address,
+        isBusinessHost: isBusinessHost
+      };
+      
+      // Save final details to Firebase under data.finalDetails
+      let draftIdToUse;
+      try {
+        draftIdToUse = await ensureDraftAndSave(finalDetailsData, '/pages/finaldetails');
+        console.log('📍 FinalDetails: ✅ Saved finalDetails to Firebase on Save & Exit');
+      } catch (saveError) {
+        console.error('📍 FinalDetails: Error saving to Firebase on Save & Exit:', saveError);
+        // Continue with save & exit even if Firebase save fails
+      }
+      
+      // Navigate to dashboard
+      navigate('/host/hostdashboard', { 
+        state: { 
+          message: 'Draft saved successfully!',
+          draftSaved: true 
+        }
+      });
+    } catch (error) {
+      console.error('Error during save and exit:', error);
+      alert('Error saving progress: ' + error.message);
+    }
+  };
 
   // Debug: Log the location state
   console.log('FinalDetails - location.state:', location.state);
@@ -180,16 +320,44 @@ const FinalDetails = () => {
                     ? 'bg-black text-white hover:bg-gray-800'
                     : 'bg-gray-200 text-gray-500 cursor-not-allowed'
                 }`}
-                onClick={() => {
+                onClick={async () => {
                   if (canProceed) {
-                    // Create listing - final step
-                    navigate('/host/HostDashboard', { 
-                      state: { 
-                        ...location.state,
+                    try {
+                      // Prepare final details data to save
+                      const finalDetailsData = {
                         residentialAddress: address,
                         isBusinessHost: isBusinessHost
-                      } 
-                    });
+                      };
+                      
+                      // Save final details to Firebase
+                      let draftIdToUse;
+                      try {
+                        draftIdToUse = await ensureDraftAndSave(finalDetailsData, '/host/hostdashboard');
+                        console.log('📍 FinalDetails: ✅ Saved finalDetails to Firebase on Create listing click');
+                      } catch (saveError) {
+                        console.error('📍 FinalDetails: Error saving to Firebase on Create listing:', saveError);
+                        // Continue navigation even if save fails
+                      }
+                      
+                      // Update current step in context
+                      if (actions.setCurrentStep) {
+                        actions.setCurrentStep('completed');
+                      }
+                      
+                      // Navigate to dashboard
+                      navigate('/host/hostdashboard', { 
+                        state: { 
+                          ...location.state,
+                          residentialAddress: address,
+                          isBusinessHost: isBusinessHost,
+                          draftId: draftIdToUse || state?.draftId || location.state?.draftId,
+                          onboardingCompleted: true
+                        } 
+                      });
+                    } catch (error) {
+                      console.error('Error saving final details:', error);
+                      alert('Error saving progress. Please try again.');
+                    }
                   }
                 }}
                 disabled={!canProceed}

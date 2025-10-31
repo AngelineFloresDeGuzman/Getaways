@@ -1106,8 +1106,6 @@ const LocationConfirmation = () => {
               if (docSnap.exists()) {
                 await updateDoc(draftRef, {
                   'data.locationData': currentLocationData,
-                  'data.currentStep': 'propertybasics',
-                  currentStep: 'propertybasics',
                   lastModified: new Date()
                 });
                 console.log('LocationConfirmation: ✅ Updated existing document on Next click:', draftIdToUse);

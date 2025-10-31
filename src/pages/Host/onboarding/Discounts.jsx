@@ -3,6 +3,8 @@ import OnboardingHeader from './components/OnboardingHeader';
 import OnboardingFooter from './components/OnboardingFooter';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
+import { auth, db } from '@/lib/firebase';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
 
 const Discounts = () => {
   const navigate = useNavigate();
@@ -25,19 +27,19 @@ const Discounts = () => {
     },
     {
       id: 'last-minute',
-      percentage: '7%',
+      percentage: '4%',
       title: 'Last-minute discount',
       description: 'For stays booked 14 days or less before arrival'
     },
     {
       id: 'weekly',
-      percentage: '10%',
+      percentage: '15%',
       title: 'Weekly discount',
       description: 'For stays of 7 nights or more'
     },
     {
       id: 'monthly',
-      percentage: '16%',
+      percentage: '30%',
       title: 'Monthly discount',
       description: 'For stays of 28 nights or more'
     }
@@ -50,6 +52,154 @@ const Discounts = () => {
     }));
   };
 
+  // Helper function to convert discount state to percentage values
+  const buildDiscountsData = () => {
+    return {
+      weekly: discounts['weekly'] ? 15 : 0,
+      monthly: discounts['monthly'] ? 30 : 0,
+      earlyBird: discounts['new-listing'] ? 20 : 0,
+      lastMinute: discounts['last-minute'] ? 4 : 0
+    };
+  };
+
+  // Helper function to ensure we have a valid draftId and save discounts to Firebase
+  const ensureDraftAndSave = async (discountsData, targetRoute = '/pages/safetydetails') => {
+    let draftIdToUse = state?.draftId || location.state?.draftId;
+    
+    // If draftId is temp, reset it to find/create a real one
+    if (draftIdToUse && draftIdToUse.startsWith('temp_')) {
+      console.log('📍 Discounts: Found temp ID, resetting to find/create real draft');
+      draftIdToUse = null;
+    }
+    
+    // If user is authenticated, ensure we have a draft
+    if (!draftIdToUse && state.user?.uid) {
+      try {
+        const { getUserDrafts, saveDraft } = await import('@/pages/Host/services/draftService');
+        const drafts = await getUserDrafts();
+        
+        if (drafts.length > 0) {
+          // Use the most recent draft
+          draftIdToUse = drafts[0].id;
+          console.log('📍 Discounts: Using existing draft:', draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        } else {
+          // No drafts exist, create a new one
+          console.log('📍 Discounts: No existing drafts, creating new draft');
+          const nextStep = targetRoute === '/pages/safetydetails' ? 'safetydetails' : 'discounts';
+          const newDraftData = {
+            currentStep: nextStep,
+            category: state.category || 'accommodation',
+            data: {
+              discounts: discountsData
+            }
+          };
+          draftIdToUse = await saveDraft(newDraftData, null);
+          console.log('📍 Discounts: ✅ Created new draft:', draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        }
+      } catch (error) {
+        console.error('📍 Discounts: Error finding/creating draft:', error);
+        throw error;
+      }
+    }
+    
+    // Save to Firebase if we have a valid draftId
+    if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
+      try {
+        const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
+        const docSnap = await getDoc(draftRef);
+        
+        if (docSnap.exists()) {
+          // Update existing document - save discounts under data.discounts and currentStep
+          const nextStep = targetRoute === '/pages/safetydetails' ? 'safetydetails' : 'discounts';
+          await updateDoc(draftRef, {
+            'data.discounts': discountsData,
+            currentStep: nextStep,
+            lastModified: new Date()
+          });
+          console.log('📍 Discounts: ✅ Saved discounts to data.discounts and currentStep to Firebase:', draftIdToUse, '- discounts:', discountsData, ', currentStep:', nextStep);
+        } else {
+          // Document doesn't exist, create it
+          console.log('📍 Discounts: Document not found, creating new one');
+          const { saveDraft } = await import('@/pages/Host/services/draftService');
+          const nextStep = targetRoute === '/pages/safetydetails' ? 'safetydetails' : 'discounts';
+          const newDraftData = {
+            currentStep: nextStep,
+            category: state.category || 'accommodation',
+            data: {
+              discounts: discountsData
+            }
+          };
+          draftIdToUse = await saveDraft(newDraftData, draftIdToUse);
+          console.log('📍 Discounts: ✅ Created new draft with discounts:', draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        }
+        return draftIdToUse;
+      } catch (error) {
+        console.error('📍 Discounts: ❌ Error saving to Firebase:', error);
+        throw error;
+      }
+    } else if (state.user?.uid) {
+      console.warn('📍 Discounts: ⚠️ User authenticated but no valid draftId after ensureDraftAndSave');
+      throw new Error('Failed to create draft for authenticated user');
+    } else {
+      console.warn('📍 Discounts: ⚠️ User not authenticated, cannot save to Firebase');
+      return null;
+    }
+  };
+
+  // Save & Exit handler
+  const handleSaveAndExitClick = async () => {
+    console.log('Discounts Save & Exit clicked');
+    console.log('Current discounts:', discounts);
+    
+    if (!auth.currentUser) {
+      console.error('Discounts: No authenticated user');
+      alert('Please log in to save your progress');
+      return;
+    }
+    
+    try {
+      // Set current step before saving so "Continue Editing" returns to this page
+      if (actions.setCurrentStep) {
+        console.log('Discounts: Setting currentStep to discounts');
+        actions.setCurrentStep('discounts');
+      }
+      
+      // Ensure discounts are updated in context
+      const discountsData = buildDiscountsData();
+      actions.updateDiscounts(discountsData);
+      
+      // Save discounts to Firebase under data.discounts
+      let draftIdToUse;
+      try {
+        draftIdToUse = await ensureDraftAndSave(discountsData, '/pages/discounts');
+        console.log('📍 Discounts: ✅ Saved discounts to Firebase on Save & Exit');
+      } catch (saveError) {
+        console.error('📍 Discounts: Error saving to Firebase on Save & Exit:', saveError);
+        // Continue with save & exit even if Firebase save fails
+      }
+      
+      // Navigate to dashboard
+      navigate('/host/hostdashboard', { 
+        state: { 
+          message: 'Draft saved successfully!',
+          draftSaved: true 
+        }
+      });
+    } catch (error) {
+      console.error('Error during save and exit:', error);
+      alert('Error saving progress: ' + error.message);
+    }
+  };
+
   // Set current step for progress bar when component mounts or route changes
   useEffect(() => {
     if (actions.setCurrentStep && state.currentStep !== 'discounts') {
@@ -58,6 +208,14 @@ const Discounts = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]); // Run when route changes
+
+  // Sync discounts to context when they change, so Save & Exit in header saves the current selections
+  useEffect(() => {
+    const discountsData = buildDiscountsData();
+    if (actions.updateDiscounts) {
+      actions.updateDiscounts(discountsData);
+    }
+  }, [discounts, actions]);
 
   const canProceed = true; // Can always proceed regardless of discount selection
 
@@ -84,18 +242,18 @@ const Discounts = () => {
             {discountOptions.map((option) => (
               <div
                 key={option.id}
-                className="flex items-center justify-between p-6 bg-gray-50 rounded-xl border border-gray-200"
+                className="flex items-center justify-between p-6 bg-white rounded-xl border border-gray-200 hover:border-gray-300 transition-colors"
               >
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-4 flex-1">
                   {/* Percentage Badge */}
-                  <div className="w-12 h-12 bg-white border border-gray-300 rounded-lg flex items-center justify-center">
+                  <div className="w-12 h-12 bg-gray-50 border border-gray-200 rounded-lg flex items-center justify-center flex-shrink-0">
                     <span className="text-lg font-medium text-gray-900">
                       {option.percentage}
                     </span>
                   </div>
                   
                   {/* Discount Info */}
-                  <div>
+                  <div className="flex-1">
                     <h3 className="text-lg font-medium text-gray-900 mb-1">
                       {option.title}
                     </h3>
@@ -105,18 +263,28 @@ const Discounts = () => {
                   </div>
                 </div>
 
-                {/* Toggle Switch */}
+                {/* Checkbox */}
                 <button
                   onClick={() => toggleDiscount(option.id)}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 ${
-                    discounts[option.id] ? 'bg-black' : 'bg-gray-200'
-                  }`}
+                  className="flex-shrink-0 ml-4 w-5 h-5 flex items-center justify-center rounded border-2 transition-colors focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2"
+                  style={{
+                    backgroundColor: discounts[option.id] ? '#000' : 'transparent',
+                    borderColor: discounts[option.id] ? '#000' : '#d1d5db'
+                  }}
                 >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                      discounts[option.id] ? 'translate-x-6' : 'translate-x-1'
-                    }`}
-                  />
+                  {discounts[option.id] && (
+                    <svg
+                      className="w-3 h-3 text-white"
+                      fill="none"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="3"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path d="M5 13l4 4L19 7" />
+                    </svg>
+                  )}
                 </button>
               </div>
             ))}
@@ -134,42 +302,48 @@ const Discounts = () => {
         </div>
       </main>
 
-      {/* Footer */}
-      <footer className="fixed bottom-0 left-0 right-0 bg-white border-t">
-        <div className="max-w-none">
-          <div className="px-6 py-4">
-            <div className="flex justify-between items-center">
-              <button
-                onClick={() => navigate('/pages/weekendpricing')}
-                className="hover:underline text-sm"
-              >
-                Back
-              </button>
-              <button 
-                className={`rounded-lg px-6 py-2.5 text-sm font-medium ${
-                  canProceed
-                    ? 'bg-black text-white hover:bg-gray-800'
-                    : 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                }`}
-                onClick={() => {
-                  if (canProceed) {
-                    // Continue to safety details
-                    navigate('/pages/safetydetails', { 
-                      state: { 
-                        ...location.state,
-                        discounts: discounts
-                      } 
-                    });
-                  }
-                }}
-                disabled={!canProceed}
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        </div>
-      </footer>
+      <OnboardingFooter
+        onBack={() => navigate('/pages/weekendpricing')}
+        onNext={async () => {
+          if (canProceed) {
+            try {
+              // Build discounts data
+              const discountsData = buildDiscountsData();
+              
+              // Update context
+              actions.updateDiscounts(discountsData);
+              
+              // Save discounts to Firebase
+              let draftIdToUse;
+              try {
+                draftIdToUse = await ensureDraftAndSave(discountsData, '/pages/safetydetails');
+                console.log('📍 Discounts: ✅ Saved discounts to Firebase on Next click');
+              } catch (saveError) {
+                console.error('📍 Discounts: Error saving to Firebase on Next:', saveError);
+                // Continue navigation even if save fails - data is in context
+              }
+              
+              // Update current step in context
+              if (actions.setCurrentStep) {
+                actions.setCurrentStep('safetydetails');
+              }
+              
+              // Navigate to safety details page
+              navigate('/pages/safetydetails', { 
+                state: { 
+                  ...location.state,
+                  discounts: discounts,
+                  draftId: draftIdToUse || state?.draftId || location.state?.draftId
+                } 
+              });
+            } catch (error) {
+              console.error('Error saving discounts:', error);
+              alert('Error saving progress. Please try again.');
+            }
+          }
+        }}
+        canProceed={canProceed}
+      />
     </div>
   );
 };

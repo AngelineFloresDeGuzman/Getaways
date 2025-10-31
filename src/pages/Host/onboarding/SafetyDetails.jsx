@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Info } from 'lucide-react';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
-import { useSaveAndExitWithContext } from './hooks/useSaveAndExit';
+import { auth, db } from '@/lib/firebase';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import OnboardingHeader from './components/OnboardingHeader';
 import OnboardingFooter from './components/OnboardingFooter';
 
@@ -21,9 +22,6 @@ const SafetyDetails = () => {
 
   // Ref to track initialization
   const hasInitialized = useRef(false);
-
-  // Save and Exit hook integration
-  const { handleSaveAndExit } = useSaveAndExitWithContext(actions);
 
   // Set current step when component mounts or route changes
   useEffect(() => {
@@ -100,17 +98,148 @@ const SafetyDetails = () => {
   // Debug: Log the location state
   console.log('SafetyDetails - location.state:', location.state);
 
+  // Helper function to convert safety features object to array
+  const buildSafetyDetailsData = () => {
+    return Object.keys(safetyFeatures).filter(key => safetyFeatures[key]);
+  };
+
+  // Helper function to ensure we have a valid draftId and save safety details to Firebase
+  const ensureDraftAndSave = async (safetyDetailsData, targetRoute = '/pages/finaldetails') => {
+    let draftIdToUse = state?.draftId || location.state?.draftId;
+    
+    // If draftId is temp, reset it to find/create a real one
+    if (draftIdToUse && draftIdToUse.startsWith('temp_')) {
+      console.log('📍 SafetyDetails: Found temp ID, resetting to find/create real draft');
+      draftIdToUse = null;
+    }
+    
+    // If user is authenticated, ensure we have a draft
+    if (!draftIdToUse && state.user?.uid) {
+      try {
+        const { getUserDrafts, saveDraft } = await import('@/pages/Host/services/draftService');
+        const drafts = await getUserDrafts();
+        
+        if (drafts.length > 0) {
+          // Use the most recent draft
+          draftIdToUse = drafts[0].id;
+          console.log('📍 SafetyDetails: Using existing draft:', draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        } else {
+          // No drafts exist, create a new one
+          console.log('📍 SafetyDetails: No existing drafts, creating new draft');
+          const nextStep = targetRoute === '/pages/finaldetails' ? 'finaldetails' : 'safetydetails';
+          const newDraftData = {
+            currentStep: nextStep,
+            category: state.category || 'accommodation',
+            data: {
+              safetyDetails: safetyDetailsData
+            }
+          };
+          draftIdToUse = await saveDraft(newDraftData, null);
+          console.log('📍 SafetyDetails: ✅ Created new draft:', draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        }
+      } catch (error) {
+        console.error('📍 SafetyDetails: Error finding/creating draft:', error);
+        throw error;
+      }
+    }
+    
+    // Save to Firebase if we have a valid draftId
+    if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
+      try {
+        const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
+        const docSnap = await getDoc(draftRef);
+        
+        if (docSnap.exists()) {
+          // Update existing document - save safetyDetails under data.safetyDetails and currentStep
+          const nextStep = targetRoute === '/pages/finaldetails' ? 'finaldetails' : 'safetydetails';
+          await updateDoc(draftRef, {
+            'data.safetyDetails': safetyDetailsData,
+            currentStep: nextStep,
+            lastModified: new Date()
+          });
+          console.log('📍 SafetyDetails: ✅ Saved safetyDetails to data.safetyDetails and currentStep to Firebase:', draftIdToUse, '- safetyDetails:', safetyDetailsData, ', currentStep:', nextStep);
+        } else {
+          // Document doesn't exist, create it
+          console.log('📍 SafetyDetails: Document not found, creating new one');
+          const { saveDraft } = await import('@/pages/Host/services/draftService');
+          const nextStep = targetRoute === '/pages/finaldetails' ? 'finaldetails' : 'safetydetails';
+          const newDraftData = {
+            currentStep: nextStep,
+            category: state.category || 'accommodation',
+            data: {
+              safetyDetails: safetyDetailsData
+            }
+          };
+          draftIdToUse = await saveDraft(newDraftData, draftIdToUse);
+          console.log('📍 SafetyDetails: ✅ Created new draft with safetyDetails:', draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        }
+        return draftIdToUse;
+      } catch (error) {
+        console.error('📍 SafetyDetails: ❌ Error saving to Firebase:', error);
+        throw error;
+      }
+    } else if (state.user?.uid) {
+      console.warn('📍 SafetyDetails: ⚠️ User authenticated but no valid draftId after ensureDraftAndSave');
+      throw new Error('Failed to create draft for authenticated user');
+    } else {
+      console.warn('📍 SafetyDetails: ⚠️ User not authenticated, cannot save to Firebase');
+      return null;
+    }
+  };
+
   // Save & Exit handler
   const handleSaveAndExitClick = async () => {
     console.log('SafetyDetails Save & Exit clicked');
+    console.log('Current safety features:', safetyFeatures);
+    
+    if (!auth.currentUser) {
+      console.error('SafetyDetails: No authenticated user');
+      alert('Please log in to save your progress');
+      return;
+    }
+    
     try {
-      // Ensure context is up to date
+      // Set current step before saving so "Continue Editing" returns to this page
+      if (actions.setCurrentStep) {
+        console.log('SafetyDetails: Setting currentStep to safetydetails');
+        actions.setCurrentStep('safetydetails');
+      }
+      
+      // Ensure safety details are updated in context
       updateSafetyContext(safetyFeatures);
       
-      // Use the hook's save and exit functionality
-      await handleSaveAndExit();
+      // Prepare safety details data to save
+      const safetyDetailsData = buildSafetyDetailsData();
+      
+      // Save safety details to Firebase under data.safetyDetails
+      let draftIdToUse;
+      try {
+        draftIdToUse = await ensureDraftAndSave(safetyDetailsData, '/pages/safetydetails');
+        console.log('📍 SafetyDetails: ✅ Saved safetyDetails to Firebase on Save & Exit');
+      } catch (saveError) {
+        console.error('📍 SafetyDetails: Error saving to Firebase on Save & Exit:', saveError);
+        // Continue with save & exit even if Firebase save fails
+      }
+      
+      // Navigate to dashboard
+      navigate('/host/hostdashboard', { 
+        state: { 
+          message: 'Draft saved successfully!',
+          draftSaved: true 
+        }
+      });
     } catch (error) {
       console.error('Error during save and exit:', error);
+      alert('Error saving progress: ' + error.message);
     }
   };
 
@@ -176,7 +305,7 @@ const SafetyDetails = () => {
                   <button className="text-black underline hover:no-underline">
                     local laws
                   </button>
-                  {' '}and review Airbnb's{' '}
+                  {' '}and review Getaways'{' '}
                   <button className="text-black underline hover:no-underline">
                     anti-discrimination policy
                   </button>
@@ -195,15 +324,42 @@ const SafetyDetails = () => {
       {/* Footer */}
       <OnboardingFooter
         onBack={() => navigate('/pages/discounts')}
-        onNext={() => {
+        onNext={async () => {
           if (canProceed) {
-            updateSafetyContext(safetyFeatures);
-            navigate('/pages/finaldetails', { 
-              state: { 
-                ...location.state,
-                safetyFeatures: safetyFeatures
-              } 
-            });
+            try {
+              // Update context first
+              updateSafetyContext(safetyFeatures);
+              
+              // Prepare safety details data to save
+              const safetyDetailsData = buildSafetyDetailsData();
+              
+              // Save safety details to Firebase
+              let draftIdToUse;
+              try {
+                draftIdToUse = await ensureDraftAndSave(safetyDetailsData, '/pages/finaldetails');
+                console.log('📍 SafetyDetails: ✅ Saved safetyDetails to Firebase on Next click');
+              } catch (saveError) {
+                console.error('📍 SafetyDetails: Error saving to Firebase on Next:', saveError);
+                // Continue navigation even if save fails - data is in context
+              }
+              
+              // Update current step in context
+              if (actions.setCurrentStep) {
+                actions.setCurrentStep('finaldetails');
+              }
+              
+              // Navigate to final details page
+              navigate('/pages/finaldetails', { 
+                state: { 
+                  ...location.state,
+                  safetyFeatures: safetyFeatures,
+                  draftId: draftIdToUse || state?.draftId || location.state?.draftId
+                } 
+              });
+            } catch (error) {
+              console.error('Error saving safety details:', error);
+              alert('Error saving progress. Please try again.');
+            }
           }
         }}
         backText="Back"

@@ -326,7 +326,6 @@ export const getDraftSummary = (draftData) => {
     'makeitstandout': 'Highlights',
     'amenities': 'Amenities',
     'photos': 'Photos',
-    'photospreview': 'Photo Preview',
     'titledescription': 'Title & Description',
     'description': 'Description',
     'descriptiondetails': 'Description Details',
@@ -367,7 +366,7 @@ const calculateProgress = (currentStep) => {
   const stepOrder = [
     'propertydetails', 'propertystructure', 'privacytype', 'location',
     'locationconfirmation', 'propertybasics', 'makeitstandout', 'amenities',
-    'photos', 'photospreview', 'titledescription', 'description',
+    'photos', 'titledescription', 'description',
     'descriptiondetails', 'finishsetup', 'bookingsettings', 'guestselection',
     'pricing', 'weekendpricing', 'discounts', 'safetydetails', 'finaldetails'
   ];

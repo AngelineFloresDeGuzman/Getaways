@@ -84,13 +84,171 @@ const HostDashboard = () => {
     };
   }, [location.state, toast]);
 
+  // Calculate progress percentage based on current step
+  const calculateProgress = (currentStep) => {
+    const stepOrder = [
+      'hostingsteps', 'propertydetails', 'propertystructure', 'privacytype', 'location',
+      'locationconfirmation', 'propertybasics', 'makeitstandout', 'amenities',
+      'photos', 'titledescription', 'description',
+      'descriptiondetails', 'finishsetup', 'bookingsettings', 'guestselection',
+      'pricing', 'weekendpricing', 'discounts', 'safetydetails', 'finaldetails'
+    ];
+
+    const currentIndex = stepOrder.indexOf(currentStep);
+    if (currentIndex === -1) return 0;
+    return Math.round(((currentIndex + 1) / stepOrder.length) * 100);
+  };
+
   const loadDrafts = async () => {
     try {
       setLoading(true);
       const userDrafts = await getUserDrafts();
-      setDrafts(userDrafts);
+      console.log('📦 HostDashboard: Raw drafts from Firebase:', userDrafts);
+      
+      // Transform drafts to include properly formatted data from Firebase structure
+      const transformedDrafts = userDrafts.map(draft => {
+        // Firebase structure: { id, userId, status, currentStep, category, lastModified, createdAt, data: {...} }
+        // All form data is nested under 'data' object
+        const data = draft.data || {};
+        
+        console.log('📋 Processing draft:', draft.id, {
+          hasData: !!draft.data,
+          dataKeys: draft.data ? Object.keys(draft.data) : [],
+          currentStep: draft.currentStep,
+          category: draft.category
+        });
+        
+        // Extract title from data.title or top-level title (fallback for backward compatibility)
+        const title = data.title || draft.title || 'Untitled Draft';
+        
+        // Extract location from data.locationData (Firebase stores it here)
+        const locationData = data.locationData || {};
+        let location = 'No location';
+        let locationCity = '';
+        let locationArea = '';
+        
+        if (locationData && typeof locationData === 'object') {
+          if (locationData.city && locationData.province) {
+            location = `${locationData.city}, ${locationData.province}`;
+            locationCity = locationData.city;
+            locationArea = locationData.province;
+          } else if (locationData.city) {
+            location = locationData.city;
+            locationCity = locationData.city;
+          } else if (locationData.country) {
+            location = locationData.country;
+            locationArea = locationData.country;
+          }
+        }
+        
+        // Extract first photo from data.photos array
+        const photos = Array.isArray(data.photos) ? data.photos : [];
+        const mainImage = photos.length > 0 && photos[0] && (photos[0].base64 || photos[0].url)
+          ? (photos[0].base64 || photos[0].url)
+          : null;
+        
+        // Extract property basics from data.propertyBasics
+        const propertyBasics = data.propertyBasics || {};
+        const guests = propertyBasics.guestCapacity || null;
+        const bedrooms = propertyBasics.bedrooms || null;
+        const beds = propertyBasics.beds || null;
+        const bathrooms = propertyBasics.bathrooms || null;
+        
+        // Extract privacy type (listing type) from data.privacyType
+        const privacyType = data.privacyType || null;
+        
+        // Extract property structure from data.propertyStructure
+        const propertyStructure = data.propertyStructure || null;
+        
+        // Calculate progress based on currentStep (top-level field)
+        const currentStep = draft.currentStep || 'hostingsteps';
+        const progress = calculateProgress(currentStep);
+        
+        // Format last modified date with relative time for < 24 hours, otherwise full date/time
+        let lastModifiedFormatted = '';
+        if (draft.lastModified) {
+          try {
+            const lastModifiedDate = draft.lastModified?.toDate 
+              ? draft.lastModified.toDate() 
+              : (draft.lastModified instanceof Date 
+                  ? draft.lastModified 
+                  : new Date(draft.lastModified));
+            
+            const now = new Date();
+            const diffMs = now - lastModifiedDate;
+            const diffSeconds = Math.floor(diffMs / 1000);
+            const diffMinutes = Math.floor(diffSeconds / 60);
+            const diffHours = Math.floor(diffMinutes / 60);
+            const diffDays = Math.floor(diffHours / 24);
+            
+            // If less than 24 hours, show relative time
+            if (diffHours < 24) {
+              if (diffSeconds < 60) {
+                lastModifiedFormatted = `${diffSeconds} ${diffSeconds === 1 ? 'second' : 'seconds'} ago`;
+              } else if (diffMinutes < 60) {
+                lastModifiedFormatted = `${diffMinutes} ${diffMinutes === 1 ? 'minute' : 'minutes'} ago`;
+              } else {
+                // Format hours with minutes in HH:MM format if less than 24 hours
+                const hours = diffHours;
+                const remainingMinutes = diffMinutes % 60;
+                if (remainingMinutes > 0) {
+                  lastModifiedFormatted = `${hours}:${String(remainingMinutes).padStart(2, '0')} hours ago`;
+                } else {
+                  lastModifiedFormatted = `${hours} ${hours === 1 ? 'hour' : 'hours'} ago`;
+                }
+              }
+            } else {
+              // 24 hours or more: show full date and time
+              lastModifiedFormatted = lastModifiedDate.toLocaleString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true
+              });
+            }
+          } catch (dateError) {
+            console.warn('Error formatting date for draft:', draft.id, dateError);
+            lastModifiedFormatted = 'Unknown';
+          }
+        }
+        
+        const transformed = {
+          ...draft,
+          // Override with extracted/calculated values
+          title,
+          location,
+          locationCity,
+          locationArea,
+          mainImage,
+          guests,
+          bedrooms,
+          beds,
+          bathrooms,
+          privacyType,
+          propertyStructure,
+          progress,
+          lastModifiedFormatted,
+          hasPhotos: photos.length > 0
+        };
+        
+        console.log('✅ Transformed draft:', draft.id, {
+          title,
+          location,
+          privacyType,
+          progress,
+          hasImage: !!mainImage,
+          lastModifiedFormatted
+        });
+        
+        return transformed;
+      });
+      
+      console.log('📊 HostDashboard: Transformed drafts:', transformedDrafts);
+      setDrafts(transformedDrafts);
     } catch (error) {
-      console.error('Error loading drafts:', error);
+      console.error('❌ Error loading drafts:', error);
       setDrafts([]);
     } finally {
       setLoading(false);
@@ -109,7 +267,6 @@ const HostDashboard = () => {
       'makeitstandout': '/pages/makeitstandout',
       'amenities': '/pages/amenities',
       'photos': '/pages/photos',
-      'photospreview': '/pages/photospreview',
       'titledescription': '/pages/titledescription',
       'description': '/pages/description',
       'descriptiondetails': '/pages/descriptiondetails',
@@ -241,23 +398,86 @@ const HostDashboard = () => {
                   draftView === 'grid' ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                       {(draftTab === 'all' ? drafts : drafts.filter(d => d.category === draftTab)).map((draft, idx) => (
-                        <div key={draft.id || idx} className="card-listing cursor-pointer hover-lift" onClick={() => handleContinueDraft(draft)}>
-                          <div className="relative w-full overflow-hidden rounded-lg aspect-[4/3] bg-gray-100 flex items-center justify-center">
-                            {/* Placeholder image or icon */}
+                        <div key={draft.id || idx} className="card-listing cursor-pointer hover-lift overflow-hidden" onClick={() => handleContinueDraft(draft)}>
+                          {/* Thumbnail Image */}
+                          <div className="relative w-full overflow-hidden aspect-[4/3] bg-gray-100">
+                            {draft.mainImage ? (
+                              <img 
+                                src={draft.mainImage} 
+                                alt={draft.title || 'Draft'} 
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  e.target.style.display = 'none';
+                                  e.target.nextSibling.style.display = 'flex';
+                                }}
+                              />
+                            ) : null}
+                            <div className={`absolute inset-0 flex items-center justify-center ${draft.mainImage ? 'hidden' : ''}`}>
                             <Camera className="w-12 h-12 text-gray-400" />
                           </div>
-                          <div className="p-6">
-                            <h3 className="font-heading text-xl font-semibold text-foreground">{draft.title || 'Untitled Draft'}</h3>
-                            <p className="font-body text-muted-foreground flex items-center gap-1">
-                              <MapPin className="w-4 h-4" /> {draft.location || 'No location'}
+                          </div>
+                          
+                          <div className="p-5">
+                            {/* Listing Title */}
+                            <h3 className="font-heading text-lg font-semibold text-foreground mb-2 line-clamp-2">
+                              {draft.title || 'Untitled Draft'}
+                            </h3>
+                            
+                            {/* Location (City, Area) */}
+                            <p className="font-body text-sm text-muted-foreground flex items-center gap-1 mb-3">
+                              <MapPin className="w-4 h-4 flex-shrink-0" /> 
+                              <span className="truncate">
+                                {draft.locationCity && draft.locationArea 
+                                  ? `${draft.locationCity}, ${draft.locationArea}`
+                                  : draft.location || 'No location'}
+                              </span>
                             </p>
-                            <div className="flex justify-between mt-2">
-                              <span className="font-heading text-base font-bold text-foreground">{draft.category}</span>
-                              <span className="text-xs text-muted-foreground">Last saved {draft.lastModified?.toDate?.().toLocaleString?.() || ''}</span>
+                            
+                            {/* Listing Type / Category (optional) */}
+                            {(draft.privacyType || draft.propertyStructure) && (
+                              <div className="mb-3">
+                                <span className="inline-block px-2 py-1 text-xs font-medium bg-primary/10 text-primary rounded-md">
+                                  {draft.privacyType && draft.propertyStructure
+                                    ? `${draft.privacyType} in ${draft.propertyStructure}`
+                                    : draft.privacyType || draft.propertyStructure}
+                                </span>
+                              </div>
+                            )}
+                            
+                            {/* Progress Status / Completion Bar */}
+                            <div className="mb-3">
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="text-xs font-medium text-muted-foreground">Progress</span>
+                                <span className="text-xs font-semibold text-foreground">{draft.progress || 0}%</span>
+                              </div>
+                              <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                                <div 
+                                  className="h-full bg-primary transition-all duration-300 rounded-full"
+                                  style={{ width: `${draft.progress || 0}%` }}
+                                />
+                              </div>
                             </div>
-                            <div className="flex gap-2 mt-4">
-                              <button className="btn-primary px-3 py-1 text-sm" onClick={e => {e.stopPropagation(); handleContinueDraft(draft);}}>Continue</button>
-                              <button className="btn-outline px-3 py-1 text-sm" onClick={e => {e.stopPropagation(); handleDeleteDraft(draft.id);}}>Delete</button>
+                            
+                            {/* Last Edited Date */}
+                            <div className="flex items-center gap-1 mb-4 text-xs text-muted-foreground">
+                              <Clock className="w-3 h-3" />
+                              <span>Last edited {draft.lastModifiedFormatted || 'Unknown'}</span>
+                            </div>
+                            
+                            {/* Action Buttons */}
+                            <div className="flex gap-2 pt-3 border-t border-gray-100">
+                              <button 
+                                className="btn-primary flex-1 px-3 py-2 text-sm font-medium" 
+                                onClick={e => {e.stopPropagation(); handleContinueDraft(draft);}}
+                              >
+                                Continue
+                              </button>
+                              <button 
+                                className="btn-outline px-3 py-2 text-sm font-medium" 
+                                onClick={e => {e.stopPropagation(); handleDeleteDraft(draft.id);}}
+                              >
+                                Delete
+                              </button>
                             </div>
                           </div>
                         </div>
@@ -267,16 +487,85 @@ const HostDashboard = () => {
                     <div className="space-y-4">
                       {(draftTab === 'all' ? drafts : drafts.filter(d => d.category === draftTab)).map((draft, idx) => (
                         <div key={draft.id || idx} className="card-listing hover-lift cursor-pointer flex items-start gap-4 p-4" onClick={() => handleContinueDraft(draft)}>
-                          <div className="relative flex-shrink-0 w-36 h-36 overflow-hidden rounded-lg bg-gray-100 flex items-center justify-center">
-                            <Camera className="w-12 h-12 text-gray-400" />
+                          {/* Thumbnail Image */}
+                          <div className="relative flex-shrink-0 w-36 h-36 overflow-hidden rounded-lg bg-gray-100">
+                            {draft.mainImage ? (
+                              <img 
+                                src={draft.mainImage} 
+                                alt={draft.title || 'Draft'} 
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  e.target.style.display = 'none';
+                                  e.target.nextSibling.style.display = 'flex';
+                                }}
+                              />
+                            ) : null}
+                            <div className={`absolute inset-0 flex items-center justify-center ${draft.mainImage ? 'hidden' : ''}`}>
+                              <Camera className="w-10 h-10 text-gray-400" />
+                            </div>
                           </div>
-                          <div className="flex-1">
-                            <h3 className="font-heading text-lg font-semibold text-foreground">{draft.title || 'Untitled Draft'}</h3>
-                            <p className="font-body text-muted-foreground">{draft.location || 'No location'}</p>
-                            <span className="text-sm text-muted-foreground">{draft.category}</span>
-                            <div className="flex gap-2 mt-2">
-                              <button className="btn-primary px-3 py-1 text-sm" onClick={e => {e.stopPropagation(); handleContinueDraft(draft);}}>Continue</button>
-                              <button className="btn-outline px-3 py-1 text-sm" onClick={e => {e.stopPropagation(); handleDeleteDraft(draft.id);}}>Delete</button>
+                          
+                          <div className="flex-1 min-w-0">
+                            {/* Listing Title */}
+                            <h3 className="font-heading text-lg font-semibold text-foreground mb-1 line-clamp-1">
+                              {draft.title || 'Untitled Draft'}
+                            </h3>
+                            
+                            {/* Location (City, Area) */}
+                            <p className="font-body text-sm text-muted-foreground flex items-center gap-1 mb-2">
+                              <MapPin className="w-4 h-4 flex-shrink-0" /> 
+                              <span className="truncate">
+                                {draft.locationCity && draft.locationArea 
+                                  ? `${draft.locationCity}, ${draft.locationArea}`
+                                  : draft.location || 'No location'}
+                              </span>
+                            </p>
+                            
+                            {/* Listing Type / Category */}
+                            {(draft.privacyType || draft.propertyStructure) && (
+                              <div className="mb-2">
+                                <span className="inline-block px-2 py-0.5 text-xs font-medium bg-primary/10 text-primary rounded">
+                                  {draft.privacyType && draft.propertyStructure
+                                    ? `${draft.privacyType} in ${draft.propertyStructure}`
+                                    : draft.privacyType || draft.propertyStructure}
+                                </span>
+                              </div>
+                            )}
+                            
+                            {/* Progress Status / Completion Bar */}
+                            <div className="mb-2">
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="text-xs font-medium text-muted-foreground">Progress</span>
+                                <span className="text-xs font-semibold text-foreground">{draft.progress || 0}%</span>
+                              </div>
+                              <div className="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                                <div 
+                                  className="h-full bg-primary transition-all duration-300 rounded-full"
+                                  style={{ width: `${draft.progress || 0}%` }}
+                                />
+                              </div>
+                            </div>
+                            
+                            {/* Last Edited Date */}
+                            <div className="flex items-center gap-1 mb-3 text-xs text-muted-foreground">
+                              <Clock className="w-3 h-3" />
+                              <span>Last edited {draft.lastModifiedFormatted || 'Unknown'}</span>
+                          </div>
+                            
+                            {/* Action Buttons */}
+                            <div className="flex gap-2 pt-2 border-t border-gray-100">
+                              <button 
+                                className="btn-primary px-3 py-1.5 text-sm font-medium" 
+                                onClick={e => {e.stopPropagation(); handleContinueDraft(draft);}}
+                              >
+                                Continue
+                              </button>
+                              <button 
+                                className="btn-outline px-3 py-1.5 text-sm font-medium" 
+                                onClick={e => {e.stopPropagation(); handleDeleteDraft(draft.id);}}
+                              >
+                                Delete
+                              </button>
                             </div>
                           </div>
                         </div>

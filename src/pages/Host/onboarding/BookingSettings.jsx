@@ -3,7 +3,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { Calendar, Zap } from 'lucide-react';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
 import { useSaveAndExitWithContext } from './hooks/useSaveAndExit';
-import { auth } from '@/lib/firebase';
+import { auth, db } from '@/lib/firebase';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import OnboardingHeader from './components/OnboardingHeader';
 import OnboardingFooter from './components/OnboardingFooter';
 
@@ -96,6 +97,99 @@ const BookingSettings = () => {
     updateBookingSettingsContext(optionId);
   };
 
+  // Helper function to ensure we have a valid draftId and save bookingSettings to Firebase
+  const ensureDraftAndSave = async (bookingSettingsData, targetRoute = '/pages/guestselection') => {
+    let draftIdToUse = state?.draftId || location.state?.draftId;
+    
+    // If draftId is temp, reset it to find/create a real one
+    if (draftIdToUse && draftIdToUse.startsWith('temp_')) {
+      console.log('📍 BookingSettings: Found temp ID, resetting to find/create real draft');
+      draftIdToUse = null;
+    }
+    
+    // If user is authenticated, ensure we have a draft
+    if (!draftIdToUse && state.user?.uid) {
+      try {
+        const { getUserDrafts, saveDraft } = await import('@/pages/Host/services/draftService');
+        const drafts = await getUserDrafts();
+        
+        if (drafts.length > 0) {
+          // Use the most recent draft
+          draftIdToUse = drafts[0].id;
+          console.log('📍 BookingSettings: Using existing draft:', draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        } else {
+          // No drafts exist, create a new one
+          console.log('📍 BookingSettings: No existing drafts, creating new draft');
+          const nextStep = targetRoute === '/pages/guestselection' ? 'guestselection' : 'bookingsettings';
+          const newDraftData = {
+            currentStep: nextStep,
+            category: state.category || 'accommodation',
+            data: {
+              bookingSettings: bookingSettingsData
+            }
+          };
+          draftIdToUse = await saveDraft(newDraftData, null);
+          console.log('📍 BookingSettings: ✅ Created new draft:', draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        }
+      } catch (error) {
+        console.error('📍 BookingSettings: Error finding/creating draft:', error);
+        throw error;
+      }
+    }
+    
+    // Save to Firebase if we have a valid draftId
+    if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
+      try {
+        const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
+        const docSnap = await getDoc(draftRef);
+        
+        if (docSnap.exists()) {
+          // Update existing document - save bookingSettings under data.bookingSettings and currentStep
+          const nextStep = targetRoute === '/pages/guestselection' ? 'guestselection' : 'bookingsettings';
+          await updateDoc(draftRef, {
+            'data.bookingSettings': bookingSettingsData,
+            currentStep: nextStep,
+            lastModified: new Date()
+          });
+          console.log('📍 BookingSettings: ✅ Saved bookingSettings to data.bookingSettings and currentStep to Firebase:', draftIdToUse, '- bookingSettings:', bookingSettingsData, ', currentStep:', nextStep);
+        } else {
+          // Document doesn't exist, create it
+          console.log('📍 BookingSettings: Document not found, creating new one');
+          const { saveDraft } = await import('@/pages/Host/services/draftService');
+          const nextStep = targetRoute === '/pages/guestselection' ? 'guestselection' : 'bookingsettings';
+          const newDraftData = {
+            currentStep: nextStep,
+            category: state.category || 'accommodation',
+            data: {
+              bookingSettings: bookingSettingsData
+            }
+          };
+          draftIdToUse = await saveDraft(newDraftData, draftIdToUse);
+          console.log('📍 BookingSettings: ✅ Created new draft with bookingSettings:', draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        }
+        return draftIdToUse;
+      } catch (error) {
+        console.error('📍 BookingSettings: ❌ Error saving to Firebase:', error);
+        throw error;
+      }
+    } else if (state.user?.uid) {
+      console.warn('📍 BookingSettings: ⚠️ User authenticated but no valid draftId after ensureDraftAndSave');
+      throw new Error('Failed to create draft for authenticated user');
+    } else {
+      console.warn('📍 BookingSettings: ⚠️ User not authenticated, cannot save to Firebase');
+      return null;
+    }
+  };
+
   // Custom Save & Exit handler
   const handleSaveAndExitClick = async () => {
     console.log('BookingSettings Save & Exit clicked');
@@ -119,31 +213,23 @@ const BookingSettings = () => {
       // Ensure booking settings are updated in context
       updateBookingSettingsContext(selectedOption);
       
-      // Override the saveDraft to ensure currentStep and booking settings are saved correctly
-      if (actions.saveDraft) {
-        console.log('BookingSettings: Calling custom saveDraft with forced currentStep and booking settings');
-        
-        // Create modified state data with forced currentStep and booking settings
-        const { user: contextUser, isLoading, ...dataToSave } = state;
-        dataToSave.currentStep = 'bookingsettings'; // Force the currentStep
-        dataToSave.bookingSettings = selectedOption; // Save the current booking settings
-        
-        console.log('BookingSettings: Data to save with forced currentStep and booking settings:', dataToSave);
-        
-        // Use context saveDraft to ensure only one draft per session
-        const draftId = await actions.saveDraft();
-        
-        // Navigate to dashboard
-        navigate('/host/hostdashboard', { 
-          state: { 
-            message: 'Draft saved successfully!',
-            draftSaved: true 
-          }
-        });
-      } else {
-        // Fallback to normal save
-        await handleSaveAndExit();
+      // Save bookingSettings to Firebase under data.bookingSettings
+      let draftIdToUse;
+      try {
+        draftIdToUse = await ensureDraftAndSave(selectedOption, '/pages/bookingsettings');
+        console.log('📍 BookingSettings: ✅ Saved bookingSettings to Firebase on Save & Exit');
+      } catch (saveError) {
+        console.error('📍 BookingSettings: Error saving to Firebase on Save & Exit:', saveError);
+        // Continue with save & exit even if Firebase save fails
       }
+      
+      // Navigate to dashboard
+      navigate('/host/hostdashboard', { 
+        state: { 
+          message: 'Draft saved successfully!',
+          draftSaved: true 
+        }
+      });
       
     } catch (error) {
       console.error('Error in BookingSettings save:', error);
@@ -215,15 +301,39 @@ const BookingSettings = () => {
       {/* Footer */}
       <OnboardingFooter
         onBack={() => navigate('/pages/finishsetup')}
-        onNext={() => {
+        onNext={async () => {
           if (canProceed) {
-            updateBookingSettingsContext(selectedOption);
-            navigate('/pages/guestselection', { 
-              state: { 
-                ...location.state,
-                bookingSettings: selectedOption
-              } 
-            });
+            try {
+              // Update context first
+              updateBookingSettingsContext(selectedOption);
+              
+              // Save bookingSettings to Firebase
+              let draftIdToUse;
+              try {
+                draftIdToUse = await ensureDraftAndSave(selectedOption, '/pages/guestselection');
+                console.log('📍 BookingSettings: ✅ Saved bookingSettings to Firebase on Next click');
+              } catch (saveError) {
+                console.error('📍 BookingSettings: Error saving to Firebase on Next:', saveError);
+                // Continue navigation even if save fails - data is in context
+              }
+              
+              // Update current step in context
+              if (actions.setCurrentStep) {
+                actions.setCurrentStep('guestselection');
+              }
+              
+              // Navigate to guest selection page
+              navigate('/pages/guestselection', { 
+                state: { 
+                  ...location.state,
+                  bookingSettings: selectedOption,
+                  draftId: draftIdToUse || state?.draftId || location.state?.draftId
+                } 
+              });
+            } catch (error) {
+              console.error('Error saving booking settings:', error);
+              alert('Error saving progress. Please try again.');
+            }
           }
         }}
         backText="Back"

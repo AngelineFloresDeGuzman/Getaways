@@ -1,8 +1,10 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Upload, X, Camera, Trash2 } from 'lucide-react';
+import { Upload, X, Camera, Trash2, Plus, Images, MoreHorizontal, GripVertical } from 'lucide-react';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
 import { useSaveAndExitWithContext } from './hooks/useSaveAndExit.js';
+import { db } from '@/lib/firebase';
+import { doc, updateDoc, getDoc } from 'firebase/firestore';
 import OnboardingHeader from './components/OnboardingHeader';
 import OnboardingFooter from './components/OnboardingFooter';
 
@@ -15,33 +17,189 @@ const Photos = () => {
   const { handleSaveAndExit } = useSaveAndExitWithContext(actions);
   const fileInputRef = useRef(null);
   const draftLoaded = useRef(false);
+  const [propertyStructure, setPropertyStructure] = useState(() => {
+    // Initialize from context if available
+    if (state.propertyStructure) {
+      console.log('📍 Photos: Initializing propertyStructure from context:', state.propertyStructure);
+      return state.propertyStructure.toLowerCase();
+    }
+    return null;
+  });
   
-  // Get property type from navigation state, default to 'house'
-  const propertyType = location.state?.propertyType?.toLowerCase() || 
-                      location.state?.selectedType?.toLowerCase() ||
-                      'house'; // Better default than 'place'
+  // Load propertyStructure - ALWAYS try to load from Firebase
+  // Try multiple times: on mount, when draftId becomes available, and when navigating
+  useEffect(() => {
+    const loadPropertyStructure = async () => {
+      console.log('📍 Photos: loadPropertyStructure effect triggered');
+      console.log('📍 Photos: state.propertyStructure:', state.propertyStructure);
+      console.log('📍 Photos: propertyStructure state:', propertyStructure);
+      console.log('📍 Photos: state?.draftId:', state?.draftId);
+      console.log('📍 Photos: location.state?.draftId:', location.state?.draftId);
+      
+      let draftIdToUse = state?.draftId || location.state?.draftId;
+      
+      // If no draftId yet, try to get it from user's drafts
+      if (!draftIdToUse && state.user?.uid) {
+        try {
+          const { getUserDrafts } = await import('@/pages/Host/services/draftService');
+          const drafts = await getUserDrafts();
+          if (drafts.length > 0) {
+            draftIdToUse = drafts[0].id;
+            console.log('📍 Photos: Found draftId from getUserDrafts:', draftIdToUse);
+            // Also update context draftId if it's not set
+            if (!state.draftId && actions.setDraftId) {
+              actions.setDraftId(draftIdToUse);
+            }
+          }
+        } catch (error) {
+          console.error('📍 Photos: Error getting user drafts:', error);
+        }
+      }
+      
+      console.log('📍 Photos: draftIdToUse (final):', draftIdToUse);
+      
+      // ALWAYS try loading from Firebase if we have a draftId (most reliable)
+      if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
+        try {
+          console.log('📍 Photos: Loading propertyStructure from Firebase with draftId:', draftIdToUse);
+          const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
+          const docSnap = await getDoc(draftRef);
+          
+          if (docSnap.exists()) {
+            const draftData = docSnap.data();
+            console.log('📍 Photos: Draft data exists');
+            console.log('📍 Photos: draftData.data:', draftData.data);
+            console.log('📍 Photos: draftData.data?.propertyStructure:', draftData.data?.propertyStructure);
+            
+            // Check nested data first (where PropertyStructure saves it), then top-level
+            const structure = draftData.data?.propertyStructure || draftData.propertyStructure;
+            console.log('📍 Photos: Found structure in Firebase:', structure);
+            
+            if (structure) {
+              const structureLower = structure.toLowerCase();
+              console.log('📍 Photos: ✅ Setting propertyStructure to:', structureLower);
+              setPropertyStructure(structureLower);
+              
+              // Also update context if it's not set there yet or is different
+              if (!state.propertyStructure || state.propertyStructure.toLowerCase() !== structureLower) {
+                console.log('📍 Photos: Updating context with propertyStructure:', structure);
+                if (actions.updatePropertyStructure) {
+                  actions.updatePropertyStructure(structure);
+                }
+              }
+              return; // Exit early if we found it in Firebase
+            } else {
+              console.log('📍 Photos: ⚠️ No propertyStructure found in Firebase draft');
+              console.log('📍 Photos: Available keys in data:', draftData.data ? Object.keys(draftData.data) : 'no data object');
+              console.log('📍 Photos: Full draftData keys:', Object.keys(draftData));
+            }
+          } else {
+            console.log('📍 Photos: ⚠️ Draft document does not exist for draftId:', draftIdToUse);
+          }
+        } catch (error) {
+          console.error('📍 Photos: ❌ Error loading propertyStructure from Firebase:', error);
+          console.error('📍 Photos: Error details:', error.message, error.stack);
+        }
+      } else {
+        console.log('📍 Photos: ⚠️ No valid draftId available - draftIdToUse:', draftIdToUse);
+        console.log('📍 Photos: User authenticated:', !!state.user);
+        console.log('📍 Photos: User UID:', state.user?.uid);
+      }
+      
+      // Fallback: check context state if Firebase didn't have it
+      if (state.propertyStructure && !propertyStructure) {
+        const structure = state.propertyStructure.toLowerCase();
+        console.log('📍 Photos: Using propertyStructure from context (fallback):', structure);
+        setPropertyStructure(structure);
+      }
+    };
+    
+    loadPropertyStructure();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state?.draftId, location.state?.draftId, state.user?.uid, location.pathname]);
+  
+  // Compute property type reactively - ONLY use propertyStructure (not propertyType)
+  // propertyStructure comes from PropertyStructure page and is what should be displayed
+  const propertyType = useMemo(() => {
+    console.log('📍 Photos useMemo: RECOMPUTING propertyType');
+    console.log('📍 Photos useMemo: propertyStructure state:', propertyStructure);
+    console.log('📍 Photos useMemo: state.propertyStructure:', state.propertyStructure);
+    
+    // Use local state first (most up-to-date)
+    if (propertyStructure) {
+      console.log('📍 Photos useMemo: ✅ Using propertyStructure state:', propertyStructure);
+      return propertyStructure;
+    }
+    
+    // Fallback to context
+    if (state.propertyStructure) {
+      const structure = state.propertyStructure.toLowerCase();
+      console.log('📍 Photos useMemo: ✅ Using propertyStructure from context:', structure);
+      return structure;
+    }
+    
+    console.log('📍 Photos useMemo: ⚠️ Using default "house" - propertyStructure not found!');
+    console.log('📍 Photos useMemo: Debug info - propertyStructure:', propertyStructure, 'state.propertyStructure:', state.propertyStructure);
+    return 'house'; // Default fallback
+  }, [
+    propertyStructure, 
+    state.propertyStructure,
+    state?.draftId,
+    location.state?.draftId
+  ]);
   
   // Debug: Log the location state and property type
-  console.log('Photos - location.state:', location.state);
-  console.log('Photos - propertyType:', propertyType);
+  console.log('📍 Photos RENDER - location.state:', location.state);
+  console.log('📍 Photos RENDER - propertyType:', propertyType);
+  console.log('📍 Photos RENDER - propertyStructure state:', propertyStructure);
+  console.log('📍 Photos RENDER - propertyStructure from context:', state.propertyStructure);
   
-  const [uploadedPhotos, setUploadedPhotos] = useState(state.photos || []);
+  // Initialize with photos from state, location state, or empty array
+  const getInitialPhotos = () => {
+    // First check if photos come from navigation state
+    if (location.state?.photos && location.state.photos.length > 0) {
+      return location.state.photos;
+    }
+    // Then check context state
+    if (state.photos && state.photos.length > 0) {
+      return state.photos.map(photo => ({
+        id: photo.id,
+        name: photo.name,
+        url: photo.base64 || photo.url,
+        base64: photo.base64
+      }));
+    }
+    return [];
+  };
+  
+  const [uploadedPhotos, setUploadedPhotos] = useState(getInitialPhotos());
   const [isDragging, setIsDragging] = useState(false);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [pendingPhotos, setPendingPhotos] = useState([]);
+  const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0);
+  const [draggedIndex, setDraggedIndex] = useState(null);
+  const [openMenuIndex, setOpenMenuIndex] = useState(null);
 
   // Load draft data when navigating from "Continue Editing"
   useEffect(() => {
     const loadDraftData = async () => {
       // Only load draft if user is authenticated and we have a draftId
       if (location.state?.draftId && !draftLoaded.current && actions.loadDraft && state.user) {
-        console.log('Photos - Loading draft with ID:', location.state.draftId);
+        console.log('📍 Photos - Loading draft with ID:', location.state.draftId);
         try {
           await actions.loadDraft(location.state.draftId);
           draftLoaded.current = true;
-          console.log('Photos - Draft loaded successfully');
+          console.log('📍 Photos - Draft loaded successfully');
+          console.log('📍 Photos - After draft load, state.propertyStructure:', state.propertyStructure);
+          
+          // After draft loads, propertyStructure should be in context, so set it
+          if (state.propertyStructure) {
+            const structure = state.propertyStructure.toLowerCase();
+            console.log('📍 Photos - Setting propertyStructure after draft load:', structure);
+            setPropertyStructure(structure);
+          }
         } catch (error) {
-          console.error('Photos - Error loading draft:', error);
+          console.error('📍 Photos - Error loading draft:', error);
         }
       }
     };
@@ -49,6 +207,19 @@ const Photos = () => {
     loadDraftData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state?.draftId]); // Only run when draftId changes
+  
+  // Also watch for propertyStructure changes in context (in case it loads after initial render)
+  useEffect(() => {
+    if (state.propertyStructure) {
+      const structure = state.propertyStructure.toLowerCase();
+      // Only update if it's different or not set yet
+      if (!propertyStructure || propertyStructure !== structure) {
+        console.log('📍 Photos - propertyStructure changed in context, updating:', structure);
+        setPropertyStructure(structure);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.propertyStructure]);
 
   // Set current step when component mounts or route changes
   useEffect(() => {
@@ -59,23 +230,11 @@ const Photos = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]); // Run when route changes
 
-  // Sync with context photos when navigating back
-  // Use photo count instead of full array to avoid re-render loop
+  // Sync photos from context when navigating back or when state changes
+  // This ensures photos are displayed when coming back from TitleDescription or other pages
   useEffect(() => {
-    if (state.photos && state.photos.length > 0 && uploadedPhotos.length === 0 && !location.state?.draftId) {
-      console.log('Syncing photos from context on navigation back:', state.photos.length);
-      setUploadedPhotos(state.photos);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.photos?.length, location.state?.draftId]); // Use length to avoid constant re-renders
-
-  // Update uploadedPhotos when state changes (after loading draft)
-  // Only load from context when draft is loaded, not when we update photos locally
-  useEffect(() => {
-    if (!draftLoaded.current) return; // Only run after draft is loaded
-    
-    if (state.photos && state.photos.length > 0 && uploadedPhotos.length === 0) {
-      // Only load from context if we don't already have photos
+    // If we have photos in state, always sync to ensure they're displayed
+    if (state.photos && state.photos.length > 0) {
       // Convert base64 photos back to display format
       const displayPhotos = state.photos.map(photo => ({
         id: photo.id,
@@ -84,15 +243,68 @@ const Photos = () => {
         base64: photo.base64 // Keep base64 for saving
         // Note: No file object when loaded from draft
       }));
-      console.log('Loading photos from draft:', displayPhotos);
+      
+      // Always update if count differs or if we don't have photos
+      // This ensures photos show when navigating back
+      if (uploadedPhotos.length !== displayPhotos.length || uploadedPhotos.length === 0) {
+        console.log('📍 Photos: Syncing photos from context on navigation back:', displayPhotos.length);
       setUploadedPhotos(displayPhotos);
-    } else if (state.photoSummary && (!state.photos || state.photos.length === 0)) {
-      // Fallback: If we only have photo summary, show message
-      console.log('Draft loaded with photo summary only:', state.photoSummary);
-      setUploadedPhotos([]);
+      } else {
+        // Even if count matches, verify each photo ID matches
+        const idsMatch = uploadedPhotos.every((photo, index) => 
+          displayPhotos[index] && photo.id === displayPhotos[index].id
+        );
+        if (!idsMatch) {
+          console.log('📍 Photos: Photo IDs changed, updating photos');
+          setUploadedPhotos(displayPhotos);
+        }
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.state?.draftId]); // Only run when draftId changes
+  }, [state.photos?.length, location.pathname, location.key]); // Run when photos count changes, route changes, or navigation key changes
+
+  // Load photos from Firebase draft when draftId is present
+  useEffect(() => {
+    const loadPhotosFromDraft = async () => {
+      const draftIdToUse = state?.draftId || location.state?.draftId;
+      
+      // If we have a draftId and no photos loaded yet, try to load from Firebase
+      if (draftIdToUse && !draftIdToUse.startsWith('temp_') && uploadedPhotos.length === 0) {
+        try {
+          const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
+          const docSnap = await getDoc(draftRef);
+          
+          if (docSnap.exists()) {
+            const draftData = docSnap.data();
+            const photosFromDraft = draftData.data?.photos || [];
+            
+            if (photosFromDraft.length > 0) {
+              // Convert base64 photos to display format
+              const displayPhotos = photosFromDraft.map(photo => ({
+                id: photo.id,
+                name: photo.name,
+                url: photo.base64 || photo.url,
+                base64: photo.base64
+              }));
+              
+              console.log('📍 Photos: Loaded photos from Firebase draft:', displayPhotos.length);
+              setUploadedPhotos(displayPhotos);
+              
+              // Also update context
+              if (actions.updatePhotos) {
+                actions.updatePhotos(displayPhotos);
+              }
+            }
+          }
+        } catch (error) {
+          console.error('📍 Photos: Error loading photos from Firebase draft:', error);
+        }
+      }
+    };
+    
+    loadPhotosFromDraft();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state?.draftId, location.state?.draftId, location.pathname]); // Run when draftId changes or route changes
 
   // Helper to convert File to base64 for storage
   const fileToBase64 = (file) => {
@@ -147,6 +359,12 @@ const Photos = () => {
     }
   };
 
+  // Open the upload modal
+  const handleOpenUploadModal = () => {
+    setShowPreviewModal(true);
+    setPendingPhotos([]); // Start with empty pending photos
+  };
+
   // Handle confirming the pending photos
   const handleConfirmPhotos = async () => {
     const updatedPhotos = [...uploadedPhotos, ...pendingPhotos];
@@ -154,18 +372,10 @@ const Photos = () => {
     setShowPreviewModal(false);
     setPendingPhotos([]);
     
-    // Update current step to photospreview since we're navigating there
+    // Update current step but stay on photos page (no navigation)
     if (actions.setCurrentStep) {
-      await actions.setCurrentStep('photospreview');
+      await actions.setCurrentStep('photos');
     }
-    
-    // Auto-navigate to preview page after uploading photos
-    navigate('/pages/photospreview', {
-      state: {
-        ...location.state,
-        photos: updatedPhotos
-      }
-    });
   };
 
   // Handle canceling the pending photos
@@ -176,21 +386,142 @@ const Photos = () => {
     setShowPreviewModal(false);
   };
 
+  // Helper function to ensure we have a valid draftId and save photos to Firebase
+  const ensureDraftAndSave = async (photosData, targetRoute = '/pages/titledescription') => {
+    let draftIdToUse = state?.draftId || location.state?.draftId;
+    
+    // Convert photos to base64 if needed
+    let photosToSave = [];
+    if (photosData.length > 0) {
+      try {
+        photosToSave = await Promise.all(
+          photosData.map(async (photo) => ({
+            id: photo.id,
+            name: photo.name,
+            base64: photo.base64 || (photo.file ? await fileToBase64(photo.file) : photo.url)
+          }))
+        );
+      } catch (error) {
+        console.error('📍 Photos: Error converting photos to base64:', error);
+        // Fallback to summary if conversion fails
+        photosToSave = photosData.map(photo => ({
+          id: photo.id,
+          name: photo.name,
+          url: photo.url
+        }));
+      }
+    }
+    
+    // If draftId is temp, reset it to find/create a real one
+    if (draftIdToUse && draftIdToUse.startsWith('temp_')) {
+      console.log('📍 Photos: Found temp ID, resetting to find/create real draft');
+      draftIdToUse = null;
+    }
+    
+    // If user is authenticated, ensure we have a draft
+    if (!draftIdToUse && state.user?.uid) {
+      try {
+        const { getUserDrafts, saveDraft } = await import('@/pages/Host/services/draftService');
+        const drafts = await getUserDrafts();
+        
+        if (drafts.length > 0) {
+          // Use the most recent draft
+          draftIdToUse = drafts[0].id;
+          console.log('📍 Photos: Using existing draft:', draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        } else {
+          // No drafts exist, create a new one
+          console.log('📍 Photos: No existing drafts, creating new draft');
+          const nextStep = targetRoute === '/pages/titledescription' ? 'titledescription' : 'photos';
+          const newDraftData = {
+            currentStep: nextStep,
+            category: state.category || 'accommodation',
+            data: {
+              photos: photosToSave
+            }
+          };
+          draftIdToUse = await saveDraft(newDraftData, null);
+          console.log('📍 Photos: ✅ Created new draft:', draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        }
+      } catch (error) {
+        console.error('📍 Photos: Error finding/creating draft:', error);
+        throw error;
+      }
+    }
+    
+    // Save to Firebase if we have a valid draftId
+    if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
+      try {
+        const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
+        const docSnap = await getDoc(draftRef);
+        
+        if (docSnap.exists()) {
+          // Update existing document - save photos and currentStep
+          const nextStep = targetRoute === '/pages/titledescription' ? 'titledescription' : 'photos';
+          await updateDoc(draftRef, {
+            'data.photos': photosToSave,
+            currentStep: nextStep,
+            lastModified: new Date()
+          });
+          console.log('📍 Photos: ✅ Saved photos and currentStep to Firebase:', draftIdToUse, '-', photosToSave.length, 'photos, currentStep:', nextStep);
+        } else {
+          // Document doesn't exist, create it
+          console.log('📍 Photos: Document not found, creating new one');
+          const { saveDraft } = await import('@/pages/Host/services/draftService');
+          const newDraftData = {
+            currentStep: targetRoute === '/pages/titledescription' ? 'titledescription' : 'photos',
+            category: state.category || 'accommodation',
+            data: {
+              photos: photosToSave
+            }
+          };
+          draftIdToUse = await saveDraft(newDraftData, draftIdToUse);
+          console.log('📍 Photos: ✅ Created new draft with photos:', draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        }
+        return draftIdToUse;
+      } catch (error) {
+        console.error('📍 Photos: ❌ Error saving to Firebase:', error);
+        throw error;
+      }
+    } else if (state.user?.uid) {
+      console.warn('📍 Photos: ⚠️ User authenticated but no valid draftId after ensureDraftAndSave');
+      throw new Error('Failed to create draft for authenticated user');
+    } else {
+      console.warn('📍 Photos: ⚠️ User not authenticated, cannot save to Firebase');
+      return null;
+    }
+  };
+
   // Save photos and navigate
   const saveAndNavigate = async (route, additionalState = {}) => {
     try {
-      // Save current photos to context
+      // Save current photos to context first
       if (actions.updatePhotos) {
         await actions.updatePhotos(uploadedPhotos);
       }
       
+      // Save photos to Firebase
+      let draftIdToUse;
+      try {
+        draftIdToUse = await ensureDraftAndSave(uploadedPhotos, route);
+        console.log('📍 Photos: ✅ Saved photos to Firebase on Next click');
+      } catch (saveError) {
+        console.error('📍 Photos: Error saving to Firebase on Next:', saveError);
+        // Continue navigation even if save fails - data is in context
+      }
+      
       // Update current step in context based on route
       if (actions.setCurrentStep) {
-        if (route === '/pages/photospreview') {
-          await actions.setCurrentStep('photospreview');
-        } else {
-          await actions.setCurrentStep('photos');
-        }
+        const nextStep = route === '/pages/titledescription' ? 'titledescription' : 'photos';
+        actions.setCurrentStep(nextStep);
       }
       
       console.log('Photos saved successfully:', uploadedPhotos.length);
@@ -200,6 +531,7 @@ const Photos = () => {
         state: {
           ...location.state,
           photos: uploadedPhotos,
+          draftId: draftIdToUse || state?.draftId || location.state?.draftId,
           ...additionalState
         }
       });
@@ -257,12 +589,106 @@ const Photos = () => {
   const removePhoto = async (photoId) => {
     const updatedPhotos = uploadedPhotos.filter(photo => photo.id !== photoId);
     await updatePhotos(updatedPhotos);
+    // Adjust selected index if needed
+    if (selectedPhotoIndex >= updatedPhotos.length) {
+      setSelectedPhotoIndex(Math.max(0, updatedPhotos.length - 1));
+    }
+    setOpenMenuIndex(null);
   };
 
   // Open file picker
   const openFilePicker = () => {
     fileInputRef.current?.click();
   };
+
+  // Drag and drop for reordering photos
+  const handleDragStart = (e, index) => {
+    setDraggedIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOverReorder = (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleDropReorder = (e, dropIndex) => {
+    e.preventDefault();
+    if (draggedIndex === null) return;
+
+    const updatedPhotos = [...uploadedPhotos];
+    const draggedPhoto = updatedPhotos[draggedIndex];
+
+    // Remove the dragged photo from its original position
+    updatedPhotos.splice(draggedIndex, 1);
+
+    // Insert it at the new position
+    updatedPhotos.splice(dropIndex, 0, draggedPhoto);
+
+    setUploadedPhotos(updatedPhotos);
+    setDraggedIndex(null);
+    // Update context
+    updatePhotos(updatedPhotos);
+  };
+
+  // Move photo functions
+  const movePhoto = (fromIndex, toIndex) => {
+    const updatedPhotos = [...uploadedPhotos];
+    const photoToMove = updatedPhotos[fromIndex];
+
+    updatedPhotos.splice(fromIndex, 1);
+    updatedPhotos.splice(toIndex, 0, photoToMove);
+
+    setUploadedPhotos(updatedPhotos);
+    updatePhotos(updatedPhotos);
+    setOpenMenuIndex(null);
+  };
+
+  const movePhotoBackward = (index) => {
+    if (index > 0) {
+      movePhoto(index, index - 1);
+    }
+    setOpenMenuIndex(null);
+  };
+
+  const movePhotoForward = (index) => {
+    if (index < uploadedPhotos.length - 1) {
+      movePhoto(index, index + 1);
+    }
+    setOpenMenuIndex(null);
+  };
+
+  const makeCoverPhoto = (index) => {
+    if (index !== 0) {
+      movePhoto(index, 0);
+    }
+    setOpenMenuIndex(null);
+  };
+
+  // Menu toggle
+  const handleMenuToggle = (index) => {
+    setOpenMenuIndex(openMenuIndex === index ? null : index);
+  };
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (openMenuIndex !== null) {
+        const clickedElement = event.target;
+        const isMenuButton = clickedElement.closest('[data-menu-button]');
+        const isDropdownMenu = clickedElement.closest('[data-dropdown-menu]');
+
+        if (!isMenuButton && !isDropdownMenu) {
+          setOpenMenuIndex(null);
+        }
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [openMenuIndex]);
 
   const canProceed = uploadedPhotos.length >= 5;
 
@@ -280,45 +706,23 @@ const Photos = () => {
       
       // Ensure photos are updated in context
       if (actions.updatePhotos) {
-        actions.updatePhotos(uploadedPhotos);
+        await actions.updatePhotos(uploadedPhotos);
       }
       
-      // Override the saveDraft to ensure currentStep and photos are saved correctly
-      if (actions.saveDraft) {
-        console.log('Photos: Calling custom saveDraft with forced currentStep and photos');
-        
-        // Convert current photos to base64 if they haven't been converted yet
-        let photosToSave = [];
-        if (uploadedPhotos.length > 0) {
-          try {
-            photosToSave = await Promise.all(
-              uploadedPhotos.map(async (photo) => ({
-                id: photo.id,
-                name: photo.name,
-                base64: photo.base64 || (photo.file ? await fileToBase64(photo.file) : photo.url)
-              }))
-            );
-          } catch (error) {
-            console.error('Error converting photos for save:', error);
-            // Fallback to summary if conversion fails
-            photosToSave = uploadedPhotos.map(photo => ({
-              id: photo.id,
-              name: photo.name,
-              url: photo.url
-            }));
-          }
-        }
-        
-        // Create modified state data with forced currentStep and photos
-        const { user, isLoading, ...dataToSave } = state;
-        dataToSave.currentStep = 'photos'; // Force the currentStep
-        dataToSave.photos = photosToSave; // Save photos with base64 data
-        dataToSave.photoCount = uploadedPhotos.length; // Also save count for quick reference
-        
-        console.log('Photos: Data to save with forced currentStep and photos:', dataToSave);
-        
-        // Use context saveDraft to ensure only one draft per session
-        const draftId = await actions.saveDraft();
+      // Save photos to Firebase
+      let draftIdToUse;
+      try {
+        draftIdToUse = await ensureDraftAndSave(uploadedPhotos, '/pages/photos');
+        console.log('📍 Photos: ✅ Saved photos to Firebase on Save & Exit');
+      } catch (saveError) {
+        console.error('📍 Photos: Error saving to Firebase on Save & Exit:', saveError);
+        // Continue with save & exit even if Firebase save fails
+      }
+      
+      // Update current step before navigating
+      if (actions.setCurrentStep) {
+        actions.setCurrentStep('photos');
+      }
         
         // Navigate to dashboard
         navigate('/host/hostdashboard', { 
@@ -327,10 +731,6 @@ const Photos = () => {
             draftSaved: true 
           }
         });
-      } else {
-        // Fallback to normal save
-        await handleSaveAndExit();
-      }
       
     } catch (error) {
       console.error('Error in Photos save:', error);
@@ -344,6 +744,413 @@ const Photos = () => {
 
       {/* Main Content */}
       <main className="pt-20 px-8 pb-32">
+        {uploadedPhotos.length > 0 ? (
+          /* Preview Layout - Show only the grid when photos are uploaded */
+          <div className="max-w-6xl mx-auto">
+              {/* Title */}
+              <div className="flex items-center justify-between mb-8">
+                <div>
+                  <h1 className="text-3xl font-medium text-gray-900 mb-2">
+                    Ta-da! How does this look?
+                  </h1>
+                  <p className="text-gray-600">
+                    Drag to reorder
+                  </p>
+                </div>
+                <button
+                  onClick={handleOpenUploadModal}
+                  className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                  title="Add more photos"
+                >
+                  <Plus className="w-6 h-6 text-gray-600" />
+                </button>
+              </div>
+
+              {/* Photo Grid Layout - Airbnb Style Masonry Grid */}
+              <div>
+                    {/* Cover Photo Row - Cover + 1 Normal Card */}
+                    {uploadedPhotos.length > 0 && (
+                      <div className="grid grid-cols-3 gap-2 mb-2">
+                        {/* Cover Photo - spans 2 columns */}
+                        <div
+                          className="col-span-2 relative group"
+                          draggable={true}
+                          onDragStart={(e) => handleDragStart(e, 0)}
+                          onDragOver={handleDragOverReorder}
+                          onDrop={(e) => handleDropReorder(e, 0)}
+                        >
+                          <div className={`relative rounded-xl overflow-hidden bg-gray-100 cursor-move transition-opacity ${draggedIndex === 0 ? 'opacity-50' : 'opacity-100'}`}>
+                            <div className="aspect-[2/1]">
+                              <img
+                                src={uploadedPhotos[0].url}
+                                alt="Cover photo"
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+
+                            {/* Cover Photo Label */}
+                            <div className="absolute top-3 left-3 bg-black/70 text-white rounded-md px-2 py-1 text-xs font-medium">
+                              Cover Photo
+                            </div>
+
+                            {/* Three Dot Menu */}
+                            <div className="absolute top-3 right-3">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleMenuToggle(0);
+                                }}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                className="p-2 bg-white/90 hover:bg-white text-gray-700 rounded-full shadow-sm transition-colors"
+                                title="More options"
+                                data-menu-button
+                              >
+                                <MoreHorizontal className="w-4 h-4" />
+                              </button>
+
+                              {/* Dropdown Menu */}
+                              {openMenuIndex === 0 && (
+                                <div
+                                  className="absolute top-full right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border py-2 z-20"
+                                  data-dropdown-menu
+                                >
+                                  <button
+                                    onClick={() => {
+                                      console.log('Edit photo clicked for cover photo');
+                                      setOpenMenuIndex(null);
+                                    }}
+                                    className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50"
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    onClick={() => movePhotoBackward(0)}
+                                    disabled={true}
+                                    className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                    Move backward
+                                  </button>
+                                  <button
+                                    onClick={() => movePhotoForward(0)}
+                                    disabled={uploadedPhotos.length === 1}
+                                    className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                    Move forward
+                                  </button>
+                                  <button
+                                    onClick={() => makeCoverPhoto(0)}
+                                    disabled={true}
+                                    className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                    Make cover photo
+                                  </button>
+                                  <hr className="my-1" />
+                                  <button
+                                    onClick={() => removePhoto(uploadedPhotos[0].id)}
+                                    className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50"
+                                  >
+                                    Delete
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* First Normal Card - if available */}
+                        {uploadedPhotos.length > 1 && (
+                          <div
+                            className="relative group"
+                            draggable={true}
+                            onDragStart={(e) => handleDragStart(e, 1)}
+                            onDragOver={handleDragOverReorder}
+                            onDrop={(e) => handleDropReorder(e, 1)}
+                          >
+                            <div className={`relative rounded-md overflow-hidden bg-gray-100 cursor-move transition-opacity ${draggedIndex === 1 ? 'opacity-50' : 'opacity-100'}`}>
+                              <div className="aspect-square">
+                                <img
+                                  src={uploadedPhotos[1].url}
+                                  alt="Photo 2"
+                                  className="w-full h-full object-cover"
+                                />
+                              </div>
+
+                              {/* Drag Handle */}
+                              <div className="absolute top-1.5 left-1.5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                                <GripVertical className="w-3 h-3 text-white/80 bg-black/50 rounded p-0.5" />
+                              </div>
+
+                              {/* Three Dot Menu */}
+                              <div className="absolute top-1.5 right-1.5">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleMenuToggle(1);
+                                  }}
+                                  onMouseDown={(e) => e.stopPropagation()}
+                                  className="p-1.5 bg-white/90 hover:bg-white text-gray-700 rounded-full shadow-sm transition-colors"
+                                  title="More options"
+                                  data-menu-button
+                                >
+                                  <MoreHorizontal className="w-3 h-3" />
+                                </button>
+
+                                {/* Dropdown Menu */}
+                                {openMenuIndex === 1 && (
+                                  <div
+                                    className="absolute top-full right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border py-2 z-20"
+                                    data-dropdown-menu
+                                  >
+                                    <button
+                                      onClick={() => {
+                                        console.log('Edit photo clicked for index:', 1);
+                                        setOpenMenuIndex(null);
+                                      }}
+                                      className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50"
+                                    >
+                                      Edit
+                                    </button>
+                                    <button
+                                      onClick={() => movePhotoBackward(1)}
+                                      disabled={1 === 0}
+                                      className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                      Move backward
+                                    </button>
+                                    <button
+                                      onClick={() => movePhotoForward(1)}
+                                      disabled={1 === uploadedPhotos.length - 1}
+                                      className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                      Move forward
+                                    </button>
+                                    <button
+                                      onClick={() => makeCoverPhoto(1)}
+                                      disabled={1 === 0}
+                                      className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                      Make cover photo
+                                    </button>
+                                    <hr className="my-1" />
+                                    <button
+                                      onClick={() => removePhoto(uploadedPhotos[1].id)}
+                                      className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50"
+                                    >
+                                      Delete
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Grid of Additional Photos (remaining photos) */}
+                    {uploadedPhotos.length > 2 && (
+                      <div className="grid grid-cols-3 gap-2 mb-3">
+                        {uploadedPhotos.slice(2, 8).map((photo, gridIndex) => {
+                          const actualIndex = gridIndex + 2;
+                          return (
+                            <div
+                              key={photo.id}
+                              className="relative group"
+                              draggable={true}
+                              onDragStart={(e) => handleDragStart(e, actualIndex)}
+                              onDragOver={handleDragOverReorder}
+                              onDrop={(e) => handleDropReorder(e, actualIndex)}
+                            >
+                              <div className={`relative rounded-md overflow-hidden bg-gray-100 cursor-move transition-opacity ${draggedIndex === actualIndex ? 'opacity-50' : 'opacity-100'}`}>
+                                <div className="aspect-square">
+                                  <img
+                                    src={photo.url}
+                                    alt={`Photo ${actualIndex + 1}`}
+                                    className="w-full h-full object-cover"
+                                  />
+                                </div>
+
+                                {/* Drag Handle */}
+                                <div className="absolute top-1.5 left-1.5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                                  <GripVertical className="w-3 h-3 text-white/80 bg-black/50 rounded p-0.5" />
+                                </div>
+
+                                {/* Three Dot Menu */}
+                                <div className="absolute top-1.5 right-1.5">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleMenuToggle(actualIndex);
+                                    }}
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    className="p-1.5 bg-white/90 hover:bg-white text-gray-700 rounded-full shadow-sm transition-colors"
+                                    title="More options"
+                                    data-menu-button
+                                  >
+                                    <MoreHorizontal className="w-3 h-3" />
+                                  </button>
+
+                                  {/* Dropdown Menu */}
+                                  {openMenuIndex === actualIndex && (
+                                    <div
+                                      className="absolute top-full right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border py-2 z-20"
+                                      data-dropdown-menu
+                                    >
+                                      <button
+                                        onClick={() => {
+                                          console.log('Edit photo clicked for index:', actualIndex);
+                                          setOpenMenuIndex(null);
+                                        }}
+                                        className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50"
+                                      >
+                                        Edit
+                                      </button>
+                                      <button
+                                        onClick={() => movePhotoBackward(actualIndex)}
+                                        disabled={actualIndex === 0}
+                                        className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                      >
+                                        Move backward
+                                      </button>
+                                      <button
+                                        onClick={() => movePhotoForward(actualIndex)}
+                                        disabled={actualIndex === uploadedPhotos.length - 1}
+                                        className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                      >
+                                        Move forward
+                                      </button>
+                                      <button
+                                        onClick={() => makeCoverPhoto(actualIndex)}
+                                        disabled={actualIndex === 0}
+                                        className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                      >
+                                        Make cover photo
+                                      </button>
+                                      <hr className="my-1" />
+                                      <button
+                                        onClick={() => removePhoto(photo.id)}
+                                        className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50"
+                                      >
+                                        Delete
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Additional Photos (if more than 8) */}
+                    {uploadedPhotos.length > 8 && (
+                      <div className="grid grid-cols-3 gap-2 mb-3">
+                        {uploadedPhotos.slice(8).map((photo, extraIndex) => {
+                          const actualIndex = extraIndex + 8;
+                          return (
+                            <div
+                              key={photo.id}
+                              className="relative group"
+                              draggable={true}
+                              onDragStart={(e) => handleDragStart(e, actualIndex)}
+                              onDragOver={handleDragOverReorder}
+                              onDrop={(e) => handleDropReorder(e, actualIndex)}
+                            >
+                              <div className={`relative rounded-md overflow-hidden bg-gray-100 cursor-move transition-opacity ${draggedIndex === actualIndex ? 'opacity-50' : 'opacity-100'}`}>
+                                <div className="aspect-square">
+                                  <img
+                                    src={photo.url}
+                                    alt={`Photo ${actualIndex + 1}`}
+                                    className="w-full h-full object-cover"
+                                  />
+                                </div>
+
+                                {/* Drag Handle */}
+                                <div className="absolute top-1.5 left-1.5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                                  <GripVertical className="w-3 h-3 text-white/80 bg-black/50 rounded p-0.5" />
+                                </div>
+
+                                {/* Three Dot Menu */}
+                                <div className="absolute top-1.5 right-1.5">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleMenuToggle(actualIndex);
+                                    }}
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    className="p-1.5 bg-white/90 hover:bg-white text-gray-700 rounded-full shadow-sm transition-colors"
+                                    title="More options"
+                                    data-menu-button
+                                  >
+                                    <MoreHorizontal className="w-3 h-3" />
+                                  </button>
+
+                                  {/* Dropdown Menu */}
+                                  {openMenuIndex === actualIndex && (
+                                    <div
+                                      className="absolute top-full right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border py-2 z-20"
+                                      data-dropdown-menu
+                                    >
+                                      <button
+                                        onClick={() => {
+                                          console.log('Edit photo clicked for index:', actualIndex);
+                                          setOpenMenuIndex(null);
+                                        }}
+                                        className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50"
+                                      >
+                                        Edit
+                                      </button>
+                                      <button
+                                        onClick={() => movePhotoBackward(actualIndex)}
+                                        disabled={actualIndex === 0}
+                                        className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                      >
+                                        Move backward
+                                      </button>
+                                      <button
+                                        onClick={() => movePhotoForward(actualIndex)}
+                                        disabled={actualIndex === uploadedPhotos.length - 1}
+                                        className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                      >
+                                        Move forward
+                                      </button>
+                                      <button
+                                        onClick={() => makeCoverPhoto(actualIndex)}
+                                        disabled={actualIndex === 0}
+                                        className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                      >
+                                        Make cover photo
+                                      </button>
+                                      <hr className="my-1" />
+                                      <button
+                                        onClick={() => removePhoto(photo.id)}
+                                        className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50"
+                                      >
+                                        Delete
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Add More Photos Button */}
+                    <button
+                      onClick={handleOpenUploadModal}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-6 border-2 border-dashed border-gray-300 rounded-xl hover:border-gray-400 hover:bg-gray-50 transition-colors"
+                    >
+                      <Plus className="w-5 h-5 text-gray-500" />
+                      <span className="text-gray-600 font-medium">Add more</span>
+                    </button>
+              </div>
+            </div>
+        ) : (
+          /* Photo Upload Area - Empty state with camera illustration */
         <div className="max-w-4xl mx-auto">
           <div className="text-center mb-12">
             <h1 className="text-[32px] font-medium text-gray-900 mb-4">
@@ -369,10 +1176,6 @@ const Photos = () => {
               </div>
             )}
           </div>
-
-          {/* Photo Upload Area */}
-          {uploadedPhotos.length === 0 ? (
-            // Empty state with camera illustration
             <div className="max-w-2xl mx-auto">
               <div
                 className={`border-2 border-dashed rounded-xl p-16 text-center transition-colors ${
@@ -407,7 +1210,7 @@ const Photos = () => {
                 </div>
 
                 <button
-                  onClick={openFilePicker}
+                  onClick={handleOpenUploadModal}
                   className="bg-white border border-black text-black px-8 py-3 rounded-lg font-medium hover:bg-gray-50 transition-colors"
                 >
                   Add photos
@@ -417,50 +1220,6 @@ const Photos = () => {
                   Choose at least 5 photos
                 </p>
               </div>
-            </div>
-          ) : (
-            // Photo grid when photos are uploaded
-            <div className="space-y-6">
-              {/* Upload progress */}
-              <div className="text-center">
-                <p className="text-gray-600">
-                  {uploadedPhotos.length} of 5 photos uploaded
-                </p>
-                {!canProceed && (
-                  <p className="text-sm text-gray-500 mt-1">
-                    Add {5 - uploadedPhotos.length} more photos to continue
-                  </p>
-                )}
-              </div>
-
-              {/* Photo grid */}
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                {uploadedPhotos.map((photo) => (
-                  <div key={photo.id} className="relative group">
-                    <div className="aspect-square rounded-lg overflow-hidden border border-gray-200">
-                      <img
-                        src={photo.url}
-                        alt={photo.name}
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
-                    <button
-                      onClick={() => removePhoto(photo.id)}
-                      className="absolute -top-2 -right-2 w-6 h-6 bg-black text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
-                
-                {/* Add more photos button */}
-                <button
-                  onClick={openFilePicker}
-                  className="aspect-square border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center hover:border-gray-400 transition-colors"
-                >
-                  <Camera className="w-8 h-8 text-gray-400 mb-2" />
-                  <span className="text-sm text-gray-600">Add more</span>
-                </button>
               </div>
             </div>
           )}
@@ -474,7 +1233,6 @@ const Photos = () => {
             onChange={handleInputChange}
             className="hidden"
           />
-        </div>
       </main>
 
       {/* Footer */}
@@ -482,51 +1240,93 @@ const Photos = () => {
         onBack={async () => await saveAndNavigate('/pages/amenities')}
         onNext={async () => {
           if (canProceed) {
-            await saveAndNavigate('/pages/photospreview');
+            await saveAndNavigate('/pages/titledescription');
           }
         }}
         backText="Back"
-        nextText={uploadedPhotos.length >= 5 ? 'Preview photos' : 'Next'}
+        nextText="Next"
         canProceed={canProceed}
       />
 
-      {/* Photo Preview Modal */}
+      {/* Upload Photos Modal */}
       {showPreviewModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
+        <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4">
+          {/* Soft gray transparent overlay to focus on modal - photos page still visible */}
+          <div className="absolute inset-0 bg-gray-500/20 pointer-events-auto" onClick={handleCancelPhotos}></div>
+          {/* Modal */}
+          <div 
+            className="relative bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-2xl pointer-events-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
             {/* Modal Header */}
             <div className="flex items-center justify-between p-6 border-b">
-              <h2 className="text-xl font-semibold">Upload photos</h2>
+              <div className="flex items-center gap-4 flex-1">
               <button
                 onClick={handleCancelPhotos}
                 className="p-2 hover:bg-gray-100 rounded-full transition-colors"
               >
-                <X className="w-5 h-5" />
+                  <X className="w-5 h-5 text-gray-600" />
               </button>
-            </div>
-
-            {/* Modal Content */}
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <p className="text-sm text-gray-600">
-                  {pendingPhotos.length} item{pendingPhotos.length !== 1 ? 's' : ''} selected
-                </p>
-                
-                {/* Add More Photos Button */}
+                <div>
+                  <h2 className="text-xl font-semibold text-gray-900">Upload photos</h2>
+                  <p className="text-sm text-gray-500 mt-1">
+                    {pendingPhotos.length === 0 
+                      ? 'No items selected' 
+                      : `${pendingPhotos.length} item${pendingPhotos.length !== 1 ? 's' : ''} selected`}
+                  </p>
+                </div>
+              </div>
                 <button
                   onClick={() => {
                     // Open file picker to add more photos
                     fileInputRef.current?.click();
                   }}
-                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 border border-gray-300 hover:border-gray-400 rounded-lg transition-colors"
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                title="Add more photos"
                 >
-                  <Upload className="w-4 h-4" />
-                  Add more
+                <Plus className="w-5 h-5 text-gray-600" />
                 </button>
               </div>
 
-              {/* Photo Grid */}
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 max-h-96 overflow-y-auto">
+            {/* Modal Content - Drop Zone */}
+            <div className="flex-1 p-6 overflow-y-auto">
+              {pendingPhotos.length === 0 ? (
+                // Drop zone when no photos selected
+                <div
+                  className={`border-2 border-dashed rounded-xl p-12 text-center transition-colors ${
+                    isDragging
+                      ? 'border-black bg-gray-50'
+                      : 'border-gray-300 hover:border-gray-400'
+                  }`}
+                  onDrop={handleDrop}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                >
+                  {/* Stacked Images Icon */}
+                  <div className="mb-6 flex justify-center">
+                    <div className="relative">
+                      <Images className="w-16 h-16 text-gray-400" />
+                    </div>
+                  </div>
+
+                  <p className="text-lg font-semibold text-gray-900 mb-2">
+                    Drag and drop
+                  </p>
+                  <p className="text-gray-600 mb-6">
+                    or browse for photos
+                  </p>
+
+                  <button
+                    onClick={openFilePicker}
+                    className="bg-gray-900 text-white px-6 py-3 rounded-lg font-medium hover:bg-gray-800 transition-colors"
+                  >
+                    Browse
+                  </button>
+                </div>
+              ) : (
+                // Photo grid when photos are selected
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                 {pendingPhotos.map((photo) => (
                   <div key={photo.id} className="relative group">
                     <div className="aspect-square rounded-lg overflow-hidden bg-gray-100 border-2 border-transparent hover:border-gray-300 transition-colors">
@@ -537,7 +1337,7 @@ const Photos = () => {
                       />
                     </div>
                     
-                    {/* Remove button - Always visible with better styling */}
+                        {/* Remove button */}
                     <button
                       onClick={() => removePendingPhoto(photo.id)}
                       className="absolute top-2 right-2 p-2 bg-white hover:bg-gray-50 text-gray-700 hover:text-red-600 rounded-full shadow-lg border transition-colors"
@@ -553,15 +1353,39 @@ const Photos = () => {
                   </div>
                 ))}
               </div>
+
+                  {/* Secondary drop zone for adding more */}
+                  <div
+                    className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+                      isDragging
+                        ? 'border-black bg-gray-50'
+                        : 'border-gray-300 hover:border-gray-400'
+                    }`}
+                    onDrop={handleDrop}
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                  >
+                    <p className="text-sm text-gray-600 mb-3">
+                      Drag and drop more photos here or
+                    </p>
+                    <button
+                      onClick={openFilePicker}
+                      className="text-sm text-gray-700 hover:text-gray-900 underline font-medium"
+                    >
+                      browse for more
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Modal Footer */}
             <div className="flex items-center justify-between p-6 border-t bg-gray-50">
               <button
                 onClick={handleCancelPhotos}
-                className="px-6 py-2.5 text-gray-600 hover:text-gray-800 font-medium transition-colors"
+                className="px-6 py-2.5 text-gray-700 hover:text-gray-900 font-medium transition-colors"
               >
-                Cancel
+                Done
               </button>
               
               <button
@@ -569,11 +1393,11 @@ const Photos = () => {
                 disabled={pendingPhotos.length === 0}
                 className={`px-8 py-2.5 rounded-lg font-medium transition-colors ${
                   pendingPhotos.length > 0
-                    ? 'bg-black text-white hover:bg-gray-800'
-                    : 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                    ? 'bg-gray-900 text-white hover:bg-gray-800'
+                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                 }`}
               >
-                Upload {pendingPhotos.length} photo{pendingPhotos.length !== 1 ? 's' : ''}
+                Upload
               </button>
             </div>
           </div>
