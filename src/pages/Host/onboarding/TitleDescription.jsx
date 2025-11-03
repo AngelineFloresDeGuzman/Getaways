@@ -6,6 +6,7 @@ import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
 import { useSaveAndExitWithContext } from './hooks/useSaveAndExit';
 import { auth, db } from '@/lib/firebase';
 import { doc, updateDoc, getDoc, deleteField } from 'firebase/firestore';
+import { updateSessionStorageBeforeNav } from './utils/sessionStorageHelper';
 
 const TitleDescription = () => {
   const navigate = useNavigate();
@@ -394,13 +395,16 @@ const TitleDescription = () => {
         // Continue with save & exit even if Firebase save fails
       }
       
-      // Navigate to dashboard
-      navigate('/host/hostdashboard', { 
-        state: { 
-          message: 'Draft saved successfully!',
-          draftSaved: true 
-        }
-      });
+      // Update sessionStorage before Save & Exit navigation
+      updateSessionStorageBeforeNav('titledescription');
+        
+        // Navigate to dashboard
+        navigate('/host/hostdashboard', { 
+          state: { 
+            message: 'Draft saved successfully!',
+            draftSaved: true 
+          }
+        });
       
     } catch (error) {
       console.error('Error in TitleDescription save:', error);
@@ -442,12 +446,16 @@ const TitleDescription = () => {
       </main>
 
       <OnboardingFooter
-        onBack={() => navigate('/pages/photos')}
+        onBack={() => {
+          // Update sessionStorage before navigating back
+          updateSessionStorageBeforeNav('titledescription');
+          navigate('/pages/photos');
+        }}
         onNext={async () => {
           if (canProceed) {
             try {
               // Update context first
-              updateTitleContext(title);
+            updateTitleContext(title);
               
               // Save to Firebase
               let draftIdToUse;
@@ -464,14 +472,17 @@ const TitleDescription = () => {
                 actions.setCurrentStep('description');
               }
               
+              // Update sessionStorage before navigating forward
+              updateSessionStorageBeforeNav('titledescription', 'description');
+              
               // Navigate to description page
-              navigate('/pages/description', { 
-                state: { 
-                  ...location.state,
+            navigate('/pages/description', { 
+              state: { 
+                ...location.state,
                   title: title,
                   draftId: draftIdToUse || state?.draftId || location.state?.draftId
-                } 
-              });
+              } 
+            });
             } catch (error) {
               console.error('Error saving title:', error);
               alert('Error saving progress. Please try again.');

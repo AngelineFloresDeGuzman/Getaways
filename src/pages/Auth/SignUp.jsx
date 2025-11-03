@@ -172,9 +172,13 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
 
             console.log("✅ User saved to Firestore with roles:", userData.roles);
 
-            // Send verification email
+            // Send verification email with custom action code settings
             console.log("🟡 Sending verification email...");
-            await sendEmailVerification(users);
+            const actionCodeSettings = {
+              url: `${window.location.origin}/verify-email`,
+              handleCodeInApp: false, // The link will be handled by the app if true
+            };
+            await sendEmailVerification(users, actionCodeSettings);
             console.log("📩 Verification email sent");
 
             // After sendEmailVerification(users);

@@ -11,6 +11,7 @@ import { db } from '@/lib/firebase';
 import { doc, updateDoc, getDoc } from 'firebase/firestore';
 import OnboardingHeader from './components/OnboardingHeader';
 import OnboardingFooter from './components/OnboardingFooter';
+import { updateSessionStorageBeforeNav } from './utils/sessionStorageHelper';
 
 // Add custom CSS to override marker cursor and add blink animation
 const style = document.createElement('style');
@@ -169,7 +170,7 @@ const fetchWithProxy = async (nominatimUrl) => {
   throw new Error(errorMsg);
 };
 
-function MapUpdater({ center, onClick }) {
+function MapUpdater({ center, onClick, preciseLocation }) {
   const map = useMap();
   useEffect(() => {
     map.on('click', onClick);
@@ -177,7 +178,11 @@ function MapUpdater({ center, onClick }) {
       map.off('click', onClick);
     };
   }, [map, onClick]);
+  // Only update main map zoom when preciseLocation is not defined (main map, not preview)
   useEffect(() => {
+    // Skip this effect if preciseLocation prop is provided (preview map handles its own zoom)
+    if (preciseLocation !== undefined) return;
+    
     if (!center || center.length !== 2) return;
     const [lat, lng] = center;
     if (!lat || !lng || !isFinite(lat) || !isFinite(lng)) return;
@@ -191,7 +196,34 @@ function MapUpdater({ center, onClick }) {
     if (latDiff > threshold || lngDiff > threshold || map.getZoom() !== 15) {
       map.setView([lat, lng], 15, { animate: true, duration: 0.5 });
     }
-  }, [map, center]);
+  }, [map, center, preciseLocation]);
+  
+  // Handle precise location toggle - zoom to high zoom when enabled (only for preview map)
+  useEffect(() => {
+    // Only run this effect for the preview map (when preciseLocation is defined)
+    if (preciseLocation === undefined) return;
+    
+    if (!center || center.length !== 2) return;
+    const [lat, lng] = center;
+    if (!lat || !lng || !isFinite(lat) || !isFinite(lng)) return;
+    
+    if (preciseLocation) {
+      // High zoom level (18 is more reliable and available for most areas)
+      const highZoom = 18;
+      // Use a small delay to ensure map is ready
+      setTimeout(() => {
+        map.setView([lat, lng], highZoom, { animate: true, duration: 0.5 });
+        // Force tile refresh
+        map.invalidateSize();
+      }, 100);
+    } else {
+      // Reset to default zoom when toggle is off
+      const defaultZoom = 13;
+      map.setView([lat, lng], defaultZoom, { animate: true, duration: 0.5 });
+      map.invalidateSize();
+    }
+  }, [map, center, preciseLocation]);
+  
   return null;
 }
 
@@ -236,6 +268,136 @@ const Location = () => {
   const [showPreciseLocation, setShowPreciseLocation] = useState(false);
   const [showConfirmation, setShowConfirmation] = useState(false);
   const searchTimeoutRef = useRef(null);
+
+  // Helper function to format address for search bar display
+  const formatAddressForSearch = (locationData) => {
+    if (!locationData) return '';
+    
+    const parts = [
+      locationData.unit,
+      locationData.building,
+      locationData.street,
+      locationData.barangay,
+      locationData.city,
+      locationData.zipCode ? `Philippines ${locationData.zipCode}` : '',
+      locationData.province
+    ].filter(Boolean);
+    
+    return parts.join(', ') || '';
+  };
+
+  // Load draft data when component mounts or draftId changes (for edit mode)
+  useEffect(() => {
+    const draftId = location.state?.draftId || state?.draftId;
+    if (draftId && !isLoading) {
+      console.log('📍 Location: Loading draft on mount/edit:', draftId);
+      loadDraftIfNeeded(draftId).then((loaded) => {
+        if (loaded) {
+          console.log('📍 Location: Draft loaded successfully');
+          // After draft loads, state.locationData should be populated
+          // The existing useEffect hooks will handle syncing it to the UI
+        }
+      }).catch((error) => {
+        console.error('📍 Location: Error loading draft:', error);
+      });
+    }
+  }, [location.state?.draftId, state?.draftId]); // Only re-run when draftId changes
+
+  // Sync loaded locationData from context to local state (for edit mode)
+  // This ensures that when a draft is loaded, the UI reflects the saved location
+  useEffect(() => {
+    // Skip if we're coming from LocationConfirmation (data already handled)
+    if (location.state?.fromLocationConfirmation) {
+      return;
+    }
+    
+    // Skip if we don't have locationData in context
+    if (!state?.locationData) {
+      return;
+    }
+    
+    // Skip if locationData is empty or just has country
+    const hasValidLocation = state.locationData.city || 
+                             state.locationData.street || 
+                             state.locationData.latitude;
+    
+    if (!hasValidLocation) {
+      return;
+    }
+    
+    // Skip if we already have the same data in selectedLocation
+    const currentHasData = selectedLocation.city || selectedLocation.street || selectedLocation.latitude;
+    if (currentHasData && 
+        selectedLocation.city === state.locationData.city &&
+        selectedLocation.street === state.locationData.street &&
+        selectedLocation.latitude === state.locationData.latitude) {
+      console.log('📍 Location: Data already synced, skipping');
+      return;
+    }
+    
+    console.log('📍 Location: Syncing locationData from context to local state:', state.locationData);
+    
+    // Update selectedLocation with loaded data
+    setSelectedLocation(prev => {
+      const updated = {
+        street: state.locationData.street || prev.street || '',
+        barangay: state.locationData.barangay || prev.barangay || '',
+        city: state.locationData.city || prev.city || '',
+        province: state.locationData.province || prev.province || '',
+        country: state.locationData.country || prev.country || 'Philippines',
+        zipCode: state.locationData.zipCode || prev.zipCode || '',
+        unit: state.locationData.unit || prev.unit || '',
+        building: state.locationData.building || prev.building || '',
+        latitude: state.locationData.latitude || prev.latitude || null,
+        longitude: state.locationData.longitude || prev.longitude || null
+      };
+      
+      // Only update if there's actually new data
+      const hasNewData = updated.city || updated.street || updated.latitude;
+      return hasNewData ? updated : prev;
+    });
+    
+    // Update position if we have coordinates
+    if (state.locationData.latitude && state.locationData.longitude) {
+      const newPosition = [state.locationData.latitude, state.locationData.longitude];
+      const currentPosition = position;
+      const isDifferent = Math.abs(currentPosition[0] - newPosition[0]) > 0.0001 || 
+                         Math.abs(currentPosition[1] - newPosition[1]) > 0.0001;
+      
+      if (isDifferent) {
+        console.log('📍 Location: Updating position from loaded data:', newPosition);
+        isManuallySettingPositionRef.current = true;
+        setPosition(newPosition);
+        setLocationFilled(true);
+        setTimeout(() => { isManuallySettingPositionRef.current = false; }, 500);
+      }
+    }
+    
+    // Update search bar with formatted address
+    const formattedAddress = formatAddressForSearch(state.locationData);
+    if (formattedAddress && !searchValue) {
+      console.log('📍 Location: Updating search bar with loaded address:', formattedAddress);
+      setSearchValue(formattedAddress);
+    }
+    
+    // Mark location as filled if we have valid data
+    if (state.locationData.city || state.locationData.latitude) {
+      setLocationFilled(true);
+    }
+    
+    // If we have valid location data with coordinates, show the confirmation modal
+    // Only show if:
+    // 1. We have coordinates (latitude and longitude)
+    // 2. We're not coming from LocationConfirmation (data already confirmed there)
+    // 3. We're not already showing the address form (user already confirmed)
+    if (state.locationData.latitude && 
+        state.locationData.longitude && 
+        !location.state?.fromLocationConfirmation &&
+        !showAddressForm) {
+      console.log('📍 Location: Showing confirmation modal for existing location data');
+      setShowConfirmation(true);
+    }
+  }, [state?.locationData, location.state?.fromLocationConfirmation, showAddressForm]); // Sync when locationData changes
 
   // Helper function to ensure we have a valid draftId and save to Firebase
   // This prevents creating temp documents and ensures data is always saved properly
@@ -651,23 +813,58 @@ const Location = () => {
   };
 
   // Geocode address and update pin
-  const geocodeAddress = async (query) => {
-    if (!query) return;
+  const geocodeAddress = async (locationDataOrQuery) => {
+    // Handle both object (selectedLocation) and string (query) inputs
+    let query;
+    if (typeof locationDataOrQuery === 'string') {
+      query = locationDataOrQuery;
+    } else if (locationDataOrQuery && typeof locationDataOrQuery === 'object') {
+      // Build query string from location object fields
+      const parts = [];
+      if (locationDataOrQuery.street) parts.push(locationDataOrQuery.street);
+      if (locationDataOrQuery.barangay) parts.push(locationDataOrQuery.barangay);
+      if (locationDataOrQuery.city) parts.push(locationDataOrQuery.city);
+      if (locationDataOrQuery.zipCode) parts.push(locationDataOrQuery.zipCode);
+      if (locationDataOrQuery.province) parts.push(locationDataOrQuery.province);
+      if (locationDataOrQuery.country) parts.push(locationDataOrQuery.country);
+      
+      query = parts.join(', ');
+    }
+    
+    if (!query || query.trim().length < 2) return; // Skip if query is too short (reduced from 3 to 2 for faster response)
+    
     try {
-      const nominatimUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`;
+      setIsGeocoding(true);
+      const nominatimUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&addressdetails=1&limit=1`;
       const results = await fetchWithProxy(nominatimUrl);
       
       if (Array.isArray(results) && results[0]) {
-        setPosition([parseFloat(results[0].lat), parseFloat(results[0].lon)]);
+        const newLat = parseFloat(results[0].lat);
+        const newLng = parseFloat(results[0].lon);
+        
+        // Only update position if coordinates are valid and different
+        if (!isNaN(newLat) && !isNaN(newLng)) {
+          const currentLat = position[0];
+          const currentLng = position[1];
+          const isDifferent = Math.abs(currentLat - newLat) > 0.0001 || Math.abs(currentLng - newLng) > 0.0001;
+          
+          if (isDifferent) {
+            isManuallySettingPositionRef.current = true;
+            setPosition([newLat, newLng]);
         setSelectedLocation(prev => ({
           ...prev,
-          latitude: parseFloat(results[0].lat),
-          longitude: parseFloat(results[0].lon)
+              latitude: newLat,
+              longitude: newLng
         }));
         setLocationFilled(true);
+            setTimeout(() => { isManuallySettingPositionRef.current = false; }, 500);
+          }
+        }
       }
     } catch (error) {
       console.error('Error geocoding address:', error);
+    } finally {
+      setIsGeocoding(false);
     }
   };
 
@@ -714,7 +911,7 @@ const Location = () => {
           // Ensure results is an array
           if (!Array.isArray(results)) {
             results = [];
-          }
+        }
         } catch (error) {
           console.log('Bounded search failed, trying fallback:', error.message);
         }
@@ -733,7 +930,7 @@ const Location = () => {
             results = await fetchWithProxy(fallbackUrl);
             if (!Array.isArray(results)) {
               results = [];
-            }
+          }
           } catch (error) {
             console.log('Fallback search also failed:', error.message);
             results = [];
@@ -1014,8 +1211,30 @@ const Location = () => {
   const handleLocationChange = (field, value) => {
     const updated = { ...selectedLocation, [field]: value };
     setSelectedLocation(updated);
-    // Geocode and update map pin in real time
+    
+    // Debounce geocoding to avoid excessive API calls
+    // Clear any existing timeout
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+    
+    // Only geocode if we have enough data to form a meaningful query
+    // Require at least city or street to be present
+    const hasMinimumData = (updated.city && updated.city.trim().length >= 2) || 
+                          (updated.street && updated.street.trim().length >= 2) ||
+                          (updated.province && updated.province.trim().length >= 2);
+    
+    if (hasMinimumData) {
+      // Use shorter debounce for more immediate feedback while still preventing excessive API calls
+      // For critical fields like city, province, country, trigger faster (200ms)
+      // For other fields like street, barangay, use slightly longer (400ms)
+      const isCriticalField = field === 'city' || field === 'province' || field === 'country';
+      const debounceTime = isCriticalField ? 200 : 400;
+      
+      searchTimeoutRef.current = setTimeout(() => {
     geocodeAddress(updated);
+      }, debounceTime);
+    }
   };
 
   const handlePreciseLocationToggle = async (checked) => {
@@ -1553,7 +1772,7 @@ const Location = () => {
                 <select
                   required
                   value={selectedLocation.country}
-                  onChange={(e) => setSelectedLocation({ ...selectedLocation, country: e.target.value })}
+                  onChange={(e) => handleLocationChange('country', e.target.value)}
                   className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:border-gray-900 bg-white appearance-none ${
                     !selectedLocation.country ? 'border-red-500' : 'border-gray-300'
                   }`}
@@ -1768,7 +1987,7 @@ const Location = () => {
                 <input
                   type="text"
                   value={selectedLocation.unit}
-                  onChange={(e) => setSelectedLocation({ ...selectedLocation, unit: e.target.value })}
+                  onChange={(e) => handleLocationChange('unit', e.target.value)}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:border-gray-900"
                   placeholder=""
                 />
@@ -1780,7 +1999,7 @@ const Location = () => {
                 <input
                   type="text"
                   value={selectedLocation.building}
-                  onChange={(e) => setSelectedLocation({ ...selectedLocation, building: e.target.value })}
+                  onChange={(e) => handleLocationChange('building', e.target.value)}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:border-gray-900"
                   placeholder=""
                 />
@@ -1793,7 +2012,7 @@ const Location = () => {
                   type="text"
                   required
                   value={selectedLocation.street}
-                  onChange={(e) => setSelectedLocation({ ...selectedLocation, street: e.target.value })}
+                  onChange={(e) => handleLocationChange('street', e.target.value)}
                   className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:border-gray-900 ${
                     !selectedLocation.street ? 'border-red-500' : 'border-gray-300'
                   }`}
@@ -1807,7 +2026,7 @@ const Location = () => {
                 <input
                   type="text"
                   value={selectedLocation.barangay}
-                  onChange={(e) => setSelectedLocation({ ...selectedLocation, barangay: e.target.value })}
+                  onChange={(e) => handleLocationChange('barangay', e.target.value)}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:border-gray-900"
                   placeholder=""
                 />
@@ -1820,7 +2039,7 @@ const Location = () => {
                   type="text"
                   required
                   value={selectedLocation.city}
-                  onChange={(e) => setSelectedLocation({ ...selectedLocation, city: e.target.value })}
+                  onChange={(e) => handleLocationChange('city', e.target.value)}
                   className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:border-gray-900 ${
                     !selectedLocation.city ? 'border-red-500' : 'border-gray-300'
                   }`}
@@ -1835,7 +2054,7 @@ const Location = () => {
                   type="text"
                   required
                   value={selectedLocation.zipCode}
-                  onChange={(e) => setSelectedLocation({ ...selectedLocation, zipCode: e.target.value })}
+                  onChange={(e) => handleLocationChange('zipCode', e.target.value)}
                   className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:border-gray-900 ${
                     !selectedLocation.zipCode ? 'border-red-500' : 'border-gray-300'
                   }`}
@@ -1850,7 +2069,7 @@ const Location = () => {
                   type="text"
                   required
                   value={selectedLocation.province}
-                  onChange={(e) => setSelectedLocation({ ...selectedLocation, province: e.target.value })}
+                  onChange={(e) => handleLocationChange('province', e.target.value)}
                   className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:border-gray-900 ${
                     !selectedLocation.province ? 'border-red-500' : 'border-gray-300'
                   }`}
@@ -1889,9 +2108,11 @@ const Location = () => {
             {/* Map preview - same size as main map */}
             <div className="mt-6 relative rounded-xl overflow-hidden mx-auto" style={{ height: '600px', maxWidth: '900px', cursor: 'default' }}>
               <MapContainer
-                key={`${position[0]}-${position[1]}-${showPreciseLocation}`}
+                key={`preview-${position[0]}-${position[1]}`}
                 center={position}
-                zoom={showPreciseLocation ? 17 : 13}
+                zoom={showPreciseLocation ? 18 : 13}
+                minZoom={2}
+                maxZoom={18}
                 style={{ height: '100%', width: '100%', cursor: 'default' }}
                 zoomControl={false}
                 dragging={false}
@@ -1901,9 +2122,13 @@ const Location = () => {
                 <TileLayer
                   url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                   attribution="&copy; OpenStreetMap contributors"
+                  maxZoom={18}
+                  maxNativeZoom={18}
+                  tileSize={256}
+                  zoomOffset={0}
                 />
                 <Marker position={position} icon={homeIcon} />
-                <MapUpdater center={position} onClick={() => {}} />
+                <MapUpdater center={position} onClick={() => {}} preciseLocation={showPreciseLocation} />
               </MapContainer>
               {!showPreciseLocation && (
                 <div className="absolute inset-0 bg-white bg-opacity-80 flex items-center justify-center backdrop-blur-sm">
@@ -2087,6 +2312,9 @@ const Location = () => {
                           // Continue navigation even if save fails - data is in context
                         }
                         
+                        // Update sessionStorage before navigating forward
+                        updateSessionStorageBeforeNav('location', 'locationconfirmation');
+                        
                         navigate('/pages/locationconfirmation', { 
                           state: { 
                             locationData: currentLocationData, 
@@ -2102,6 +2330,9 @@ const Location = () => {
                           latitude: position[0],
                           longitude: position[1]
                         };
+                        // Update sessionStorage before navigating forward (fallback)
+                        updateSessionStorageBeforeNav('location', 'locationconfirmation');
+                        
                         navigate('/pages/locationconfirmation', { 
                           state: { 
                             locationData: fallbackLocationData, 

@@ -6,6 +6,7 @@ import { useOnboardingAutoSave, useOnboardingNavigation } from './hooks/useOnboa
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
 import { auth, db } from '@/lib/firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { updateSessionStorageBeforeNav } from './utils/sessionStorageHelper';
 
 const FinishSetup = () => {
   const navigate = useNavigate();
@@ -116,7 +117,11 @@ const FinishSetup = () => {
         </div>
       </main>
       <OnboardingFooter
-        onBack={() => navigate('/pages/descriptiondetails')}
+        onBack={() => {
+          // Update sessionStorage before navigating back
+          updateSessionStorageBeforeNav('finishsetup');
+          navigate('/pages/descriptiondetails');
+        }}
         onNext={async () => {
           try {
             // Update current step in context
@@ -144,6 +149,9 @@ const FinishSetup = () => {
                 // Continue navigation even if save fails
               }
             }
+            
+            // Update sessionStorage before navigating forward
+            updateSessionStorageBeforeNav('finishsetup', 'bookingsettings');
             
             // Continue to pricing/booking settings
             navigate('/pages/bookingsettings', { 

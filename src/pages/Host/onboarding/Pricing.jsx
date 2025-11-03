@@ -6,13 +6,17 @@ import OnboardingHeader from './components/OnboardingHeader';
 import OnboardingFooter from './components/OnboardingFooter';
 import { auth, db } from '@/lib/firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { updateSessionStorageBeforeNav } from './utils/sessionStorageHelper';
 
 const Pricing = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { state, actions } = useOnboarding();
   
-  const [basePrice, setBasePrice] = useState(state.weekdayPrice || 1525);
+  const [basePrice, setBasePrice] = useState(() => {
+    // Initialize from state if available (from loaded draft), otherwise use default
+    return state.weekdayPrice && state.weekdayPrice > 0 ? state.weekdayPrice : 1525;
+  });
   const [isSaving, setIsSaving] = useState(false);
   const [isPriceBreakdownOpen, setIsPriceBreakdownOpen] = useState(false);
   const [isEditingPrice, setIsEditingPrice] = useState(false);
@@ -71,25 +75,26 @@ const Pricing = () => {
   // Load draft data when navigating from "Continue Editing"
   useEffect(() => {
     const loadDraftData = async () => {
+      const draftIdToLoad = location.state?.draftId || state?.draftId;
       // Only load draft if user is authenticated and we have a draftId
-      if (location.state?.draftId && actions.loadDraft && state.user) {
-        console.log('Pricing - Loading draft with ID:', location.state.draftId);
+      if (draftIdToLoad && actions.loadDraft && state.user) {
+        console.log('📍 Pricing: Loading draft with ID:', draftIdToLoad);
         try {
-          await actions.loadDraft(location.state.draftId);
-          console.log('Pricing - Draft loaded successfully');
+          await actions.loadDraft(draftIdToLoad);
+          console.log('✅ Pricing: Draft loaded successfully');
         } catch (error) {
-          console.error('Pricing - Error loading draft:', error);
+          console.error('❌ Pricing: Error loading draft:', error);
         }
       }
     };
 
     loadDraftData();
-  }, [location.state?.draftId, state.user]);
+  }, [location.state?.draftId, state?.draftId, state.user, actions]);
 
   // Update pricing from state when draft loads
   useEffect(() => {
-    if (state.weekdayPrice && state.weekdayPrice !== basePrice) {
-      console.log('Pricing - Updating price from state:', state.weekdayPrice);
+    if (state.weekdayPrice && state.weekdayPrice > 0 && state.weekdayPrice !== basePrice) {
+      console.log('📍 Pricing: Updating price from state:', state.weekdayPrice);
       setBasePrice(state.weekdayPrice);
     }
   }, [state.weekdayPrice]);
@@ -233,6 +238,9 @@ const Pricing = () => {
         console.error('📍 Pricing: Error saving to Firebase on Save & Exit:', saveError);
         // Continue with save & exit even if Firebase save fails
       }
+      
+      // Update sessionStorage before Save & Exit navigation
+      updateSessionStorageBeforeNav('pricing');
       
       // Navigate to dashboard
       navigate('/host/hostdashboard', { 
@@ -385,7 +393,11 @@ const Pricing = () => {
       </main>
 
       <OnboardingFooter
-        onBack={() => navigate('/pages/guestselection')}
+        onBack={() => {
+          // Update sessionStorage before navigating back
+          updateSessionStorageBeforeNav('pricing');
+          navigate('/pages/guestselection');
+        }}
         onNext={async () => {
           if (canProceed) {
             try {
@@ -412,6 +424,9 @@ const Pricing = () => {
               if (actions.setCurrentStep) {
                 actions.setCurrentStep('weekendpricing');
               }
+              
+              // Update sessionStorage before navigating forward
+              updateSessionStorageBeforeNav('pricing', 'weekendpricing');
               
               // Navigate to weekend pricing page
               navigate('/pages/weekendpricing', { 

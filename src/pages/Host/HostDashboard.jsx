@@ -1,20 +1,32 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, Link } from 'react-router-dom';
 import Navigation from '@/components/Navigation';
 import Footer from '@/components/Footer';
 import { toast } from '@/components/ui/sonner';
+import { startConversationFromHost } from '@/pages/Guest/services/messagingService';
 import { getUserDrafts, deleteDraft, getDraftSummary } from '@/pages/Host/services/draftService';
-import { auth } from '@/lib/firebase';
+import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
+import { doc, getDoc, setDoc, collection, addDoc, query, where, getDocs, orderBy, serverTimestamp, updateDoc, deleteDoc } from 'firebase/firestore';
 import {
-  Home, Calendar, MessageSquare, DollarSign, Plus,
-  TrendingUp, Eye, Star, Users, Clock, Settings, MapPin, Camera,
-  Bed, Bath, Edit, Check, X
+  Home, Calendar as CalendarIcon, MessageSquare, DollarSign, Plus,
+  TrendingUp, Eye, Star, Users, Clock, MapPin, Camera,
+  Bed, Bath, Edit, Check, X, EyeOff, Trash2, User
 } from 'lucide-react';
 
 import { Home as HomeIcon, Grid, List } from 'lucide-react';
 import HostTypeModal from '@/components/HostTypeModal';
 import { OnboardingProvider } from '@/pages/Host/contexts/OnboardingContext';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 const TABS = [
   { key: 'all', label: 'All' },
@@ -27,33 +39,62 @@ const HostDashboard = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const [drafts, setDrafts] = useState([]);
-  const [listings, setListings] = useState([]); // TODO: fetch listings
+  const [unpublishModalOpen, setUnpublishModalOpen] = useState(false);
+  const [listingToUnpublish, setListingToUnpublish] = useState(null);
+  const [listings, setListings] = useState([]); // Active/published listings
+  const [unpublishedListings, setUnpublishedListings] = useState([]); // Unpublished listings
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(null);
   const [draftTab, setDraftTab] = useState('all');
   const [listingTab, setListingTab] = useState('all');
+  const [unpublishedTab, setUnpublishedTab] = useState('all');
   const [draftView, setDraftView] = useState('grid');
   const [listingView, setListingView] = useState('grid');
+  const [bookingView, setBookingView] = useState('grid'); // 'grid' or 'list'
   const [showHostTypeModal, setShowHostTypeModal] = useState(false);
   const [forceHostTypeSelection, setForceHostTypeSelection] = useState(false);
+  const [bookings, setBookings] = useState([]);
+  const [bookingTab, setBookingTab] = useState('all'); // all, pending, confirmed, completed, cancelled
+  const [userProfile, setUserProfile] = useState(null); // Store user profile data
+
+  // Calculate stats (will update when bookings/listings change)
+  const totalBookings = bookings.length;
+  const totalEarnings = bookings
+    .filter(b => b.status === 'confirmed')
+    .reduce((sum, b) => sum + (b.totalPrice || 0), 0);
 
   // ...existing code...
   const stats = [
-    { icon: Home, label: "Active Listings", value: "", change: "" },
-    { icon: Calendar, label: "Bookings", value: "", change: "" },
-    { icon: DollarSign, label: "Potential Earnings", value: "", change: "" },
+    { icon: Home, label: "Active Listings", value: listings.length.toString(), change: "" },
+    { icon: CalendarIcon, label: "Bookings", value: totalBookings.toString(), change: "" },
+    { icon: DollarSign, label: "Potential Earnings", value: `₱${totalEarnings.toLocaleString()}`, change: "" },
     { icon: Star, label: "Rating", value: "", change: "" }
   ];
 
-  const recentBookings = [];
+  // Load user profile data
+  const loadUserProfile = async (userId) => {
+    try {
+      const userDoc = await getDoc(doc(db, 'users', userId));
+      if (userDoc.exists()) {
+        setUserProfile(userDoc.data());
+      }
+    } catch (error) {
+      console.error('Error loading user profile:', error);
+    }
+  };
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUser(user);
       if (user) {
-        loadDrafts();
+        loadUserProfile(user.uid); // Load user profile
+        loadDrafts(); // This will also load listings
+        loadBookings(); // Load bookings
       } else {
         setDrafts([]);
+        setListings([]);
+        setBookings([]);
+        setUserProfile(null);
         setLoading(false);
       }
     });
@@ -246,12 +287,321 @@ const HostDashboard = () => {
       });
       
       console.log('📊 HostDashboard: Transformed drafts:', transformedDrafts);
-      setDrafts(transformedDrafts);
+      
+      // Filter out published drafts (they should appear in listings section instead)
+      const unpublishedDrafts = transformedDrafts.filter(draft => !draft.published);
+      setDrafts(unpublishedDrafts);
+      
+      // Load published listings from listings collection
+      await loadListings();
+      // Load unpublished listings
+      await loadUnpublishedListings();
+      
+      setLoading(false);
     } catch (error) {
       console.error('❌ Error loading drafts:', error);
       setDrafts([]);
-    } finally {
       setLoading(false);
+    }
+  };
+
+  const loadListings = async () => {
+    try {
+      if (!auth.currentUser) return;
+      
+      console.log('📦 HostDashboard: Loading published listings...');
+      
+      // Query listings collection for this user's active listings
+      const listingsRef = collection(db, 'listings');
+      
+      // Try with orderBy first, fallback without if index missing
+      let querySnapshot;
+      try {
+        const q = query(
+          listingsRef,
+          where('ownerId', '==', auth.currentUser.uid),
+          where('status', '==', 'active'),
+          orderBy('publishedAt', 'desc')
+        );
+        querySnapshot = await getDocs(q);
+      } catch (indexError) {
+        console.warn('⚠️ Index error (expected on first use), trying without orderBy:', indexError.message);
+        try {
+          // Fallback: query without orderBy
+          const q = query(
+            listingsRef,
+            where('ownerId', '==', auth.currentUser.uid),
+            where('status', '==', 'active')
+          );
+          querySnapshot = await getDocs(q);
+        } catch (indexError2) {
+          console.warn('⚠️ Index error for status filter, querying by ownerId only:', indexError2.message);
+          // Final fallback: query by ownerId only, filter status in JavaScript
+          const q = query(
+            listingsRef,
+            where('ownerId', '==', auth.currentUser.uid)
+          );
+          querySnapshot = await getDocs(q);
+        }
+      }
+      
+      // Map and filter listings
+      const allListingsData = querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        const locationData = data.locationData || {};
+        
+        // Debug: Log photos data for this listing
+        const photosData = data.photos || [];
+        const firstPhoto = photosData[0];
+        console.log(`📸 HostDashboard: Listing ${doc.id} - Photos:`, {
+          photosCount: photosData.length,
+          firstPhoto: firstPhoto ? {
+            id: firstPhoto.id,
+            name: firstPhoto.name,
+            hasBase64: !!firstPhoto.base64,
+            hasUrl: !!firstPhoto.url,
+            base64Length: firstPhoto.base64 ? firstPhoto.base64.length : 0,
+            allKeys: Object.keys(firstPhoto)
+          } : 'no first photo',
+          imageField: data.image,
+          hasImageField: !!data.image
+        });
+        
+        return {
+          id: doc.id,
+          ...data,
+          // Format location for display
+          locationDisplay: data.location || 
+            (locationData.city && locationData.province 
+              ? `${locationData.city}, ${locationData.province}`
+              : locationData.city || locationData.country || 'No location'),
+          locationCity: locationData.city || '',
+          locationArea: locationData.province || locationData.country || '',
+          // Get main image from photos array - ensure we always have a valid image
+          mainImage: (() => {
+            const firstPhoto = photosData[0];
+            if (firstPhoto?.base64) {
+              return firstPhoto.base64;
+            }
+            if (firstPhoto?.url) {
+              return firstPhoto.url;
+            }
+            if (data.image) {
+              return data.image;
+            }
+            return null;
+          })(),
+          // Format published date
+          publishedDate: data.publishedAt?.toDate ? data.publishedAt.toDate().toLocaleDateString() : 'Unknown',
+          publishedAt: data.publishedAt // Keep for sorting
+        };
+      });
+      
+      // Filter by status if we had to query without status filter
+      const listingsData = allListingsData.filter(listing => listing.status === 'active');
+      
+      // Sort manually if orderBy failed
+      if (listingsData.length > 0) {
+        listingsData.sort((a, b) => {
+          const aDate = a.publishedAt?.toDate ? a.publishedAt.toDate() : new Date(0);
+          const bDate = b.publishedAt?.toDate ? b.publishedAt.toDate() : new Date(0);
+          return bDate - aDate; // Descending
+        });
+      }
+      
+      console.log('✅ HostDashboard: Loaded listings:', listingsData.length);
+      console.log('📋 Listings data:', listingsData);
+      setListings(listingsData);
+    } catch (error) {
+      console.error('❌ Error loading listings:', error);
+      console.error('Error details:', error.code, error.message);
+      setListings([]);
+    }
+  };
+
+  const loadUnpublishedListings = async () => {
+    try {
+      if (!auth.currentUser) return;
+      
+      console.log('📦 HostDashboard: Loading unpublished listings...');
+      
+      // Query listings collection for this user's inactive listings
+      const listingsRef = collection(db, 'listings');
+      
+      // Try with orderBy first, fallback without if index missing
+      let querySnapshot;
+      try {
+        const q = query(
+          listingsRef,
+          where('ownerId', '==', auth.currentUser.uid),
+          where('status', '==', 'inactive'),
+          orderBy('updatedAt', 'desc')
+        );
+        querySnapshot = await getDocs(q);
+      } catch (indexError) {
+        console.warn('⚠️ Index error for unpublished listings, trying without orderBy:', indexError.message);
+        try {
+          // Fallback: query without orderBy
+          const q = query(
+            listingsRef,
+            where('ownerId', '==', auth.currentUser.uid),
+            where('status', '==', 'inactive')
+          );
+          querySnapshot = await getDocs(q);
+        } catch (indexError2) {
+          console.warn('⚠️ Index error for status filter, querying by ownerId only:', indexError2.message);
+          // Final fallback: query by ownerId only, filter status in JavaScript
+          const q = query(
+            listingsRef,
+            where('ownerId', '==', auth.currentUser.uid)
+          );
+          querySnapshot = await getDocs(q);
+        }
+      }
+      
+      // Map and filter listings
+      const allListingsData = querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        const locationData = data.locationData || {};
+        const photosData = data.photos || [];
+        
+        return {
+          id: doc.id,
+          ...data,
+          // Format location for display
+          locationDisplay: data.location || 
+            (locationData.city && locationData.province 
+              ? `${locationData.city}, ${locationData.province}`
+              : locationData.city || locationData.country || 'No location'),
+          locationCity: locationData.city || '',
+          locationArea: locationData.province || locationData.country || '',
+          // Get main image from photos array
+          mainImage: (() => {
+            const firstPhoto = photosData[0];
+            if (firstPhoto?.base64) {
+              return firstPhoto.base64;
+            }
+            if (firstPhoto?.url) {
+              return firstPhoto.url;
+            }
+            if (data.image) {
+              return data.image;
+            }
+            return null;
+          })(),
+          // Format unpublished date
+          unpublishedDate: data.updatedAt?.toDate ? data.updatedAt.toDate().toLocaleDateString() : 'Unknown',
+          updatedAt: data.updatedAt // Keep for sorting
+        };
+      });
+      
+      // Filter by status if we had to query without status filter
+      const unpublishedData = allListingsData.filter(listing => listing.status === 'inactive');
+      
+      // Sort manually if orderBy failed
+      if (unpublishedData.length > 0) {
+        unpublishedData.sort((a, b) => {
+          const aDate = a.updatedAt?.toDate ? a.updatedAt.toDate() : new Date(0);
+          const bDate = b.updatedAt?.toDate ? b.updatedAt.toDate() : new Date(0);
+          return bDate - aDate; // Descending (most recently unpublished first)
+        });
+      }
+      
+      console.log('✅ HostDashboard: Loaded unpublished listings:', unpublishedData.length);
+      setUnpublishedListings(unpublishedData);
+    } catch (error) {
+      console.error('❌ Error loading unpublished listings:', error);
+      setUnpublishedListings([]);
+    }
+  };
+
+  // Load bookings for this host
+  const loadBookings = async () => {
+    try {
+      if (!auth.currentUser) return;
+
+      console.log('📦 HostDashboard: Loading bookings...');
+
+      const bookingsCollection = collection(db, 'bookings');
+      
+      // Query bookings where ownerId matches current user
+      let querySnapshot;
+      try {
+        const q = query(
+          bookingsCollection,
+          where('ownerId', '==', auth.currentUser.uid),
+          orderBy('createdAt', 'desc')
+        );
+        querySnapshot = await getDocs(q);
+      } catch (indexError) {
+        console.warn('⚠️ Index error for bookings, trying without orderBy:', indexError.message);
+        try {
+          // Fallback: query without orderBy
+          const q = query(
+            bookingsCollection,
+            where('ownerId', '==', auth.currentUser.uid)
+          );
+          querySnapshot = await getDocs(q);
+        } catch (error2) {
+          console.error('❌ Error loading bookings:', error2);
+          setBookings([]);
+          return;
+        }
+      }
+
+      const bookingsData = querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        const checkIn = data.checkInDate?.toDate ? data.checkInDate.toDate() : new Date(data.checkInDate);
+        const checkOut = data.checkOutDate?.toDate ? data.checkOutDate.toDate() : new Date(data.checkOutDate);
+        const createdAt = data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt);
+
+        return {
+          id: doc.id,
+          ...data,
+          checkInDate: checkIn,
+          checkOutDate: checkOut,
+          createdAt: createdAt,
+          // Format dates for display
+          checkInFormatted: checkIn.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+          checkOutFormatted: checkOut.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+          createdAtFormatted: createdAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+        };
+      });
+
+      // Sort manually if orderBy failed
+      if (querySnapshot.empty || bookingsData.length > 0) {
+        bookingsData.sort((a, b) => {
+          const aDate = a.createdAt || new Date(0);
+          const bDate = b.createdAt || new Date(0);
+          return bDate - aDate; // Descending (newest first)
+        });
+      }
+
+      console.log('✅ HostDashboard: Loaded bookings:', bookingsData.length);
+      setBookings(bookingsData);
+    } catch (error) {
+      console.error('❌ Error loading bookings:', error);
+      setBookings([]);
+    }
+  };
+
+
+  // Update booking status
+  const handleUpdateBookingStatus = async (bookingId, newStatus) => {
+    try {
+      if (!auth.currentUser) return;
+
+      const bookingRef = doc(db, 'bookings', bookingId);
+      await updateDoc(bookingRef, {
+        status: newStatus,
+        updatedAt: serverTimestamp()
+      });
+
+      toast.success(`Booking ${newStatus} successfully`);
+      await loadBookings(); // Reload bookings
+    } catch (error) {
+      console.error('❌ Error updating booking status:', error);
+      toast.error('Failed to update booking status');
     }
   };
 
@@ -283,6 +633,244 @@ const HostDashboard = () => {
     navigate(route, { state: { draftId: draft.id } });
   };
 
+  // Unpublish a listing (restore to drafts and set status to inactive)
+  const handleUnpublishListing = (listing, e) => {
+    e.stopPropagation(); // Prevent card click
+    
+    if (!auth.currentUser) {
+      alert('You must be logged in to unpublish listings');
+      return;
+    }
+
+    // Open the modal instead of using window.confirm
+    setListingToUnpublish(listing);
+    setUnpublishModalOpen(true);
+  };
+
+  const confirmUnpublishListing = async () => {
+    if (!listingToUnpublish || !auth.currentUser) {
+      return;
+    }
+
+    try {
+      console.log('📝 Unpublishing listing:', listingToUnpublish.id);
+      
+      // Get listing reference
+      const listingRef = doc(db, 'listings', listingToUnpublish.id);
+      const listingSnap = await getDoc(listingRef);
+      
+      if (!listingSnap.exists()) {
+        throw new Error('Listing not found');
+      }
+      
+      // Simply set listing status to inactive (no draft creation)
+      await updateDoc(listingRef, {
+        status: 'inactive',
+        updatedAt: serverTimestamp()
+      });
+      
+      console.log('✅ Listing unpublished successfully');
+      toast.success('Listing unpublished successfully');
+      
+      // Reload listings and unpublished listings to update the UI
+      await loadListings();
+      await loadUnpublishedListings();
+      
+      // Close the modal and reset state
+      setUnpublishModalOpen(false);
+      setListingToUnpublish(null);
+    } catch (error) {
+      console.error('❌ Error unpublishing listing:', error);
+      alert('Failed to unpublish listing. Please try again.');
+      setUnpublishModalOpen(false);
+      setListingToUnpublish(null);
+    }
+  };
+
+  // Republish a listing (change status back to active)
+  const handleRepublishListing = async (listing, e) => {
+    e.stopPropagation();
+    
+    if (!auth.currentUser) {
+      alert('You must be logged in to republish listings');
+      return;
+    }
+
+    try {
+      console.log('📝 Republishing listing:', listing.id);
+      
+      const listingRef = doc(db, 'listings', listing.id);
+      await updateDoc(listingRef, {
+        status: 'active',
+        updatedAt: serverTimestamp()
+      });
+      
+      console.log('✅ Listing republished successfully');
+      toast.success('Listing republished successfully');
+      
+      // Reload listings and unpublished listings to update the UI
+      await loadListings();
+      await loadUnpublishedListings();
+    } catch (error) {
+      console.error('❌ Error republishing listing:', error);
+      alert('Failed to republish listing. Please try again.');
+    }
+  };
+
+  // Delete an unpublished listing permanently
+  const handleDeleteUnpublishedListing = async (listing, e) => {
+    e.stopPropagation();
+    
+    if (!auth.currentUser) {
+      alert('You must be logged in to delete listings');
+      return;
+    }
+
+    const confirmDelete = window.confirm(
+      `Are you sure you want to permanently delete "${listing.title || 'this listing'}"? This action cannot be undone.`
+    );
+
+    if (!confirmDelete) return;
+
+    try {
+      console.log('🗑️ Deleting unpublished listing:', listing.id);
+      
+      const listingRef = doc(db, 'listings', listing.id);
+      await deleteDoc(listingRef);
+      
+      console.log('✅ Listing deleted successfully');
+      toast.success('Listing deleted successfully');
+      
+      // Reload unpublished listings to update the UI
+      await loadUnpublishedListings();
+    } catch (error) {
+      console.error('❌ Error deleting listing:', error);
+      alert('Failed to delete listing. Please try again.');
+    }
+  };
+
+  // Convert published listing to draft for editing (or use existing draft)
+  const handleEditListing = async (listing) => {
+    try {
+      if (!auth.currentUser) {
+        alert('You must be logged in to edit listings');
+        return;
+      }
+
+      console.log('📝 Preparing draft for editing listing:', listing.id);
+      
+      // Get the full listing document
+      const listingRef = doc(db, 'listings', listing.id);
+      const listingSnap = await getDoc(listingRef);
+      
+      if (!listingSnap.exists()) {
+        alert('Listing not found');
+        return;
+      }
+      
+      const listingData = listingSnap.data();
+      
+      // Check if a draft already exists for this listing
+      const draftsCollection = collection(db, 'onboardingDrafts');
+      let draftId = null;
+      
+      // Try to find existing draft with this publishedListingId
+      const draftsQuery = query(
+        draftsCollection,
+        where('userId', '==', auth.currentUser.uid),
+        where('publishedListingId', '==', listing.id)
+      );
+      
+      const draftsSnapshot = await getDocs(draftsQuery);
+      if (!draftsSnapshot.empty) {
+        // Use existing draft
+        draftId = draftsSnapshot.docs[0].id;
+        const existingDraft = draftsSnapshot.docs[0].data();
+        console.log('📍 Found existing draft for this listing:', draftId);
+        
+        // Ensure it's marked as unpublished so it shows in saved drafts
+        const draftRef = doc(draftsCollection, draftId);
+        await updateDoc(draftRef, {
+          published: false,
+          status: 'draft',
+          lastModified: serverTimestamp()
+        });
+      } else {
+        // Create a new draft from the listing data
+        console.log('📍 No existing draft found, creating new draft for editing');
+        
+        // Structure data the same way as onboarding drafts
+        // Build data object, only including fields that have values (avoid undefined)
+        const draftDataObject = {
+          // Restore all nested data fields
+          locationData: listingData.locationData || {},
+          propertyBasics: listingData.propertyBasics || {},
+          amenities: listingData.amenities || {},
+          photos: listingData.photos || [],
+          pricing: listingData.pricing || {},
+          bookingSettings: listingData.bookingSettings || {},
+          guestSelection: listingData.guestSelection || {},
+          discounts: listingData.discounts || {},
+          safetyDetails: listingData.safetyDetails || {},
+          finalDetails: listingData.finalDetails || {},
+          // Restore top-level fields that go in data
+          title: listingData.title || '',
+          description: listingData.description || '',
+          descriptionHighlights: listingData.descriptionHighlights || [],
+          privacyType: listingData.privacyType || '',
+          propertyStructure: listingData.propertyStructure || '',
+        };
+        
+        // Only add optional fields if they exist and are not undefined
+        if (listingData.bathroomTypes !== undefined && listingData.bathroomTypes !== null) {
+          draftDataObject.bathroomTypes = listingData.bathroomTypes;
+        }
+        if (listingData.occupancy !== undefined && listingData.occupancy !== null) {
+          draftDataObject.occupancy = listingData.occupancy;
+        }
+        
+        // Remove any undefined values from data object
+        Object.keys(draftDataObject).forEach(key => {
+          if (draftDataObject[key] === undefined) {
+            delete draftDataObject[key];
+          }
+        });
+        
+        const draftData = {
+          userId: auth.currentUser.uid,
+          userEmail: auth.currentUser.email,
+          category: listingData.category || 'accommodation',
+          status: 'draft',
+          currentStep: 'finaldetails', // Set to last step since it was already published
+          lastModified: serverTimestamp(),
+          createdAt: serverTimestamp(),
+          publishedListingId: listing.id, // Link to original published listing
+          published: false, // Mark as unpublished so it shows in saved drafts
+          data: draftDataObject
+        };
+        
+        const draftRef = await addDoc(draftsCollection, draftData);
+        draftId = draftRef.id;
+        console.log('✅ Created draft for editing:', draftId);
+      }
+      
+      // Reload drafts to show the new/updated draft in saved drafts section
+      await loadDrafts();
+      
+      // Navigate to onboarding flow with the draft (start at finaldetails since it was already published)
+      navigate('/pages/finaldetails', { 
+        state: { 
+          draftId: draftId, 
+          listingId: listing.id, 
+          isEditMode: true 
+        } 
+      });
+    } catch (error) {
+      console.error('❌ Error preparing draft for editing:', error);
+      alert('Failed to edit listing. Please try again.');
+    }
+  };
+
   const handleDeleteDraft = async (draftId) => {
     if (!window.confirm('Are you sure you want to delete this draft?')) return;
     try {
@@ -302,22 +890,41 @@ const HostDashboard = () => {
         {/* Header */}
         <div className="bg-gradient-to-br from-primary/10 to-accent/10 py-12 px-6">
           <div className="max-w-7xl mx-auto flex items-center justify-between mb-8">
-            <div>
-              <h1 className="font-heading text-4xl font-bold text-foreground mb-4">
-                Welcome to your dashboard
-              </h1>
-              <p className="font-body text-xl text-muted-foreground">
-                Manage your listings, bookings, and account settings here.
-              </p>
+            <div className="flex items-center gap-4">
+              <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center relative overflow-hidden flex-shrink-0 border-4 border-white shadow-lg">
+                {(userProfile?.profileImage || userProfile?.photoURL) ? (
+                  <img
+                    src={userProfile.profileImage || userProfile.photoURL}
+                    alt={`${userProfile?.firstName || ''} ${userProfile?.lastName || ''}`}
+                    className="w-full h-full object-cover absolute inset-0"
+                    onError={(e) => {
+                      e.target.style.display = 'none';
+                      const icon = e.target.parentElement?.querySelector('.user-icon');
+                      if (icon) icon.classList.remove('hidden');
+                    }}
+                  />
+                ) : null}
+                <User className={`w-10 h-10 text-primary user-icon ${(userProfile?.profileImage || userProfile?.photoURL) ? 'hidden' : ''}`} />
+              </div>
+              <div>
+                <h1 className="font-heading text-4xl font-bold text-foreground mb-4">
+                  Welcome back, Host {userProfile?.firstName || ''}!
+                </h1>
+                <p className="font-body text-xl text-muted-foreground">
+                  Manage your listings, bookings, and account settings here.
+                </p>
+              </div>
             </div>
             <div className="flex items-center gap-4">
-              <button className="btn-outline flex items-center gap-2">
-                <Settings className="w-4 h-4" />
-                Settings
-              </button>
-              <button className="btn-primary flex items-center gap-2">
-                <Eye className="w-4 h-4" />
-                Preview Listings
+              <button 
+                className="btn-primary flex items-center gap-2"
+                onClick={() => {
+                  setForceHostTypeSelection(true);
+                  setShowHostTypeModal(true);
+                }}
+              >
+                <Plus className="w-4 h-4" />
+                Start New Listing
               </button>
             </div>
           </div>
@@ -348,307 +955,485 @@ const HostDashboard = () => {
 
         {/* Draft Success Message replaced by toast */}
 
-        {/* Saved Drafts Container with Tabs */}
-        {user && (
-          <div className="max-w-7xl mx-auto px-6 mb-12">
-            <div className="mb-2">
-              <h2 className="text-xl font-bold text-foreground mb-2">Saved Drafts</h2>
-            </div>
-            <div className="bg-white rounded-xl shadow p-8 mb-8">
-              <div className="flex items-center justify-between mb-6">
-                <div className="flex gap-8">
-                  {TABS.map(tab => {
-                    let count = tab.key === 'all'
-                      ? drafts.length
-                      : drafts.filter(d => d.category === tab.key).length;
-                    return (
-                      <button
-                        key={tab.key}
-                        className={`relative pb-2 text-base font-medium border-b-2 transition-colors ${draftTab === tab.key ? 'border-primary text-primary' : 'border-transparent text-gray-700 hover:text-primary'}`}
-                        onClick={() => setDraftTab(tab.key)}
-                      >
-                        {tab.label} <span className="text-sm text-muted-foreground">({count})</span>
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="flex items-center gap-2 p-1 bg-muted rounded-lg">
-                  <button onClick={() => setDraftView('grid')} className={`p-2 rounded-lg transition-colors ${draftView === 'grid' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}><Grid className="w-5 h-5" /></button>
-                  <button onClick={() => setDraftView('list')} className={`p-2 rounded-lg transition-colors ${draftView === 'list' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}><List className="w-5 h-5" /></button>
-                  <button
-                    onClick={() => {
-                      setForceHostTypeSelection(true);
-                      setShowHostTypeModal(true);
-                    }}
-                    className="btn-primary flex items-center gap-2 ml-4"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Start New Listing
-                  </button>
-                </div>
-              </div>
-              <div className="min-h-[260px]">
-                {(draftTab === 'all' ? drafts : drafts.filter(d => d.category === draftTab)).length === 0 ? (
-                  <div className="text-center py-16">
-                    <HomeIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" strokeWidth={2} />
-                    <div className="text-lg font-medium mb-2">No drafts yet.</div>
-                    <div className="text-gray-500 text-center">Start creating and save your drafts for accommodations, services, and experiences.</div>
+        {/* Today & Upcoming Bookings Container */}
+        {user && (() => {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          
+          const todayBookings = bookings.filter(booking => {
+            const checkIn = new Date(booking.checkInDate);
+            checkIn.setHours(0, 0, 0, 0);
+            return checkIn.getTime() === today.getTime();
+          });
+          
+          const upcomingBookings = bookings.filter(booking => {
+            const checkIn = new Date(booking.checkInDate);
+            checkIn.setHours(0, 0, 0, 0);
+            return checkIn.getTime() > today.getTime();
+          });
+          
+          return (
+            <div className="max-w-7xl mx-auto px-6 mb-12">
+              <h2 className="text-xl font-bold text-foreground mb-6">Scheduled Bookings</h2>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Today's Bookings */}
+                <div className="bg-white rounded-xl shadow p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold text-foreground">Today</h3>
+                    <span className="text-sm text-muted-foreground">({todayBookings.length})</span>
                   </div>
-                ) : (
-                  draftView === 'grid' ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                      {(draftTab === 'all' ? drafts : drafts.filter(d => d.category === draftTab)).map((draft, idx) => (
-                        <div key={draft.id || idx} className="card-listing cursor-pointer hover-lift overflow-hidden" onClick={() => handleContinueDraft(draft)}>
-                          {/* Thumbnail Image */}
-                          <div className="relative w-full overflow-hidden aspect-[4/3] bg-gray-100">
-                            {draft.mainImage ? (
-                              <img 
-                                src={draft.mainImage} 
-                                alt={draft.title || 'Draft'} 
-                                className="w-full h-full object-cover"
-                                onError={(e) => {
-                                  e.target.style.display = 'none';
-                                  e.target.nextSibling.style.display = 'flex';
-                                }}
-                              />
-                            ) : null}
-                            <div className={`absolute inset-0 flex items-center justify-center ${draft.mainImage ? 'hidden' : ''}`}>
-                            <Camera className="w-12 h-12 text-gray-400" />
-                          </div>
-                          </div>
-                          
-                          <div className="p-5">
-                            {/* Listing Title */}
-                            <h3 className="font-heading text-lg font-semibold text-foreground mb-2 line-clamp-2">
-                              {draft.title || 'Untitled Draft'}
-                            </h3>
-                            
-                            {/* Location (City, Area) */}
-                            <p className="font-body text-sm text-muted-foreground flex items-center gap-1 mb-3">
-                              <MapPin className="w-4 h-4 flex-shrink-0" /> 
-                              <span className="truncate">
-                                {draft.locationCity && draft.locationArea 
-                                  ? `${draft.locationCity}, ${draft.locationArea}`
-                                  : draft.location || 'No location'}
-                              </span>
-                            </p>
-                            
-                            {/* Listing Type / Category (optional) */}
-                            {(draft.privacyType || draft.propertyStructure) && (
-                              <div className="mb-3">
-                                <span className="inline-block px-2 py-1 text-xs font-medium bg-primary/10 text-primary rounded-md">
-                                  {draft.privacyType && draft.propertyStructure
-                                    ? `${draft.privacyType} in ${draft.propertyStructure}`
-                                    : draft.privacyType || draft.propertyStructure}
-                                </span>
-                              </div>
-                            )}
-                            
-                            {/* Progress Status / Completion Bar */}
-                            <div className="mb-3">
-                              <div className="flex items-center justify-between mb-1">
-                                <span className="text-xs font-medium text-muted-foreground">Progress</span>
-                                <span className="text-xs font-semibold text-foreground">{draft.progress || 0}%</span>
-                              </div>
-                              <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-                                <div 
-                                  className="h-full bg-primary transition-all duration-300 rounded-full"
-                                  style={{ width: `${draft.progress || 0}%` }}
+                  {todayBookings.length > 0 ? (
+                    <div className="space-y-3 max-h-96 overflow-y-auto">
+                      {todayBookings.map((booking) => {
+                        const listing = listings.find(l => l.id === booking.listingId);
+                        return (
+                          <div key={booking.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                            <div className="flex items-start gap-3">
+                              {listing?.mainImage && (
+                                <img
+                                  src={listing.mainImage}
+                                  alt={listing?.title || 'Listing'}
+                                  className="w-16 h-16 object-cover rounded-lg flex-shrink-0"
                                 />
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <h4 className="font-semibold text-foreground text-sm line-clamp-1">
+                                    {listing?.title || `Listing ${booking.listingId}`}
+                                  </h4>
+                                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium flex-shrink-0 ${
+                                    booking.status === 'confirmed' ? 'bg-green-100 text-green-700' :
+                                    booking.status === 'completed' ? 'bg-blue-100 text-blue-700' :
+                                    booking.status === 'cancelled' ? 'bg-red-100 text-red-700' :
+                                    'bg-yellow-100 text-yellow-700'
+                                  }`}>
+                                    {booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-muted-foreground mb-1 line-clamp-1">
+                                  {booking.guestEmail || 'Guest'}
+                                </p>
+                                <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                  <div className="flex items-center gap-1">
+                                    <CalendarIcon className="w-3 h-3" />
+                                    <span>{booking.checkInFormatted} - {booking.checkOutFormatted}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1">
+                                    <Users className="w-3 h-3" />
+                                    <span>{booking.guests || 1}</span>
+                                  </div>
+                                </div>
+                                <div className="mt-2 flex items-center justify-between">
+                                  <span className="text-sm font-bold text-foreground">₱{(booking.totalPrice || 0).toLocaleString()}</span>
+                                  {booking.status === 'pending' && (
+                                    <button
+                                      className="btn-primary px-3 py-1 text-xs font-medium"
+                                      onClick={() => handleUpdateBookingStatus(booking.id, 'confirmed')}
+                                    >
+                                      Confirm
+                                    </button>
+                                  )}
+                                </div>
                               </div>
                             </div>
-                            
-                            {/* Last Edited Date */}
-                            <div className="flex items-center gap-1 mb-4 text-xs text-muted-foreground">
-                              <Clock className="w-3 h-3" />
-                              <span>Last edited {draft.lastModifiedFormatted || 'Unknown'}</span>
-                            </div>
-                            
-                            {/* Action Buttons */}
-                            <div className="flex gap-2 pt-3 border-t border-gray-100">
-                              <button 
-                                className="btn-primary flex-1 px-3 py-2 text-sm font-medium" 
-                                onClick={e => {e.stopPropagation(); handleContinueDraft(draft);}}
-                              >
-                                Continue
-                              </button>
-                              <button 
-                                className="btn-outline px-3 py-2 text-sm font-medium" 
-                                onClick={e => {e.stopPropagation(); handleDeleteDraft(draft.id);}}
-                              >
-                                Delete
-                              </button>
-                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   ) : (
-                    <div className="space-y-4">
-                      {(draftTab === 'all' ? drafts : drafts.filter(d => d.category === draftTab)).map((draft, idx) => (
-                        <div key={draft.id || idx} className="card-listing hover-lift cursor-pointer flex items-start gap-4 p-4" onClick={() => handleContinueDraft(draft)}>
-                          {/* Thumbnail Image */}
-                          <div className="relative flex-shrink-0 w-36 h-36 overflow-hidden rounded-lg bg-gray-100">
-                            {draft.mainImage ? (
-                              <img 
-                                src={draft.mainImage} 
-                                alt={draft.title || 'Draft'} 
-                                className="w-full h-full object-cover"
-                                onError={(e) => {
-                                  e.target.style.display = 'none';
-                                  e.target.nextSibling.style.display = 'flex';
-                                }}
-                              />
-                            ) : null}
-                            <div className={`absolute inset-0 flex items-center justify-center ${draft.mainImage ? 'hidden' : ''}`}>
-                              <Camera className="w-10 h-10 text-gray-400" />
-                            </div>
-                          </div>
-                          
-                          <div className="flex-1 min-w-0">
-                            {/* Listing Title */}
-                            <h3 className="font-heading text-lg font-semibold text-foreground mb-1 line-clamp-1">
-                              {draft.title || 'Untitled Draft'}
-                            </h3>
-                            
-                            {/* Location (City, Area) */}
-                            <p className="font-body text-sm text-muted-foreground flex items-center gap-1 mb-2">
-                              <MapPin className="w-4 h-4 flex-shrink-0" /> 
-                              <span className="truncate">
-                                {draft.locationCity && draft.locationArea 
-                                  ? `${draft.locationCity}, ${draft.locationArea}`
-                                  : draft.location || 'No location'}
-                              </span>
-                            </p>
-                            
-                            {/* Listing Type / Category */}
-                            {(draft.privacyType || draft.propertyStructure) && (
-                              <div className="mb-2">
-                                <span className="inline-block px-2 py-0.5 text-xs font-medium bg-primary/10 text-primary rounded">
-                                  {draft.privacyType && draft.propertyStructure
-                                    ? `${draft.privacyType} in ${draft.propertyStructure}`
-                                    : draft.privacyType || draft.propertyStructure}
-                                </span>
-                              </div>
-                            )}
-                            
-                            {/* Progress Status / Completion Bar */}
-                            <div className="mb-2">
-                              <div className="flex items-center justify-between mb-1">
-                                <span className="text-xs font-medium text-muted-foreground">Progress</span>
-                                <span className="text-xs font-semibold text-foreground">{draft.progress || 0}%</span>
-                              </div>
-                              <div className="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                                <div 
-                                  className="h-full bg-primary transition-all duration-300 rounded-full"
-                                  style={{ width: `${draft.progress || 0}%` }}
-                                />
-                              </div>
-                            </div>
-                            
-                            {/* Last Edited Date */}
-                            <div className="flex items-center gap-1 mb-3 text-xs text-muted-foreground">
-                              <Clock className="w-3 h-3" />
-                              <span>Last edited {draft.lastModifiedFormatted || 'Unknown'}</span>
-                          </div>
-                            
-                            {/* Action Buttons */}
-                            <div className="flex gap-2 pt-2 border-t border-gray-100">
-                              <button 
-                                className="btn-primary px-3 py-1.5 text-sm font-medium" 
-                                onClick={e => {e.stopPropagation(); handleContinueDraft(draft);}}
-                              >
-                                Continue
-                              </button>
-                              <button 
-                                className="btn-outline px-3 py-1.5 text-sm font-medium" 
-                                onClick={e => {e.stopPropagation(); handleDeleteDraft(draft.id);}}
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
+                    <div className="text-center py-12">
+                      <CalendarIcon className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                      <p className="text-sm text-muted-foreground">No bookings scheduled for today</p>
                     </div>
-                  )
-                )}
+                  )}
+                </div>
+                
+                {/* Upcoming Bookings */}
+                <div className="bg-white rounded-xl shadow p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold text-foreground">Upcoming</h3>
+                    <span className="text-sm text-muted-foreground">({upcomingBookings.length})</span>
+                  </div>
+                  {upcomingBookings.length > 0 ? (
+                    <div className="space-y-3 max-h-96 overflow-y-auto">
+                      {upcomingBookings.slice(0, 5).map((booking) => {
+                        const listing = listings.find(l => l.id === booking.listingId);
+                        return (
+                          <div key={booking.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                            <div className="flex items-start gap-3">
+                              {listing?.mainImage && (
+                                <img
+                                  src={listing.mainImage}
+                                  alt={listing?.title || 'Listing'}
+                                  className="w-16 h-16 object-cover rounded-lg flex-shrink-0"
+                                />
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <h4 className="font-semibold text-foreground text-sm line-clamp-1">
+                                    {listing?.title || `Listing ${booking.listingId}`}
+                                  </h4>
+                                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium flex-shrink-0 ${
+                                    booking.status === 'confirmed' ? 'bg-green-100 text-green-700' :
+                                    booking.status === 'completed' ? 'bg-blue-100 text-blue-700' :
+                                    booking.status === 'cancelled' ? 'bg-red-100 text-red-700' :
+                                    'bg-yellow-100 text-yellow-700'
+                                  }`}>
+                                    {booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-muted-foreground mb-1 line-clamp-1">
+                                  {booking.guestEmail || 'Guest'}
+                                </p>
+                                <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                  <div className="flex items-center gap-1">
+                                    <CalendarIcon className="w-3 h-3" />
+                                    <span>{booking.checkInFormatted} - {booking.checkOutFormatted}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1">
+                                    <Users className="w-3 h-3" />
+                                    <span>{booking.guests || 1}</span>
+                                  </div>
+                                </div>
+                                <div className="mt-2 flex items-center justify-between">
+                                  <span className="text-sm font-bold text-foreground">₱{(booking.totalPrice || 0).toLocaleString()}</span>
+                                  {booking.status === 'pending' && (
+                                    <button
+                                      className="btn-primary px-3 py-1 text-xs font-medium"
+                                      onClick={() => handleUpdateBookingStatus(booking.id, 'confirmed')}
+                                    >
+                                      Confirm
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {upcomingBookings.length > 5 && (
+                        <button
+                          onClick={() => {
+                            setBookingTab('all');
+                            setBookingView('grid');
+                            document.querySelector('[data-bookings-section]')?.scrollIntoView({ behavior: 'smooth' });
+                          }}
+                          className="w-full text-center text-sm text-primary hover:underline py-2"
+                        >
+                          View all {upcomingBookings.length} upcoming bookings →
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-center py-12">
+                      <CalendarIcon className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                      <p className="text-sm text-muted-foreground">No upcoming bookings</p>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
+          );
+        })()}
 
-            {/* Listings Container with Tabs */}
-            <div className="mb-2">
-              <h2 className="text-xl font-bold text-foreground mb-2">Listings</h2>
+        {/* Bookings Container */}
+        {user && bookings.length > 0 && (
+          <div className="max-w-7xl mx-auto px-6 mb-12" data-bookings-section>
+            <div className="mb-2 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-foreground mb-2">Bookings</h2>
+              {/* View Toggle */}
+              <div className="flex items-center gap-2 bg-gray-100 rounded-lg p-1">
+                <button
+                  onClick={() => setBookingView('grid')}
+                  className={`p-2 rounded transition-colors ${
+                    bookingView === 'grid'
+                      ? 'bg-primary text-white'
+                      : 'text-gray-600 hover:bg-gray-200'
+                  }`}
+                  title="Grid view"
+                >
+                  <Grid className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={() => setBookingView('list')}
+                  className={`p-2 rounded transition-colors ${
+                    bookingView === 'list'
+                      ? 'bg-primary text-white'
+                      : 'text-gray-600 hover:bg-gray-200'
+                  }`}
+                  title="List view"
+                >
+                  <List className="w-5 h-5" />
+                </button>
+              </div>
             </div>
             <div className="bg-white rounded-xl shadow p-8">
               <div className="flex items-center justify-between mb-6">
                 <div className="flex gap-8">
-                  {TABS.map(tab => {
-                    let count = tab.key === 'all'
-                      ? listings.length
-                      : listings.filter(l => l.category === tab.key).length;
+                  {[
+                    { key: 'all', label: 'All' },
+                    { key: 'pending', label: 'Pending' },
+                    { key: 'confirmed', label: 'Confirmed' },
+                    { key: 'completed', label: 'Completed' },
+                    { key: 'cancelled', label: 'Cancelled' }
+                  ].map(tab => {
+                    const count = tab.key === 'all'
+                      ? bookings.length
+                      : bookings.filter(b => b.status === tab.key).length;
                     return (
                       <button
                         key={tab.key}
-                        className={`relative pb-2 text-base font-medium border-b-2 transition-colors ${listingTab === tab.key ? 'border-primary text-primary' : 'border-transparent text-gray-700 hover:text-primary'}`}
-                        onClick={() => setListingTab(tab.key)}
+                        className={`relative pb-2 text-base font-medium border-b-2 transition-colors ${bookingTab === tab.key ? 'border-primary text-primary' : 'border-transparent text-gray-700 hover:text-primary'}`}
+                        onClick={() => setBookingTab(tab.key)}
                       >
                         {tab.label} <span className="text-sm text-muted-foreground">({count})</span>
                       </button>
                     );
                   })}
                 </div>
-                <div className="flex items-center gap-2 p-1 bg-muted rounded-lg">
-                  <button onClick={() => setListingView('grid')} className={`p-2 rounded-lg transition-colors ${listingView === 'grid' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}><Grid className="w-5 h-5" /></button>
-                  <button onClick={() => setListingView('list')} className={`p-2 rounded-lg transition-colors ${listingView === 'list' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}><List className="w-5 h-5" /></button>
-                </div>
               </div>
-              <div className="min-h-[260px]">
-                {(listingTab === 'all' ? listings : listings.filter(l => l.category === listingTab)).length === 0 ? (
-                  <div className="text-center py-16">
-                    <HomeIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" strokeWidth={2} />
-                    <div className="text-lg font-medium mb-2">No listings yet.</div>
-                    <div className="text-gray-500 text-center">Start exploring and publish your accommodations, services, and experiences.</div>
-                  </div>
-                ) : (
-                  listingView === 'grid' ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                      {(listingTab === 'all' ? listings : listings.filter(l => l.category === listingTab)).map((listing, idx) => (
-                        <div key={listing.id || idx} className="card-listing cursor-pointer hover-lift">
-                          <div className="relative w-full overflow-hidden rounded-lg aspect-[4/3] bg-gray-100 flex items-center justify-center">
-                            {/* Placeholder image or icon */}
-                            <Camera className="w-12 h-12 text-gray-400" />
+              {bookingView === 'grid' ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {(bookingTab === 'all' ? bookings : bookings.filter(b => b.status === bookingTab)).map((booking) => {
+                    const listing = listings.find(l => l.id === booking.listingId);
+                    
+                    return (
+                      <div key={booking.id} className="card-listing hover-lift border border-gray-200 rounded-lg overflow-hidden">
+                        {/* Image */}
+                        <div className="relative w-full overflow-hidden rounded-t-2xl aspect-[4/3]">
+                          {listing?.mainImage ? (
+                            <img
+                              src={listing.mainImage}
+                              alt={listing?.title || 'Listing'}
+                              className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-gray-200">
+                              <CalendarIcon className="w-12 h-12 text-gray-400" />
+                            </div>
+                          )}
+                          <div className="absolute top-3 right-3">
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                              booking.status === 'confirmed' ? 'bg-green-500 text-white' :
+                              booking.status === 'completed' ? 'bg-blue-500 text-white' :
+                              booking.status === 'cancelled' ? 'bg-red-500 text-white' :
+                              'bg-yellow-500 text-white'
+                            }`}>
+                              {booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}
+                            </span>
                           </div>
-                          <div className="p-6">
-                            <h3 className="font-heading text-xl font-semibold text-foreground">{listing.title || 'Untitled Listing'}</h3>
-                            <p className="font-body text-muted-foreground flex items-center gap-1">
-                              <MapPin className="w-4 h-4" /> {listing.location || 'No location'}
-                            </p>
-                            <div className="flex justify-between mt-2">
-                              <span className="font-heading text-base font-bold text-foreground">{listing.category}</span>
-                              <span className="text-xs text-muted-foreground">Published {listing.publishedAt?.toLocaleString?.() || ''}</span>
+                        </div>
+                        
+                        {/* Content */}
+                        <div className="p-4">
+                          <h3 className="font-heading text-lg font-semibold text-foreground mb-1 line-clamp-1">
+                            {listing?.title || `Listing ${booking.listingId}`}
+                          </h3>
+                          <p className="text-sm text-muted-foreground mb-3 line-clamp-1">
+                            {booking.guestEmail || 'Guest'}
+                          </p>
+                          
+                          <div className="space-y-2 mb-3 text-xs text-gray-600">
+                            <div className="flex items-center gap-2">
+                              <CalendarIcon className="w-3 h-3 text-primary" />
+                              <span>{booking.checkInFormatted} - {booking.checkOutFormatted}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Users className="w-3 h-3 text-primary" />
+                              <span>{booking.guests || 1} guest{(booking.guests || 1) > 1 ? 's' : ''}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Clock className="w-3 h-3 text-primary" />
+                              <span>Booked {booking.createdAtFormatted}</span>
                             </div>
                           </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      {(listingTab === 'all' ? listings : listings.filter(l => l.category === listingTab)).map((listing, idx) => (
-                        <div key={listing.id || idx} className="card-listing hover-lift cursor-pointer flex items-start gap-4 p-4">
-                          <div className="relative flex-shrink-0 w-36 h-36 overflow-hidden rounded-lg bg-gray-100 flex items-center justify-center">
-                            <Camera className="w-12 h-12 text-gray-400" />
+
+                          <div className="flex items-center justify-between pt-3 border-t border-border mb-3">
+                            <div>
+                              <p className="text-xs text-muted-foreground">Total</p>
+                              <p className="text-lg font-bold text-foreground">₱{(booking.totalPrice || 0).toLocaleString()}</p>
+                            </div>
                           </div>
+
+                          {/* Actions */}
+                          {booking.status === 'pending' && (
+                            <div className="flex gap-2">
+                              <button
+                                className="btn-primary flex-1 px-4 py-2 text-sm font-medium"
+                                onClick={() => handleUpdateBookingStatus(booking.id, 'confirmed')}
+                              >
+                                Confirm
+                              </button>
+                              <button
+                                className="btn-outline flex-1 px-4 py-2 text-sm font-medium text-red-600 hover:text-red-700 hover:border-red-300"
+                                onClick={() => handleUpdateBookingStatus(booking.id, 'cancelled')}
+                              >
+                                Decline
+                              </button>
+                            </div>
+                          )}
+                          {booking.status === 'confirmed' && (
+                            <button
+                              className="btn-outline w-full px-4 py-2 text-sm font-medium"
+                              onClick={() => handleUpdateBookingStatus(booking.id, 'completed')}
+                            >
+                              Mark Complete
+                            </button>
+                          )}
+                          {booking.status === 'completed' && (
+                            <span className="text-sm text-green-600 font-medium block text-center">✓ Completed</span>
+                          )}
+                          {booking.status === 'cancelled' && (
+                            <span className="text-sm text-red-600 font-medium block text-center">✕ Cancelled</span>
+                          )}
+                          
+                          {booking.guestId && (
+                            <button
+                              onClick={async () => {
+                                try {
+                                  const conversationId = await startConversationFromHost(
+                                    booking.guestId,
+                                    booking.listingId,
+                                    booking.id
+                                  );
+                                  navigate(`/host/messages?conversation=${conversationId}`);
+                                } catch (error) {
+                                  console.error('Error starting conversation:', error);
+                                }
+                              }}
+                              className="btn-outline w-full px-4 py-2 text-sm font-medium flex items-center justify-center gap-2 mt-2"
+                            >
+                              <MessageSquare className="w-4 h-4" />
+                              Message Guest
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {(bookingTab === 'all' ? bookings : bookings.filter(b => b.status === bookingTab)).map((booking) => {
+                    const listing = listings.find(l => l.id === booking.listingId);
+                    
+                    return (
+                      <div key={booking.id} className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow">
+                        <div className="flex items-start justify-between">
                           <div className="flex-1">
-                            <h3 className="font-heading text-lg font-semibold text-foreground">{listing.title || 'Untitled Listing'}</h3>
-                            <p className="font-body text-muted-foreground">{listing.location || 'No location'}</p>
-                            <span className="text-sm text-muted-foreground">{listing.category}</span>
+                            <div className="flex items-center gap-3 mb-3">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="font-heading text-lg font-semibold text-foreground">
+                                    {booking.guestEmail || 'Guest'}
+                                  </span>
+                                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                    booking.status === 'confirmed' ? 'bg-green-100 text-green-700' :
+                                    booking.status === 'completed' ? 'bg-blue-100 text-blue-700' :
+                                    booking.status === 'cancelled' ? 'bg-red-100 text-red-700' :
+                                    'bg-yellow-100 text-yellow-700'
+                                  }`}>
+                                    {booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}
+                                  </span>
+                                </div>
+                                <p className="text-sm text-muted-foreground mb-2">
+                                  Listing: {listing?.title || `Listing ${booking.listingId}`}
+                                </p>
+                                <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                                  <div className="flex items-center gap-1">
+                                    <CalendarIcon className="w-4 h-4" />
+                                    <span>{booking.checkInFormatted} - {booking.checkOutFormatted}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1">
+                                    <Users className="w-4 h-4" />
+                                    <span>{booking.guests || 1} guest{(booking.guests || 1) > 1 ? 's' : ''}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1">
+                                    <Clock className="w-4 h-4" />
+                                    <span>Booked {booking.createdAtFormatted}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="mt-3 pt-3 border-t border-gray-100">
+                              <div className="flex items-center justify-between mb-3">
+                                <span className="text-sm text-muted-foreground">Total Price:</span>
+                                <span className="font-heading text-xl font-bold text-foreground">
+                                  ₱{(booking.totalPrice || 0).toLocaleString()}
+                                </span>
+                              </div>
+                              {booking.guestId && (
+                                <button
+                                  onClick={async () => {
+                                    try {
+                                      const conversationId = await startConversationFromHost(
+                                        booking.guestId,
+                                        booking.listingId,
+                                        booking.id
+                                      );
+                                      navigate(`/host/messages?conversation=${conversationId}`);
+                                    } catch (error) {
+                                      console.error('Error starting conversation:', error);
+                                    }
+                                  }}
+                                  className="btn-outline px-4 py-2 text-sm font-medium flex items-center gap-2 mt-2 w-full"
+                                >
+                                  <MessageSquare className="w-4 h-4" />
+                                  Message Guest
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                          <div className="ml-4 flex flex-col gap-2">
+                            {booking.status === 'pending' && (
+                              <>
+                                <button
+                                  className="btn-primary px-4 py-2 text-sm font-medium"
+                                  onClick={() => handleUpdateBookingStatus(booking.id, 'confirmed')}
+                                >
+                                  Confirm
+                                </button>
+                                <button
+                                  className="btn-outline px-4 py-2 text-sm font-medium text-red-600 hover:text-red-700 hover:border-red-300"
+                                  onClick={() => handleUpdateBookingStatus(booking.id, 'cancelled')}
+                                >
+                                  Decline
+                                </button>
+                              </>
+                            )}
+                            {booking.status === 'confirmed' && (
+                              <button
+                                className="btn-outline px-4 py-2 text-sm font-medium"
+                                onClick={() => handleUpdateBookingStatus(booking.id, 'completed')}
+                              >
+                                Mark Complete
+                              </button>
+                            )}
+                            {booking.status === 'completed' && (
+                              <span className="text-sm text-green-600 font-medium">✓ Completed</span>
+                            )}
+                            {booking.status === 'cancelled' && (
+                              <span className="text-sm text-red-600 font-medium">✕ Cancelled</span>
+                            )}
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  )
-                )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Empty state for bookings */}
+        {user && bookings.length === 0 && !loading && (
+          <div className="max-w-7xl mx-auto px-6 mb-12">
+            <div className="bg-white rounded-xl shadow p-8">
+              <div className="text-center py-16">
+                <CalendarIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" strokeWidth={2} />
+                <div className="text-lg font-medium mb-2">No bookings yet.</div>
+                <div className="text-gray-500 text-center">When guests book your listings, they will appear here.</div>
               </div>
             </div>
           </div>
@@ -656,6 +1441,35 @@ const HostDashboard = () => {
       </div>
 
       <Footer />
+
+      {/* Unpublish Confirmation Modal */}
+      <AlertDialog open={unpublishModalOpen} onOpenChange={setUnpublishModalOpen}>
+        <AlertDialogContent className="bg-white">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-gray-900">Unpublish Listing</AlertDialogTitle>
+            <AlertDialogDescription className="text-gray-600">
+              Are you sure you want to unpublish this listing? It will be moved to the Unpublished Listings section and can be republished at any time.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2">
+            <AlertDialogCancel 
+              onClick={() => {
+                setUnpublishModalOpen(false);
+                setListingToUnpublish(null);
+              }}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmUnpublishListing}
+              className="bg-red-600 hover:bg-red-700 focus:ring-red-600 text-white"
+            >
+              Unpublish
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
     {/* HostTypeModal for choosing category before starting new listing */}
     <OnboardingProvider>
       <HostTypeModal

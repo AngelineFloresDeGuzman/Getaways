@@ -1,10 +1,13 @@
 import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Search, MapPin, Calendar, Users } from "lucide-react";
 import heroVideo from "@/assets/hero-background.mp4";
 import { ChevronDown } from "lucide-react";
 
 const Hero = ({ darkMode }) => {
+    const navigate = useNavigate();
     const [searchData, setSearchData] = useState({
+        category: "accommodation", // "accommodation" | "experience" | "service"
         location: "",
         checkIn: "",
         checkOut: "",
@@ -22,8 +25,29 @@ const Hero = ({ darkMode }) => {
 
     const [showSuggestions, setShowSuggestions] = useState(false);
 
-    // TODO: This will be populated dynamically from API/database
-    const destinations = [];
+    // Popular destinations list
+    const destinations = [
+        "Manila, Philippines",
+        "Cebu, Philippines",
+        "Boracay, Philippines",
+        "Palawan, Philippines",
+        "Davao, Philippines",
+        "Baguio, Philippines",
+        "Tagaytay, Philippines",
+        "Siargao, Philippines",
+        "Bohol, Philippines",
+        "Batanes, Philippines",
+        "Tokyo, Japan",
+        "Bangkok, Thailand",
+        "Singapore",
+        "Bali, Indonesia",
+        "Seoul, South Korea",
+        "Hong Kong",
+        "Dubai, UAE",
+        "Paris, France",
+        "New York, USA",
+        "London, UK"
+    ];
 
     // ✅ Dynamically generate the next 18 months
     const generateMonths = (count = 18) => {
@@ -46,8 +70,58 @@ const Hero = ({ darkMode }) => {
     const flexibleOptions = ["Weekend", "Week", "Month"];
 
     const handleSearch = () => {
-        console.log("Searching with:", searchData);
-        // TODO: Implement search functionality
+        // Build search params
+        const params = new URLSearchParams();
+        
+        if (searchData.location) {
+            params.set('location', searchData.location);
+        }
+        if (searchData.checkIn) {
+            params.set('checkIn', searchData.checkIn);
+        }
+        if (searchData.checkOut) {
+            params.set('checkOut', searchData.checkOut);
+        }
+        if (searchData.mode === 'months') {
+            if (searchData.monthFrom) {
+                params.set('monthFrom', searchData.monthFrom);
+            }
+            if (searchData.monthTo) {
+                params.set('monthTo', searchData.monthTo);
+            }
+        }
+        if (searchData.mode === 'flexible') {
+            if (searchData.flexibleOption) {
+                params.set('flexibleOption', searchData.flexibleOption);
+            }
+            if (searchData.flexibleMonth) {
+                params.set('flexibleMonth', searchData.flexibleMonth);
+            }
+        }
+        
+        // Calculate total guests from adults, children, infants, pets
+        const totalGuests = (searchData.adults || 0) + (searchData.children || 0) + (searchData.infants || 0) + (searchData.pets || 0);
+        if (totalGuests > 0) {
+            params.set('guests', totalGuests.toString());
+        } else if (searchData.guests && searchData.guests !== '1') {
+            params.set('guests', searchData.guests);
+        }
+        
+        // Add guest breakdown if available
+        if (searchData.adults > 0) params.set('adults', searchData.adults.toString());
+        if (searchData.children > 0) params.set('children', searchData.children.toString());
+        if (searchData.infants > 0) params.set('infants', searchData.infants.toString());
+        if (searchData.pets > 0) params.set('pets', searchData.pets.toString());
+        
+        // Navigate to the appropriate category page based on selection
+        const categoryRoutes = {
+            'accommodation': '/accommodations',
+            'experience': '/experiences',
+            'service': '/services'
+        };
+        
+        const route = categoryRoutes[searchData.category] || '/accommodations';
+        navigate(`${route}?${params.toString()}`);
     };
 
     return (
@@ -88,6 +162,34 @@ const Hero = ({ darkMode }) => {
                     </h2>
 
                     <div className="space-y-5">
+                        {/* Category Selector */}
+                        <div>
+                            <label className={`font-body text-sm font-semibold mb-2 flex items-center gap-2 ${darkMode ? "text-white" : "text-gray-700"}`}>
+                                Search Type
+                            </label>
+                            <div className="grid grid-cols-3 gap-2">
+                                {[
+                                    { value: 'accommodation', label: 'Stays' },
+                                    { value: 'experience', label: 'Experiences' },
+                                    { value: 'service', label: 'Services' }
+                                ].map((cat) => (
+                                    <button
+                                        key={cat.value}
+                                        onClick={() => setSearchData({ ...searchData, category: cat.value })}
+                                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                                            searchData.category === cat.value
+                                                ? 'bg-primary text-white'
+                                                : darkMode
+                                                    ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                                                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                        }`}
+                                    >
+                                        {cat.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
                         {/* Location with Suggestions */}
                         <div className="relative">
                             <label
@@ -111,7 +213,9 @@ const Hero = ({ darkMode }) => {
 
                             {/* Suggestions Dropdown */}
                             {showSuggestions && destinations.length > 0 && (
-                                <ul className="absolute left-0 right-0 mt-2 bg-white border border-gray-200 rounded-xl shadow-lg z-20 max-h-60 overflow-y-auto">
+                                <ul className={`absolute left-0 right-0 mt-2 border rounded-xl shadow-lg z-20 max-h-60 overflow-y-auto ${
+                                    darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
+                                }`}>
                                     <li className="px-4 py-2 text-sm font-semibold text-gray-600 uppercase tracking-wider bg-gray-50 border-b border-gray-200">
                                         Suggested Destinations
                                     </li>

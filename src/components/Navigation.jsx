@@ -24,13 +24,19 @@ const getRoleSwitchButton = (currentUser, userRoles, isOnHostPages, hasMultipleR
     if (isOnHostPages) {
       return {
         text: "Switch to Traveler",
-        action: () => navigate('/'),
+        action: () => {
+          sessionStorage.setItem('lastActiveMode', 'guest');
+          navigate('/');
+        },
         icon: <Mountain className="w-4 h-4" />
       };
     } else {
       return {
         text: "Switch to Host",
-        action: () => navigate('/host/hostdashboard'),
+        action: () => {
+          sessionStorage.setItem('lastActiveMode', 'host');
+          navigate('/host/hostdashboard');
+        },
         icon: <Home className="w-4 h-4" />
       };
     }
@@ -51,6 +57,7 @@ const Navigation = () => {
   const [userRoles, setUserRoles] = useState([]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [showHostModal, setShowHostModal] = useState(false);
+  const [activeMode, setActiveMode] = useState(null); // Track current active mode: 'guest' | 'host' | null
   const location = useLocation();
   const navigate = useNavigate();
   const { darkMode, setDarkMode } = useTheme();
@@ -59,19 +66,119 @@ const Navigation = () => {
 
 
   // Compute role/route state for role switch button
-  const isOnHostPages = location.pathname.includes('/host/') || 
+  // Check if path is a host-specific page OR if user has host role and is on shared host pages
+  // This ensures hosts accessing shared pages from host menu see host navigation
+  
+  // First determine user roles (needed for isOnHostPages calculation)
+  const hasMultipleRoles = userRoles.includes('guest') && userRoles.includes('host');
+  const hasHostRole = userRoles.includes('host');
+  
+  // These are pages that should always show host navigation when accessed by hosts
+  const hostMenuPaths = [
+    '/host/resources',
+    '/find-cohost',
+    '/refer',
+    '/languages',
+    '/help'
+  ];
+  
+  // Shared pages that can be accessed by both guests and hosts
+  // They should show appropriate nav based on user role
+  const sharedPages = ['/accountsettings'];
+  
+  const isHostSpecificPath = 
+    location.pathname.includes('/host/') || 
     location.pathname.includes('/hostdashboard') ||
     location.pathname.includes('/pages/property') ||
     location.pathname.includes('/pages/onboarding') ||
+    hostMenuPaths.some(path => location.pathname === path || location.pathname.startsWith(path)) ||
     (location.pathname.startsWith('/pages/') && (
       location.pathname.includes('property') ||
       location.pathname.includes('amenities') ||
       location.pathname.includes('photos') ||
       location.pathname.includes('pricing') ||
-      location.pathname.includes('description')
+      location.pathname.includes('description') ||
+      location.pathname.includes('hostingsteps') ||
+      location.pathname.includes('location') ||
+      location.pathname.includes('booking')
     ));
-  const hasMultipleRoles = userRoles.includes('guest') && userRoles.includes('host');
-  const hasHostRole = userRoles.includes('host');
+  
+  // Check if current path is a shared page
+  const isSharedPage = sharedPages.some(path => location.pathname === path || location.pathname.startsWith(path));
+  
+  // For users with both roles, we need to detect the "current mode" based on context
+  // Rules:
+  // 1. Host-specific paths → ALWAYS host nav (if user has host role)
+  // 2. Shared pages (like /accountsettings) → DEFAULT to guest nav unless on host menu path
+  // 3. Users without host role → ALWAYS guest nav
+  
+  const isOnSharedPage = isSharedPage;
+  const isOnSharedHostMenuPath = hostMenuPaths.some(path => location.pathname === path || location.pathname.startsWith(path));
+  
+  // Track active mode based on current path
+  // This determines which "context" the user is in (host vs guest)
+  useEffect(() => {
+    if (!hasMultipleRoles) {
+      // For single-role users, mode is determined by role
+      if (hasHostRole) {
+        setActiveMode('host');
+      } else {
+        setActiveMode('guest');
+      }
+    } else {
+      // For users with both roles, determine mode based on current path
+      if (isHostSpecificPath || isOnSharedHostMenuPath) {
+        setActiveMode('host');
+      } else if (isSharedPage) {
+        // For shared pages, maintain the last known mode if available
+        // Otherwise default to guest
+        const lastMode = sessionStorage.getItem('lastActiveMode');
+        setActiveMode(lastMode === 'host' || lastMode === 'guest' ? lastMode : 'guest');
+      } else {
+        // Guest pages default to guest mode
+        setActiveMode('guest');
+        sessionStorage.setItem('lastActiveMode', 'guest');
+      }
+    }
+  }, [location.pathname, hasMultipleRoles, hasHostRole, isHostSpecificPath, isOnSharedHostMenuPath, isSharedPage]);
+  
+  // Save mode to sessionStorage when on host-specific paths
+  useEffect(() => {
+    if (isHostSpecificPath || isOnSharedHostMenuPath) {
+      sessionStorage.setItem('lastActiveMode', 'host');
+    } else if (!isSharedPage) {
+      sessionStorage.setItem('lastActiveMode', 'guest');
+    }
+  }, [location.pathname, isHostSpecificPath, isOnSharedHostMenuPath, isSharedPage]);
+  
+  // Determine if we're in "host mode"
+  // For users with both roles: Use activeMode to determine context
+  // For single-role users: Use path-based logic
+  const isOnHostPages = hasMultipleRoles
+    ? (activeMode === 'host')
+    : (isHostSpecificPath || (hasHostRole && isOnSharedHostMenuPath));
+  
+  // Final decision: Show host nav only if user has host role AND we're in host mode
+  const shouldShowHostNav = hasHostRole && isOnHostPages;
+  
+  // Debug: Log to help diagnose navigation issues
+  useEffect(() => {
+    if (location.pathname === '/accountsettings') {
+      console.log('🔍 Account Settings Nav Debug:', { 
+        pathname: location.pathname, 
+        hasHostRole, 
+        hasMultipleRoles,
+        activeMode,
+        isHostSpecificPath, 
+        isSharedPage, 
+        isOnHostPages,
+        shouldShowHostNav,
+        lastActiveMode: sessionStorage.getItem('lastActiveMode'),
+        userRoles,
+        userRolesString: JSON.stringify(userRoles)
+      });
+    }
+  }, [location.pathname, hasHostRole, hasMultipleRoles, activeMode, isHostSpecificPath, isSharedPage, isOnHostPages, shouldShowHostNav, userRoles]);
 
   // For smooth role switch button transitions
   const [roleSwitchButtonState, setRoleSwitchButtonState] = useState(() => getRoleSwitchButton(
@@ -94,12 +201,23 @@ const Navigation = () => {
           const userDoc = await getDoc(userDocRef);
           if (userDoc.exists()) {
             const userData = userDoc.data();
-            const roles = userData.roles || [userData.role]; // Handle both old and new role structure
+            let roles = userData.roles || [userData.role]; // Handle both old and new role structure
+            // Ensure roles is always an array
+            if (!Array.isArray(roles)) {
+              roles = roles ? [roles] : ['guest']; // Default to guest if no role specified
+            }
+            // If roles array is empty, default to guest
+            if (roles.length === 0) {
+              roles = ['guest'];
+            }
             setUserRoles(roles);
+          } else {
+            // If user doc doesn't exist, default to guest
+            setUserRoles(['guest']);
           }
         } catch (error) {
           console.error("Error fetching user roles:", error);
-          setUserRoles([]);
+          setUserRoles(['guest']); // Default to guest on error
         }
         // If login just completed from modal, show HostTypeModal
         if (pendingShowHostModal) {
@@ -147,8 +265,12 @@ const Navigation = () => {
 
   const roleSwitchButton = roleSwitchButtonState;
 
-  // Smooth scroll to top on route change
+  // Smooth scroll to top on route change (except for messages pages which handle their own scrolling)
   useEffect(() => {
+    // Don't auto-scroll on messages pages - they handle their own scroll behavior
+    if (location.pathname === '/messages' || location.pathname === '/host/messages') {
+      return;
+    }
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [location.pathname]);
 
@@ -161,7 +283,10 @@ const Navigation = () => {
       >
         <div className="flex items-center justify-between px-8 py-3">
           {/* Logo */}
-          <Link to="/" className="flex items-center gap-2 flex-shrink-0">
+          <Link 
+            to={shouldShowHostNav ? "/host/hostdashboard" : "/"} 
+            className="flex items-center gap-2 flex-shrink-0"
+          >
             <img src="/logo.jpg" alt="Getaways Logo" className="w-8 h-8" />
             <span
               className={`font-heading text-xl font-bold transition-colors ${
@@ -174,7 +299,7 @@ const Navigation = () => {
 
           {/* Tabs */}
           <div className="hidden md:flex items-center space-x-8">
-            {isOnHostPages && hasHostRole ? (
+            {shouldShowHostNav ? (
               // Host Navigation
               <>
                 <Link
@@ -341,7 +466,7 @@ const Navigation = () => {
                 >
                   {currentUser ? (
                     <>
-                      {isOnHostPages && hasHostRole ? (
+                      {shouldShowHostNav ? (
                         // Host Menu
                         <>
                           {/* Role switching for mobile */}
@@ -361,10 +486,6 @@ const Navigation = () => {
                             </>
                           )}
                           
-                          <Link to="/host/wishlists" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
-                            <Sparkles className="w-5 h-5" />
-                            Wishlists
-                          </Link>
                           <Link to="/accountsettings" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
                             <Settings className="w-5 h-5" />
                             Account settings
@@ -428,7 +549,6 @@ const Navigation = () => {
                           <Link to="/favorites" onClick={() => setMenuOpen(false)} className="block px-4 py-2 hover:bg-muted">Favorites</Link>
                           <Link to="/bookings" onClick={() => setMenuOpen(false)} className="block px-4 py-2 hover:bg-muted">Bookings</Link>
                           <Link to="/messages" onClick={() => setMenuOpen(false)} className="block px-4 py-2 hover:bg-muted">Messages</Link>
-                          <Link to="/profile" onClick={() => setMenuOpen(false)} className="block px-4 py-2 hover:bg-muted">Profile</Link>
                           <Link to="/notifications" onClick={() => setMenuOpen(false)} className="block px-4 py-2 hover:bg-muted">Notifications</Link>
                           <Link to="/accountsettings" onClick={() => setMenuOpen(false)} className="block px-4 py-2 hover:bg-muted">Account settings</Link>
                           <Link to="/languages" onClick={() => setMenuOpen(false)} className="block px-4 py-2 hover:bg-muted">Languages & currency</Link>

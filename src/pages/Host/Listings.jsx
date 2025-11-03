@@ -1,0 +1,1213 @@
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import Navigation from '@/components/Navigation';
+import Footer from '@/components/Footer';
+import { toast } from '@/components/ui/sonner';
+import { auth, db } from '@/lib/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
+import { doc, getDoc, collection, query, where, getDocs, orderBy, addDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import {
+  Home as HomeIcon, MapPin, Camera, Edit, EyeOff, Clock,
+  Grid, List, Plus, Trash2, Users
+} from 'lucide-react';
+import { getUserDrafts, deleteDraft } from '@/pages/Host/services/draftService';
+import { deleteDoc } from 'firebase/firestore';
+import HostTypeModal from '@/components/HostTypeModal';
+import { OnboardingProvider } from '@/pages/Host/contexts/OnboardingContext';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+
+const TABS = [
+  { key: 'all', label: 'All' },
+  { key: 'accommodation', label: 'Accommodations' },
+  { key: 'experience', label: 'Experiences' },
+  { key: 'service', label: 'Services' },
+];
+
+const HostListings = () => {
+  const navigate = useNavigate();
+  const [listings, setListings] = useState([]);
+  const [drafts, setDrafts] = useState([]);
+  const [unpublishedListings, setUnpublishedListings] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState(null);
+  const [listingTab, setListingTab] = useState('all');
+  const [draftTab, setDraftTab] = useState('all');
+  const [unpublishedTab, setUnpublishedTab] = useState('all');
+  const [listingView, setListingView] = useState('grid');
+  const [draftView, setDraftView] = useState('grid');
+  const [showHostTypeModal, setShowHostTypeModal] = useState(false);
+  const [forceHostTypeSelection, setForceHostTypeSelection] = useState(false);
+  const [unpublishModalOpen, setUnpublishModalOpen] = useState(false);
+  const [listingToUnpublish, setListingToUnpublish] = useState(null);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setUser(user);
+      if (user) {
+        loadDrafts();
+        loadListings();
+        loadUnpublishedListings();
+      } else {
+        setListings([]);
+        setDrafts([]);
+        setUnpublishedListings([]);
+        setLoading(false);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const loadListings = async () => {
+    try {
+      if (!auth.currentUser) {
+        setLoading(false);
+        return;
+      }
+
+      console.log('📦 Listings: Loading published listings...');
+
+      const listingsRef = collection(db, 'listings');
+      
+      let querySnapshot;
+      try {
+        const q = query(
+          listingsRef,
+          where('ownerId', '==', auth.currentUser.uid),
+          where('status', '==', 'active'),
+          orderBy('publishedAt', 'desc')
+        );
+        querySnapshot = await getDocs(q);
+      } catch (indexError) {
+        console.warn('⚠️ Index error, trying without orderBy:', indexError.message);
+        try {
+          const q = query(
+            listingsRef,
+            where('ownerId', '==', auth.currentUser.uid),
+            where('status', '==', 'active')
+          );
+          querySnapshot = await getDocs(q);
+        } catch (indexError2) {
+          console.warn('⚠️ Index error for status filter, querying by ownerId only:', indexError2.message);
+          const q = query(
+            listingsRef,
+            where('ownerId', '==', auth.currentUser.uid)
+          );
+          querySnapshot = await getDocs(q);
+        }
+      }
+
+      const allListingsData = querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        const locationData = data.locationData || {};
+        const photosData = data.photos || [];
+        const firstPhoto = photosData[0];
+
+        return {
+          id: doc.id,
+          ...data,
+          locationDisplay: data.location || 
+            (locationData.city && locationData.province 
+              ? `${locationData.city}, ${locationData.province}`
+              : locationData.city || locationData.country || 'No location'),
+          locationCity: locationData.city || '',
+          locationArea: locationData.province || locationData.country || '',
+          mainImage: (() => {
+            if (firstPhoto?.base64) return firstPhoto.base64;
+            if (firstPhoto?.url) return firstPhoto.url;
+            if (data.image) return data.image;
+            return null;
+          })(),
+          publishedDate: data.publishedAt?.toDate ? data.publishedAt.toDate().toLocaleDateString() : 'Unknown',
+          publishedAt: data.publishedAt
+        };
+      });
+
+      const listingsData = allListingsData.filter(listing => listing.status === 'active');
+
+      listingsData.sort((a, b) => {
+        const aDate = a.publishedAt?.toDate ? a.publishedAt.toDate() : new Date(0);
+        const bDate = b.publishedAt?.toDate ? b.publishedAt.toDate() : new Date(0);
+        return bDate - aDate;
+      });
+
+      setListings(listingsData);
+      setLoading(false);
+    } catch (error) {
+      console.error('❌ Error loading listings:', error);
+      setListings([]);
+      setLoading(false);
+    }
+  };
+
+  // Calculate progress percentage based on current step
+  const calculateProgress = (currentStep) => {
+    const stepOrder = [
+      'hostingsteps', 'propertydetails', 'propertystructure', 'privacytype', 'location',
+      'locationconfirmation', 'propertybasics', 'makeitstandout', 'amenities',
+      'photos', 'titledescription', 'description',
+      'descriptiondetails', 'finishsetup', 'bookingsettings', 'guestselection',
+      'pricing', 'weekendpricing', 'discounts', 'safetydetails', 'finaldetails'
+    ];
+
+    const currentIndex = stepOrder.indexOf(currentStep);
+    if (currentIndex === -1) return 0;
+    return Math.round(((currentIndex + 1) / stepOrder.length) * 100);
+  };
+
+  const loadDrafts = async () => {
+    try {
+      const userDrafts = await getUserDrafts();
+      
+      const transformedDrafts = userDrafts.map(draft => {
+        const data = draft.data || {};
+        const title = data.title || draft.title || 'Untitled Draft';
+        const locationData = data.locationData || {};
+        let location = 'No location';
+        let locationCity = '';
+        let locationArea = '';
+        
+        if (locationData && typeof locationData === 'object') {
+          if (locationData.city && locationData.province) {
+            location = `${locationData.city}, ${locationData.province}`;
+            locationCity = locationData.city;
+            locationArea = locationData.province;
+          } else if (locationData.city) {
+            location = locationData.city;
+            locationCity = locationData.city;
+          } else if (locationData.country) {
+            location = locationData.country;
+            locationArea = locationData.country;
+          }
+        }
+        
+        const photos = Array.isArray(data.photos) ? data.photos : [];
+        const mainImage = photos.length > 0 && photos[0] && (photos[0].base64 || photos[0].url)
+          ? (photos[0].base64 || photos[0].url)
+          : null;
+        
+        const propertyBasics = data.propertyBasics || {};
+        const privacyType = data.privacyType || null;
+        const propertyStructure = data.propertyStructure || null;
+        const currentStep = draft.currentStep || 'hostingsteps';
+        const progress = calculateProgress(currentStep);
+        
+        let lastModifiedFormatted = '';
+        if (draft.lastModified) {
+          try {
+            const lastModifiedDate = draft.lastModified?.toDate 
+              ? draft.lastModified.toDate() 
+              : (draft.lastModified instanceof Date 
+                  ? draft.lastModified 
+                  : new Date(draft.lastModified));
+            
+            const now = new Date();
+            const diffMs = now - lastModifiedDate;
+            const diffSeconds = Math.floor(diffMs / 1000);
+            const diffMinutes = Math.floor(diffSeconds / 60);
+            const diffHours = Math.floor(diffMinutes / 60);
+            
+            if (diffHours < 24) {
+              if (diffSeconds < 60) {
+                lastModifiedFormatted = `${diffSeconds} ${diffSeconds === 1 ? 'second' : 'seconds'} ago`;
+              } else if (diffMinutes < 60) {
+                lastModifiedFormatted = `${diffMinutes} ${diffMinutes === 1 ? 'minute' : 'minutes'} ago`;
+              } else {
+                const hours = diffHours;
+                const remainingMinutes = diffMinutes % 60;
+                if (remainingMinutes > 0) {
+                  lastModifiedFormatted = `${hours}:${String(remainingMinutes).padStart(2, '0')} hours ago`;
+                } else {
+                  lastModifiedFormatted = `${hours} ${hours === 1 ? 'hour' : 'hours'} ago`;
+                }
+              }
+            } else {
+              lastModifiedFormatted = lastModifiedDate.toLocaleString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true
+              });
+            }
+          } catch (dateError) {
+            lastModifiedFormatted = 'Unknown';
+          }
+        }
+        
+        return {
+          ...draft,
+          title,
+          location,
+          locationCity,
+          locationArea,
+          mainImage,
+          privacyType,
+          propertyStructure,
+          progress,
+          lastModifiedFormatted,
+        };
+      });
+      
+      const unpublishedDrafts = transformedDrafts.filter(draft => !draft.published);
+      setDrafts(unpublishedDrafts);
+    } catch (error) {
+      console.error('❌ Error loading drafts:', error);
+      setDrafts([]);
+    }
+  };
+
+  const loadUnpublishedListings = async () => {
+    try {
+      if (!auth.currentUser) return;
+      
+      const listingsRef = collection(db, 'listings');
+      let querySnapshot;
+      
+      try {
+        const q = query(
+          listingsRef,
+          where('ownerId', '==', auth.currentUser.uid),
+          where('status', '==', 'inactive'),
+          orderBy('updatedAt', 'desc')
+        );
+        querySnapshot = await getDocs(q);
+      } catch (indexError) {
+        try {
+          const q = query(
+            listingsRef,
+            where('ownerId', '==', auth.currentUser.uid),
+            where('status', '==', 'inactive')
+          );
+          querySnapshot = await getDocs(q);
+        } catch (indexError2) {
+          const q = query(
+            listingsRef,
+            where('ownerId', '==', auth.currentUser.uid)
+          );
+          querySnapshot = await getDocs(q);
+        }
+      }
+      
+      const allListingsData = querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        const locationData = data.locationData || {};
+        const photosData = data.photos || [];
+        
+        return {
+          id: doc.id,
+          ...data,
+          locationDisplay: data.location || 
+            (locationData.city && locationData.province 
+              ? `${locationData.city}, ${locationData.province}`
+              : locationData.city || locationData.country || 'No location'),
+          locationCity: locationData.city || '',
+          locationArea: locationData.province || locationData.country || '',
+          mainImage: (() => {
+            const firstPhoto = photosData[0];
+            if (firstPhoto?.base64) return firstPhoto.base64;
+            if (firstPhoto?.url) return firstPhoto.url;
+            if (data.image) return data.image;
+            return null;
+          })(),
+          unpublishedDate: data.updatedAt?.toDate ? data.updatedAt.toDate().toLocaleDateString() : 'Unknown',
+          updatedAt: data.updatedAt
+        };
+      });
+      
+      const unpublishedData = allListingsData.filter(listing => listing.status === 'inactive');
+      
+      if (unpublishedData.length > 0) {
+        unpublishedData.sort((a, b) => {
+          const aDate = a.updatedAt?.toDate ? a.updatedAt.toDate() : new Date(0);
+          const bDate = b.updatedAt?.toDate ? b.updatedAt.toDate() : new Date(0);
+          return bDate - aDate;
+        });
+      }
+      
+      setUnpublishedListings(unpublishedData);
+    } catch (error) {
+      console.error('❌ Error loading unpublished listings:', error);
+      setUnpublishedListings([]);
+    }
+  };
+
+  const handleEditListing = async (listing) => {
+    try {
+      if (!auth.currentUser) {
+        alert('You must be logged in to edit listings');
+        return;
+      }
+
+      const draftsCollection = collection(db, 'onboardingDrafts');
+      let draftId = null;
+      let existingDraft = null;
+
+      // Check if there's already a draft for this listing
+      const draftsQuery = query(
+        draftsCollection,
+        where('userId', '==', auth.currentUser.uid),
+        where('publishedListingId', '==', listing.id),
+        where('status', '==', 'draft')
+      );
+      const draftsSnapshot = await getDocs(draftsQuery);
+
+      if (!draftsSnapshot.empty) {
+        existingDraft = { id: draftsSnapshot.docs[0].id, ...draftsSnapshot.docs[0].data() };
+        draftId = existingDraft.id;
+        console.log('📝 Found existing draft for editing:', draftId);
+      } else {
+        // Get the listing data from Firestore
+        const listingRef = doc(db, 'listings', listing.id);
+        const listingSnap = await getDoc(listingRef);
+
+        if (!listingSnap.exists()) {
+          alert('Listing not found');
+          return;
+        }
+
+        const listingData = listingSnap.data();
+        
+        const draftDataObject = {
+          title: listingData.title || '',
+          description: listingData.description || '',
+          category: listingData.category || 'accommodation',
+          price: listingData.price || 0,
+          location: listingData.location || '',
+          locationData: listingData.locationData || {},
+          photos: listingData.photos || [],
+          propertyBasics: listingData.propertyBasics || {},
+          amenities: listingData.amenities || [],
+          descriptionHighlights: listingData.descriptionHighlights || [],
+          privacyType: listingData.privacyType || '',
+          propertyStructure: listingData.propertyStructure || '',
+        };
+
+        if (listingData.bathroomTypes !== undefined && listingData.bathroomTypes !== null) {
+          draftDataObject.bathroomTypes = listingData.bathroomTypes;
+        }
+        if (listingData.occupancy !== undefined && listingData.occupancy !== null) {
+          draftDataObject.occupancy = listingData.occupancy;
+        }
+
+        Object.keys(draftDataObject).forEach(key => {
+          if (draftDataObject[key] === undefined) {
+            delete draftDataObject[key];
+          }
+        });
+
+        const draftData = {
+          userId: auth.currentUser.uid,
+          userEmail: auth.currentUser.email,
+          category: listingData.category || 'accommodation',
+          status: 'draft',
+          currentStep: 'finaldetails',
+          lastModified: serverTimestamp(),
+          createdAt: serverTimestamp(),
+          publishedListingId: listing.id,
+          published: false,
+          data: draftDataObject
+        };
+
+        const draftRef = await addDoc(draftsCollection, draftData);
+        draftId = draftRef.id;
+        console.log('✅ Created draft for editing:', draftId);
+      }
+
+      await loadListings();
+
+      navigate('/pages/finaldetails', { 
+        state: { 
+          draftId: draftId, 
+          listingId: listing.id, 
+          isEditMode: true 
+        } 
+      });
+    } catch (error) {
+      console.error('❌ Error preparing draft for editing:', error);
+      alert('Failed to edit listing. Please try again.');
+    }
+  };
+
+  const handleUnpublishListing = (listing, e) => {
+    e.stopPropagation();
+    setListingToUnpublish(listing);
+    setUnpublishModalOpen(true);
+  };
+
+  const confirmUnpublishListing = async () => {
+    if (!listingToUnpublish || !auth.currentUser) {
+      setUnpublishModalOpen(false);
+      return;
+    }
+
+    try {
+      const listingRef = doc(db, 'listings', listingToUnpublish.id);
+      await updateDoc(listingRef, {
+        status: 'inactive',
+        updatedAt: serverTimestamp()
+      });
+
+      toast.success('Listing unpublished successfully');
+      await loadListings();
+      setUnpublishModalOpen(false);
+      setListingToUnpublish(null);
+    } catch (error) {
+      console.error('❌ Error unpublishing listing:', error);
+      toast.error('Failed to unpublish listing');
+      setUnpublishModalOpen(false);
+      setListingToUnpublish(null);
+    }
+  };
+
+  const handleContinueDraft = (draft) => {
+    const stepRoutes = {
+      'hostingsteps': '/pages/hostingsteps',
+      'propertydetails': '/pages/propertydetails',
+      'propertystructure': '/pages/propertystructure',
+      'privacytype': '/pages/privacytype',
+      'location': '/pages/location',
+      'locationconfirmation': '/pages/locationconfirmation',
+      'propertybasics': '/pages/propertybasics',
+      'makeitstandout': '/pages/makeitstandout',
+      'amenities': '/pages/amenities',
+      'photos': '/pages/photos',
+      'titledescription': '/pages/titledescription',
+      'description': '/pages/description',
+      'descriptiondetails': '/pages/descriptiondetails',
+      'finishsetup': '/pages/finishsetup',
+      'bookingsettings': '/pages/bookingsettings',
+      'guestselection': '/pages/guestselection',
+      'pricing': '/pages/pricing',
+      'weekendpricing': '/pages/weekendpricing',
+      'discounts': '/pages/discounts',
+      'safetydetails': '/pages/safetydetails',
+      'finaldetails': '/pages/finaldetails'
+    };
+    const route = stepRoutes[draft.currentStep] || '/pages/propertydetails';
+    navigate(route, { state: { draftId: draft.id } });
+  };
+
+  const handleDeleteDraft = async (draftId) => {
+    if (!window.confirm('Are you sure you want to delete this draft?')) return;
+    try {
+      await deleteDraft(draftId);
+      await loadDrafts();
+      toast.success('Draft deleted successfully');
+    } catch (error) {
+      console.error('Error deleting draft:', error);
+      toast.error('Failed to delete draft.');
+    }
+  };
+
+  const handleRepublishListing = async (listing, e) => {
+    e.stopPropagation();
+    
+    if (!auth.currentUser) {
+      alert('You must be logged in to republish listings');
+      return;
+    }
+
+    try {
+      const listingRef = doc(db, 'listings', listing.id);
+      await updateDoc(listingRef, {
+        status: 'active',
+        updatedAt: serverTimestamp()
+      });
+      
+      toast.success('Listing republished successfully');
+      await loadListings();
+      await loadUnpublishedListings();
+    } catch (error) {
+      console.error('❌ Error republishing listing:', error);
+      toast.error('Failed to republish listing. Please try again.');
+    }
+  };
+
+  const handleDeleteUnpublishedListing = async (listing, e) => {
+    e.stopPropagation();
+    
+    if (!auth.currentUser) {
+      alert('You must be logged in to delete listings');
+      return;
+    }
+
+    const confirmDelete = window.confirm(
+      `Are you sure you want to permanently delete "${listing.title || 'this listing'}"? This action cannot be undone.`
+    );
+
+    if (!confirmDelete) return;
+
+    try {
+      const listingRef = doc(db, 'listings', listing.id);
+      await deleteDoc(listingRef);
+      
+      toast.success('Listing deleted successfully');
+      await loadUnpublishedListings();
+    } catch (error) {
+      console.error('❌ Error deleting listing:', error);
+      toast.error('Failed to delete listing. Please try again.');
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Navigation />
+        <div className="flex items-center justify-center min-h-screen pt-36">
+          <div className="text-center">
+            <p className="text-foreground text-lg">Loading listings...</p>
+          </div>
+        </div>
+        <Footer />
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-background">
+      <Navigation />
+
+      <div className="pt-36 pb-12">
+        <div className="max-w-7xl mx-auto px-6">
+          {/* Header */}
+          <div className="mb-8">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h1 className="font-heading text-4xl font-bold text-foreground mb-2">
+                  My Listings
+                </h1>
+                <p className="text-muted-foreground">
+                  Manage your published listings, accommodations, services, and experiences.
+                </p>
+              </div>
+              <div className="flex items-center gap-4">
+                <button 
+                  className="btn-primary flex items-center gap-2"
+                  onClick={() => {
+                    setForceHostTypeSelection(true);
+                    setShowHostTypeModal(true);
+                  }}
+                >
+                  <Plus className="w-4 h-4" />
+                  Create New Listing
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Listings Container with Tabs */}
+          {user && (
+            <div className="bg-white rounded-xl shadow p-8">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex gap-8">
+                  {TABS.map(tab => {
+                    let count = tab.key === 'all'
+                      ? listings.length
+                      : listings.filter(l => l.category === tab.key).length;
+                    return (
+                      <button
+                        key={tab.key}
+                        className={`relative pb-2 text-base font-medium border-b-2 transition-colors ${listingTab === tab.key ? 'border-primary text-primary' : 'border-transparent text-gray-700 hover:text-primary'}`}
+                        onClick={() => setListingTab(tab.key)}
+                      >
+                        {tab.label} <span className="text-sm text-muted-foreground">({count})</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="flex items-center gap-2 p-1 bg-muted rounded-lg">
+                  <button onClick={() => setListingView('grid')} className={`p-2 rounded-lg transition-colors ${listingView === 'grid' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}><Grid className="w-5 h-5" /></button>
+                  <button onClick={() => setListingView('list')} className={`p-2 rounded-lg transition-colors ${listingView === 'list' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}><List className="w-5 h-5" /></button>
+                </div>
+              </div>
+              <div className="min-h-[260px]">
+                {(listingTab === 'all' ? listings : listings.filter(l => l.category === listingTab)).length === 0 ? (
+                  <div className="text-center py-16">
+                    <HomeIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" strokeWidth={2} />
+                    <div className="text-lg font-medium mb-2">No listings yet.</div>
+                    <div className="text-gray-500 text-center">Start exploring and publish your accommodations, services, and experiences.</div>
+                  </div>
+                ) : (
+                  listingView === 'grid' ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {(listingTab === 'all' ? listings : listings.filter(l => l.category === listingTab)).map((listing, idx) => (
+                        <div key={listing.id || idx} className="card-listing cursor-pointer hover-lift overflow-hidden" onClick={() => navigate(`/accommodations/${listing.id}`)}>
+                          <div className="relative w-full overflow-hidden aspect-[4/3] bg-gray-100">
+                            {listing.mainImage ? (
+                              <img 
+                                src={listing.mainImage} 
+                                alt={listing.title || 'Listing'} 
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  e.target.style.display = 'none';
+                                  e.target.nextSibling.style.display = 'flex';
+                                }}
+                              />
+                            ) : null}
+                            <div className={`absolute inset-0 flex items-center justify-center ${listing.mainImage ? 'hidden' : ''}`}>
+                              <Camera className="w-12 h-12 text-gray-400" />
+                            </div>
+                          </div>
+                          
+                          <div className="p-5">
+                            <h3 className="font-heading text-lg font-semibold text-foreground mb-2 line-clamp-2">
+                              {listing.title || 'Untitled Listing'}
+                            </h3>
+                            
+                            <p className="font-body text-sm text-muted-foreground flex items-center gap-1 mb-3">
+                              <MapPin className="w-4 h-4 flex-shrink-0" /> 
+                              <span className="truncate">
+                                {listing.locationCity && listing.locationArea 
+                                  ? `${listing.locationCity}, ${listing.locationArea}`
+                                  : listing.locationDisplay || 'No location'}
+                              </span>
+                            </p>
+                            
+                            {(listing.privacyType || listing.propertyStructure) && (
+                              <div className="mb-3">
+                                <span className="inline-block px-2 py-1 text-xs font-medium bg-primary/10 text-primary rounded-md">
+                                  {listing.privacyType && listing.propertyStructure
+                                    ? `${listing.privacyType} in ${listing.propertyStructure}`
+                                    : listing.privacyType || listing.propertyStructure}
+                                </span>
+                              </div>
+                            )}
+                            
+                            {listing.price && (
+                              <div className="mb-3">
+                                <span className="font-heading text-lg font-bold text-foreground">
+                                  ₱{listing.price.toLocaleString()}
+                                </span>
+                                <span className="text-sm text-muted-foreground ml-1">/ night</span>
+                              </div>
+                            )}
+                            
+                            <div className="flex items-center gap-1 mb-3 text-xs text-muted-foreground">
+                              <Clock className="w-3 h-3" />
+                              <span>Published {listing.publishedDate}</span>
+                            </div>
+                            
+                            <div className="flex gap-2 pt-3 border-t border-gray-100">
+                              <button 
+                                className="btn-primary flex-1 px-3 py-2 text-sm font-medium" 
+                                onClick={e => {e.stopPropagation(); handleEditListing(listing);}}
+                              >
+                                <Edit className="w-4 h-4 inline mr-1" />
+                                Edit
+                              </button>
+                              <button 
+                                className="btn-outline px-3 py-2 text-sm font-medium" 
+                                onClick={e => {e.stopPropagation(); navigate(`/accommodations/${listing.id}`);}}
+                              >
+                                View
+                              </button>
+                              <button 
+                                className="btn-outline px-3 py-2 text-sm font-medium text-red-600 hover:text-red-700 hover:border-red-300" 
+                                onClick={e => handleUnpublishListing(listing, e)}
+                                title="Unpublish listing"
+                              >
+                                <EyeOff className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {(listingTab === 'all' ? listings : listings.filter(l => l.category === listingTab)).map((listing, idx) => (
+                        <div key={listing.id || idx} className="card-listing hover-lift cursor-pointer flex items-start gap-4 p-4" onClick={() => navigate(`/accommodations/${listing.id}`)}>
+                          <div className="relative flex-shrink-0 w-36 h-36 overflow-hidden rounded-lg bg-gray-100">
+                            {listing.mainImage ? (
+                              <img 
+                                src={listing.mainImage} 
+                                alt={listing.title || 'Listing'} 
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  e.target.style.display = 'none';
+                                  e.target.nextSibling.style.display = 'flex';
+                                }}
+                              />
+                            ) : null}
+                            <div className={`absolute inset-0 flex items-center justify-center ${listing.mainImage ? 'hidden' : ''}`}>
+                              <Camera className="w-12 h-12 text-gray-400" />
+                            </div>
+                          </div>
+                          
+                          <div className="flex-1">
+                            <h3 className="font-heading text-lg font-semibold text-foreground mb-2">{listing.title || 'Untitled Listing'}</h3>
+                            <p className="font-body text-sm text-muted-foreground flex items-center gap-1 mb-2">
+                              <MapPin className="w-4 h-4" /> 
+                              {listing.locationCity && listing.locationArea 
+                                ? `${listing.locationCity}, ${listing.locationArea}`
+                                : listing.locationDisplay || 'No location'}
+                            </p>
+                            {listing.price && (
+                              <p className="font-heading text-lg font-bold text-foreground mb-2">
+                                ₱{listing.price.toLocaleString()}<span className="text-sm font-normal text-muted-foreground">/ night</span>
+                              </p>
+                            )}
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground mb-3">
+                              <Clock className="w-3 h-3" />
+                              <span>Published {listing.publishedDate}</span>
+                            </div>
+                            
+                            <div className="flex gap-2 pt-3 border-t border-gray-100">
+                              <button 
+                                className="btn-primary flex-1 px-3 py-2 text-sm font-medium" 
+                                onClick={e => {e.stopPropagation(); handleEditListing(listing);}}
+                              >
+                                <Edit className="w-4 h-4 inline mr-1" />
+                                Edit
+                              </button>
+                              <button 
+                                className="btn-outline px-3 py-2 text-sm font-medium" 
+                                onClick={e => {e.stopPropagation(); navigate(`/accommodations/${listing.id}`);}}
+                              >
+                                View
+                              </button>
+                              <button 
+                                className="btn-outline px-3 py-2 text-sm font-medium text-red-600 hover:text-red-700 hover:border-red-300" 
+                                onClick={e => handleUnpublishListing(listing, e)}
+                                title="Unpublish listing"
+                              >
+                                <EyeOff className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Saved Drafts Container with Tabs */}
+          {user && drafts.length > 0 && (
+            <div className="mb-12">
+              <div className="mb-2">
+                <h2 className="text-xl font-bold text-foreground mb-2">Saved Drafts</h2>
+              </div>
+              <div className="bg-white rounded-xl shadow p-8">
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex gap-8">
+                    {TABS.map(tab => {
+                      let count = tab.key === 'all'
+                        ? drafts.length
+                        : drafts.filter(d => d.category === tab.key).length;
+                      return (
+                        <button
+                          key={tab.key}
+                          className={`relative pb-2 text-base font-medium border-b-2 transition-colors ${draftTab === tab.key ? 'border-primary text-primary' : 'border-transparent text-gray-700 hover:text-primary'}`}
+                          onClick={() => setDraftTab(tab.key)}
+                        >
+                          {tab.label} <span className="text-sm text-muted-foreground">({count})</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="flex items-center gap-2 p-1 bg-muted rounded-lg">
+                    <button onClick={() => setDraftView('grid')} className={`p-2 rounded-lg transition-colors ${draftView === 'grid' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}><Grid className="w-5 h-5" /></button>
+                    <button onClick={() => setDraftView('list')} className={`p-2 rounded-lg transition-colors ${draftView === 'list' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}><List className="w-5 h-5" /></button>
+                  </div>
+                </div>
+                <div className="min-h-[260px]">
+                  {(draftTab === 'all' ? drafts : drafts.filter(d => d.category === draftTab)).length === 0 ? (
+                    <div className="text-center py-16">
+                      <HomeIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" strokeWidth={2} />
+                      <div className="text-lg font-medium mb-2">No drafts yet.</div>
+                      <div className="text-gray-500 text-center">Start creating and save your drafts for accommodations, services, and experiences.</div>
+                    </div>
+                  ) : (
+                    draftView === 'grid' ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {(draftTab === 'all' ? drafts : drafts.filter(d => d.category === draftTab)).map((draft, idx) => (
+                          <div key={draft.id || idx} className="card-listing cursor-pointer hover-lift overflow-hidden" onClick={() => handleContinueDraft(draft)}>
+                            <div className="relative w-full overflow-hidden aspect-[4/3] bg-gray-100">
+                              {draft.mainImage ? (
+                                <img 
+                                  src={draft.mainImage} 
+                                  alt={draft.title || 'Draft'} 
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => {
+                                    e.target.style.display = 'none';
+                                    e.target.nextSibling.style.display = 'flex';
+                                  }}
+                                />
+                              ) : null}
+                              <div className={`absolute inset-0 flex items-center justify-center ${draft.mainImage ? 'hidden' : ''}`}>
+                                <Camera className="w-12 h-12 text-gray-400" />
+                              </div>
+                              <div className="absolute top-2 left-2 bg-yellow-500 text-white px-2 py-1 rounded text-xs font-medium">
+                                Draft
+                              </div>
+                            </div>
+                            
+                            <div className="p-5">
+                              <h3 className="font-heading text-lg font-semibold text-foreground mb-2 line-clamp-2">
+                                {draft.title || 'Untitled Draft'}
+                              </h3>
+                              
+                              <p className="font-body text-sm text-muted-foreground flex items-center gap-1 mb-3">
+                                <MapPin className="w-4 h-4 flex-shrink-0" /> 
+                                <span className="truncate">
+                                  {draft.locationCity && draft.locationArea 
+                                    ? `${draft.locationCity}, ${draft.locationArea}`
+                                    : draft.location || 'No location'}
+                                </span>
+                              </p>
+                              
+                              {(draft.privacyType || draft.propertyStructure) && (
+                                <div className="mb-3">
+                                  <span className="inline-block px-2 py-1 text-xs font-medium bg-primary/10 text-primary rounded-md">
+                                    {draft.privacyType && draft.propertyStructure
+                                      ? `${draft.privacyType} in ${draft.propertyStructure}`
+                                      : draft.privacyType || draft.propertyStructure}
+                                  </span>
+                                </div>
+                              )}
+                              
+                              <div className="mb-3">
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className="text-xs font-medium text-muted-foreground">Progress</span>
+                                  <span className="text-xs font-semibold text-foreground">{draft.progress || 0}%</span>
+                                </div>
+                                <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                                  <div 
+                                    className="h-full bg-primary transition-all duration-300 rounded-full"
+                                    style={{ width: `${draft.progress || 0}%` }}
+                                  />
+                                </div>
+                              </div>
+                              
+                              <div className="flex items-center gap-1 mb-4 text-xs text-muted-foreground">
+                                <Clock className="w-3 h-3" />
+                                <span>Last edited {draft.lastModifiedFormatted || 'Unknown'}</span>
+                              </div>
+                              
+                              <div className="flex gap-2 pt-3 border-t border-gray-100">
+                                <button 
+                                  className="btn-primary flex-1 px-3 py-2 text-sm font-medium" 
+                                  onClick={e => {e.stopPropagation(); handleContinueDraft(draft);}}
+                                >
+                                  Continue
+                                </button>
+                                <button 
+                                  className="btn-outline px-3 py-2 text-sm font-medium text-red-600 hover:text-red-700 hover:border-red-300" 
+                                  onClick={e => {e.stopPropagation(); handleDeleteDraft(draft.id);}}
+                                  title="Delete draft"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {(draftTab === 'all' ? drafts : drafts.filter(d => d.category === draftTab)).map((draft, idx) => (
+                          <div key={draft.id || idx} className="card-listing hover-lift cursor-pointer flex items-start gap-4 p-4" onClick={() => handleContinueDraft(draft)}>
+                            <div className="relative flex-shrink-0 w-36 h-36 overflow-hidden rounded-lg bg-gray-100">
+                              {draft.mainImage ? (
+                                <img 
+                                  src={draft.mainImage} 
+                                  alt={draft.title || 'Draft'} 
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => {
+                                    e.target.style.display = 'none';
+                                    e.target.nextSibling.style.display = 'flex';
+                                  }}
+                                />
+                              ) : null}
+                              <div className={`absolute inset-0 flex items-center justify-center ${draft.mainImage ? 'hidden' : ''}`}>
+                                <Camera className="w-10 h-10 text-gray-400" />
+                              </div>
+                              <div className="absolute top-2 left-2 bg-yellow-500 text-white px-2 py-1 rounded text-xs font-medium">
+                                Draft
+                              </div>
+                            </div>
+                            
+                            <div className="flex-1 min-w-0">
+                              <h3 className="font-heading text-lg font-semibold text-foreground mb-1 line-clamp-1">
+                                {draft.title || 'Untitled Draft'}
+                              </h3>
+                              
+                              <p className="font-body text-sm text-muted-foreground flex items-center gap-1 mb-2">
+                                <MapPin className="w-4 h-4 flex-shrink-0" /> 
+                                <span className="truncate">
+                                  {draft.locationCity && draft.locationArea 
+                                    ? `${draft.locationCity}, ${draft.locationArea}`
+                                    : draft.location || 'No location'}
+                                </span>
+                              </p>
+                              
+                              {(draft.privacyType || draft.propertyStructure) && (
+                                <div className="mb-2">
+                                  <span className="inline-block px-2 py-0.5 text-xs font-medium bg-primary/10 text-primary rounded">
+                                    {draft.privacyType && draft.propertyStructure
+                                      ? `${draft.privacyType} in ${draft.propertyStructure}`
+                                      : draft.privacyType || draft.propertyStructure}
+                                  </span>
+                                </div>
+                              )}
+                              
+                              <div className="mb-2">
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className="text-xs font-medium text-muted-foreground">Progress</span>
+                                  <span className="text-xs font-semibold text-foreground">{draft.progress || 0}%</span>
+                                </div>
+                                <div className="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                                  <div 
+                                    className="h-full bg-primary transition-all duration-300 rounded-full"
+                                    style={{ width: `${draft.progress || 0}%` }}
+                                  />
+                                </div>
+                              </div>
+                              
+                              <div className="flex items-center gap-1 mb-3 text-xs text-muted-foreground">
+                                <Clock className="w-3 h-3" />
+                                <span>Last edited {draft.lastModifiedFormatted || 'Unknown'}</span>
+                              </div>
+                              
+                              <div className="flex gap-2 pt-2 border-t border-gray-100">
+                                <button 
+                                  className="btn-primary px-3 py-1.5 text-sm font-medium" 
+                                  onClick={e => {e.stopPropagation(); handleContinueDraft(draft);}}
+                                >
+                                  Continue
+                                </button>
+                                <button 
+                                  className="btn-outline px-3 py-1.5 text-sm font-medium text-red-600 hover:text-red-700 hover:border-red-300" 
+                                  onClick={e => {e.stopPropagation(); handleDeleteDraft(draft.id);}}
+                                  title="Delete draft"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Unpublished Listings Container with Tabs */}
+          {user && (
+            <div className="mb-12">
+              <div className="mb-2">
+                <h2 className="text-xl font-bold text-foreground mb-2">Unpublished Listings</h2>
+              </div>
+              <div className="bg-white rounded-xl shadow p-8">
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex gap-8">
+                    {TABS.map(tab => {
+                      let count = tab.key === 'all'
+                        ? unpublishedListings.length
+                        : unpublishedListings.filter(l => l.category === tab.key).length;
+                      return (
+                        <button
+                          key={tab.key}
+                          className={`relative pb-2 text-base font-medium border-b-2 transition-colors ${unpublishedTab === tab.key ? 'border-primary text-primary' : 'border-transparent text-gray-700 hover:text-primary'}`}
+                          onClick={() => setUnpublishedTab(tab.key)}
+                        >
+                          {tab.label} <span className="text-sm text-muted-foreground">({count})</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="flex items-center gap-2 p-1 bg-muted rounded-lg">
+                    <button onClick={() => setListingView('grid')} className={`p-2 rounded-lg transition-colors ${listingView === 'grid' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}><Grid className="w-5 h-5" /></button>
+                    <button onClick={() => setListingView('list')} className={`p-2 rounded-lg transition-colors ${listingView === 'list' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}><List className="w-5 h-5" /></button>
+                  </div>
+                </div>
+                <div className="min-h-[260px]">
+                  {(unpublishedTab === 'all' ? unpublishedListings : unpublishedListings.filter(l => l.category === unpublishedTab)).length === 0 ? (
+                    <div className="text-center py-16">
+                      <HomeIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" strokeWidth={2} />
+                      <div className="text-lg font-medium mb-2">No unpublished listings yet.</div>
+                      <div className="text-gray-500 text-center">Unpublished listings will appear here.</div>
+                    </div>
+                  ) : (
+                    listingView === 'grid' ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {(unpublishedTab === 'all' ? unpublishedListings : unpublishedListings.filter(l => l.category === unpublishedTab)).map((listing, idx) => (
+                          <div key={listing.id || idx} className="card-listing cursor-pointer hover-lift overflow-hidden" onClick={() => handleEditListing(listing)}>
+                            <div className="relative w-full overflow-hidden aspect-[4/3] bg-gray-100">
+                              {listing.mainImage ? (
+                                <img 
+                                  src={listing.mainImage} 
+                                  alt={listing.title || 'Listing image'}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center bg-gray-200">
+                                  <Camera className="w-12 h-12 text-gray-400" />
+                                </div>
+                              )}
+                              <div className="absolute top-2 left-2 bg-yellow-500 text-white px-2 py-1 rounded text-xs font-medium">
+                                Unpublished
+                              </div>
+                            </div>
+                            <div className="p-4">
+                              <h3 className="font-semibold text-lg mb-1 line-clamp-1">{listing.title || 'Untitled Listing'}</h3>
+                              <div className="flex items-center gap-1 text-sm text-gray-600 mb-2">
+                                <MapPin className="w-4 h-4" />
+                                <span className="line-clamp-1">{listing.locationDisplay || 'No location'}</span>
+                              </div>
+                              <div className="flex items-center justify-between text-sm mb-3">
+                                <div className="flex items-center gap-4">
+                                  {listing.guests && (
+                                    <div className="flex items-center gap-1">
+                                      <Users className="w-4 h-4 text-gray-400" />
+                                      <span>{listing.guests}</span>
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="text-gray-500 text-xs">
+                                  Unpublished {listing.unpublishedDate}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 pt-3 border-t">
+                                <button 
+                                  className="btn-primary flex-1 px-3 py-2 text-sm font-medium" 
+                                  onClick={e => {e.stopPropagation(); handleRepublishListing(listing, e);}}
+                                >
+                                  Republish
+                                </button>
+                                <button 
+                                  className="btn-outline px-3 py-2 text-sm font-medium" 
+                                  onClick={e => {e.stopPropagation(); handleEditListing(listing);}}
+                                >
+                                  <Edit className="w-4 h-4" />
+                                </button>
+                                <button 
+                                  className="btn-outline px-3 py-2 text-sm font-medium text-red-600 hover:text-red-700 hover:border-red-300" 
+                                  onClick={e => {e.stopPropagation(); handleDeleteUnpublishedListing(listing, e);}}
+                                  title="Delete listing"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {(unpublishedTab === 'all' ? unpublishedListings : unpublishedListings.filter(l => l.category === unpublishedTab)).map((listing, idx) => (
+                          <div key={listing.id || idx} className="card-listing hover-lift cursor-pointer flex items-start gap-4 p-4" onClick={() => handleEditListing(listing)}>
+                            <div className="relative flex-shrink-0 w-36 h-36 overflow-hidden rounded-lg bg-gray-100">
+                              {listing.mainImage ? (
+                                <img 
+                                  src={listing.mainImage} 
+                                  alt={listing.title || 'Listing image'}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center bg-gray-200">
+                                  <Camera className="w-8 h-8 text-gray-400" />
+                                </div>
+                              )}
+                              <div className="absolute top-2 left-2 bg-yellow-500 text-white px-2 py-1 rounded text-xs font-medium">
+                                Unpublished
+                              </div>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <h3 className="font-semibold text-lg mb-1 line-clamp-1">{listing.title || 'Untitled Listing'}</h3>
+                              <div className="flex items-center gap-1 text-sm text-gray-600 mb-2">
+                                <MapPin className="w-4 h-4" />
+                                <span className="line-clamp-1">{listing.locationDisplay || 'No location'}</span>
+                              </div>
+                              <div className="flex items-center gap-4 text-sm text-gray-600 mb-3">
+                                {listing.guests && (
+                                  <div className="flex items-center gap-1">
+                                    <Users className="w-4 h-4" />
+                                    <span>{listing.guests}</span>
+                                  </div>
+                                )}
+                                <div className="text-gray-500 text-xs">
+                                  Unpublished {listing.unpublishedDate}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button 
+                                  className="btn-primary px-3 py-2 text-sm font-medium" 
+                                  onClick={e => {e.stopPropagation(); handleRepublishListing(listing, e);}}
+                                >
+                                  Republish
+                                </button>
+                                <button 
+                                  className="btn-outline px-3 py-2 text-sm font-medium" 
+                                  onClick={e => {e.stopPropagation(); handleEditListing(listing);}}
+                                >
+                                  <Edit className="w-4 h-4" />
+                                </button>
+                                <button 
+                                  className="btn-outline px-3 py-2 text-sm font-medium text-red-600 hover:text-red-700 hover:border-red-300" 
+                                  onClick={e => {e.stopPropagation(); handleDeleteUnpublishedListing(listing, e);}}
+                                  title="Delete listing"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <Footer />
+
+      <OnboardingProvider>
+        <HostTypeModal
+          isOpen={showHostTypeModal}
+          onClose={() => setShowHostTypeModal(false)}
+          currentUser={user}
+          forceSelection={forceHostTypeSelection}
+        />
+      </OnboardingProvider>
+
+      <AlertDialog open={unpublishModalOpen} onOpenChange={setUnpublishModalOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unpublish Listing</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to unpublish "{listingToUnpublish?.title}"? This will make it inactive and it won't be visible to guests.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmUnpublishListing}>Unpublish</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+};
+
+export default HostListings;
+

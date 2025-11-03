@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { experiences } from './sharedData';
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import { Mountain, Clock, MapPin, Star, Share2, Users, X } from "lucide-react";
@@ -12,12 +12,17 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faXTwitter, faFacebookF, faInstagram, faFacebookMessenger } from "@fortawesome/free-brands-svg-icons";
 
 const Experiences = () => {
+  const [searchParams] = useSearchParams();
   const [user, setUser] = useState(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [activeShare, setActiveShare] = useState(null);
   const [copied, setCopied] = useState(false);
   const [favoriteItems, setFavoriteItems] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState("All Experiences");
+  const [filters, setFilters] = useState({
+    location: searchParams.get('location') || '',
+    guests: searchParams.get('guests') || ''
+  });
   const navigate = useNavigate();
   const handleRequireLogin = () => setShowLoginModal(true);
   useEffect(() => {
@@ -69,12 +74,41 @@ const Experiences = () => {
     }));
   };
 
+  // Update filters when URL params change
+  useEffect(() => {
+    setFilters({
+      location: searchParams.get('location') || '',
+      guests: searchParams.get('guests') || ''
+    });
+  }, [searchParams]);
+
   const categories = ["All Experiences", "Adventure", "Cultural", "Food & Drink", "Nature", "Art & History", "Sports", "Workshops"];
 
-  const filteredExperiences =
-    selectedCategory === "All Experiences"
-      ? experiences
-      : experiences.filter(exp => exp.category === selectedCategory);
+  const filteredExperiences = experiences.filter(exp => {
+    // Filter by category
+    if (selectedCategory !== "All Experiences" && exp.category !== selectedCategory) {
+      return false;
+    }
+    
+    // Filter by location
+    if (filters.location) {
+      const locationLower = filters.location.toLowerCase();
+      const expLocation = (exp.location || '').toLowerCase();
+      if (!expLocation.includes(locationLower)) {
+        return false;
+      }
+    }
+    
+    // Filter by guests (if experience has maxParticipants)
+    if (filters.guests && exp.maxParticipants) {
+      const guestCount = parseInt(filters.guests, 10);
+      if (exp.maxParticipants < guestCount) {
+        return false;
+      }
+    }
+    
+    return true;
+  });
 
   return (
     <div className="min-h-screen bg-background">
@@ -121,6 +155,7 @@ const Experiences = () => {
           <div className="flex items-center justify-between mb-8">
             <p className="font-body text-muted-foreground">
               {filteredExperiences.length} experiences available
+              {filters.location && ` in ${filters.location}`}
             </p>
             <select className="p-2 border border-border rounded-lg bg-background text-foreground">
               <option>Sort by: Recommended</option>

@@ -1,9 +1,50 @@
 @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=Open+Sans:wght@300;400;500;600;700&display=swap');
 @import "tailwindcss";
+@import "react-day-picker/dist/style.css";
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Custom styles for unavailable/booked dates in calendar */
+/* react-day-picker v8+ uses rdp-day--[modifier] format with double dashes */
+/* Priority: unavailable styles should override disabled styles */
+.rdp-day--unavailable,
+.rdp-day_unavailable,
+.rdp-day.unavailable,
+button.rdp-day--unavailable,
+button.rdp-day.unavailable,
+[data-unavailable].rdp-day,
+.rdp-day[aria-disabled="true"].unavailable,
+.rdp-day_disabled.unavailable,
+.rdp-day_disabled.rdp-day--unavailable {
+  background-color: #dc2626 !important;
+  background: #dc2626 !important;
+  color: white !important;
+  text-decoration: line-through !important;
+  font-weight: 700 !important;
+  border: 2px solid #991b1b !important;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06) !important;
+  opacity: 1 !important;
+  cursor: not-allowed !important;
+  position: relative !important;
+  z-index: 10 !important;
+}
+
+.rdp-day--unavailable:hover,
+.rdp-day_unavailable:hover,
+.rdp-day.unavailable:hover,
+button.rdp-day--unavailable:hover,
+button.rdp-day.unavailable:hover,
+[data-unavailable].rdp-day:hover,
+.rdp-day[aria-disabled="true"].unavailable:hover,
+.rdp-day_disabled.unavailable:hover,
+.rdp-day_disabled.rdp-day--unavailable:hover {
+  background-color: #dc2626 !important;
+  background: #dc2626 !important;
+  color: white !important;
+}
+
 
 /* Getaways Hospitality Design System - Warm & Cozy Vibes */
 
@@ -445,4 +486,96 @@
 
 .leaflet-marker-icon:active {
   cursor: grabbing !important;
+}
+
+/* Calendar UI Improvements */
+.rdp {
+  --rdp-cell-size: 40px;
+  --rdp-accent-color: hsl(var(--primary));
+  --rdp-background-color: hsl(var(--accent));
+  --rdp-accent-color-dark: hsl(var(--primary));
+  --rdp-background-color-dark: hsl(var(--accent));
+  --rdp-outline: 2px solid var(--rdp-accent-color);
+  --rdp-outline-selected: 2px solid var(--rdp-accent-color);
+  margin: 0;
+}
+
+.rdp-day {
+  width: var(--rdp-cell-size);
+  height: var(--rdp-cell-size);
+}
+
+.rdp-head_cell {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground));
+  width: var(--rdp-cell-size);
+}
+
+.rdp-day_selected,
+.rdp-day_selected:focus-visible,
+.rdp-day_selected:hover {
+  color: white;
+  opacity: 1;
+  background-color: hsl(var(--primary));
+  font-weight: 600;
+}
+
+.rdp-day_today {
+  font-weight: 600;
+}
+
+.rdp-day_range_middle {
+  background-color: hsl(var(--primary) / 0.2);
+  color: hsl(var(--primary));
+}
+
+.rdp-day_range_start,
+.rdp-day_range_end {
+  background-color: hsl(var(--primary));
+  color: white;
+  border-radius: 8px;
+}
+
+.rdp-nav_button {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rdp-caption_label {
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+/* Ensure navigation buttons are positioned correctly around the caption */
+.rdp-caption {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+}
+
+.rdp-nav {
+  display: flex;
+  align-items: center;
+}
+
+.rdp-nav_button_previous {
+  order: 1;
+  margin-right: auto;
+}
+
+.rdp-nav_button_next {
+  order: 3;
+  margin-left: auto;
+}
+
+.rdp-caption_label {
+  order: 2;
+  flex: 1;
+  text-align: center;
 }

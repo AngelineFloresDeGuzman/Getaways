@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import OnboardingHeader from './components/OnboardingHeader';
 import OnboardingFooter from './components/OnboardingFooter';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { updateSessionStorageBeforeNav } from './utils/sessionStorageHelper';
 import { 
   Wifi, 
   Tv, 
@@ -38,14 +39,15 @@ const Amenities = () => {
   // Load draft if continuing from saved progress (manual, no autosave)
   useEffect(() => {
     const initializePage = async () => {
-      if (location.state?.draftId && actions.loadDraft) {
+      const draftIdToLoad = location.state?.draftId || state?.draftId;
+      if (draftIdToLoad && actions.loadDraft) {
         try {
-          console.log('Amenities: Loading draft with ID:', location.state.draftId);
+          console.log('📍 Amenities: Loading draft with ID:', draftIdToLoad);
           actions.setLoading(true);
-          await actions.loadDraft(location.state.draftId);
-          console.log('Amenities: Draft loaded successfully');
+          await actions.loadDraft(draftIdToLoad);
+          console.log('✅ Amenities: Draft loaded successfully');
         } catch (error) {
-          console.error('Error loading draft in Amenities:', error);
+          console.error('❌ Error loading draft in Amenities:', error);
         } finally {
           actions.setLoading(false);
         }
@@ -53,11 +55,12 @@ const Amenities = () => {
     };
 
     initializePage();
-  }, [location.state?.draftId, actions]);
+  }, [location.state?.draftId, state?.draftId, actions]);
 
   // Update selectedAmenities when state changes (after loading draft)
   useEffect(() => {
-    if (state.selectedAmenities) {
+    if (state.selectedAmenities && Array.isArray(state.selectedAmenities)) {
+      console.log('📍 Amenities: Updating selectedAmenities from context:', state.selectedAmenities);
       setSelectedAmenities(state.selectedAmenities);
     }
   }, [state.selectedAmenities]);
@@ -164,6 +167,9 @@ const Amenities = () => {
         }
       }
       
+      // Update sessionStorage before navigating forward
+      updateSessionStorageBeforeNav('amenities', 'photos');
+      
       // Navigate to photos page
       navigate('/pages/photos', {
         state: {
@@ -219,6 +225,9 @@ const Amenities = () => {
           console.error('📍 Amenities: Error saving to Firebase on Save & Exit:', saveError);
         }
       }
+      
+      // Update sessionStorage before Save & Exit navigation
+      updateSessionStorageBeforeNav('amenities');
       
       // Use context's saveAndExit function for navigation
       if (actions.saveAndExit) {
@@ -306,12 +315,16 @@ const Amenities = () => {
       </main>
 
       <OnboardingFooter
-        onBack={() => navigate('/pages/makeitstandout', {
-          state: {
-            ...location.state,
-            draftId: state?.draftId || location.state?.draftId
-          }
-        })}
+        onBack={() => {
+          // Update sessionStorage before navigating back
+          updateSessionStorageBeforeNav('amenities');
+          navigate('/pages/makeitstandout', {
+            state: {
+              ...location.state,
+              draftId: state?.draftId || location.state?.draftId
+            }
+          });
+        }}
         onNext={handleNext}
         backText="Back"
         nextText="Next"

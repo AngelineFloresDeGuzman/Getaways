@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { services } from './sharedData';
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import { Sparkles, Clock, MapPin, Star, Heart, Share2, X } from "lucide-react";
@@ -13,6 +13,7 @@ import { Link } from "react-router-dom";
 import FavoriteButton from "@/components/FavoriteButton";
 
 const Services = () => {
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
@@ -21,6 +22,10 @@ const Services = () => {
   const [copied, setCopied] = useState(false);
   const shareUrl = `${window.location.origin}/services/${activeShare}`;
   const [favoriteItems, setFavoriteItems] = useState([]);
+  const [filters, setFilters] = useState({
+    location: searchParams.get('location') || '',
+    guests: searchParams.get('guests') || ''
+  });
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -29,6 +34,14 @@ const Services = () => {
     return () => unsubscribe();
   }, []);
 
+
+  // Update filters when URL params change
+  useEffect(() => {
+    setFilters({
+      location: searchParams.get('location') || '',
+      guests: searchParams.get('guests') || ''
+    });
+  }, [searchParams]);
 
   const categories = [
     "All Services",
@@ -40,6 +53,26 @@ const Services = () => {
     "Transportation",
     "Concierge",
   ];
+
+  const [selectedCategory, setSelectedCategory] = useState("All Services");
+
+  const filteredServices = services.filter(service => {
+    // Filter by category
+    if (selectedCategory !== "All Services" && service.category !== selectedCategory) {
+      return false;
+    }
+    
+    // Filter by location
+    if (filters.location) {
+      const locationLower = filters.location.toLowerCase();
+      const serviceLocation = (service.location || '').toLowerCase();
+      if (!serviceLocation.includes(locationLower)) {
+        return false;
+      }
+    }
+    
+    return true;
+  });
 
   const handleFavoriteClick = (e) => {
     e.stopPropagation();
@@ -123,7 +156,8 @@ const Services = () => {
             {categories.map((category, index) => (
               <button
                 key={category}
-                className={`flex-shrink-0 px-6 py-3 rounded-full font-medium transition-all ${index === 0
+                onClick={() => setSelectedCategory(category)}
+                className={`flex-shrink-0 px-6 py-3 rounded-full font-medium transition-all ${selectedCategory === category
                   ? "bg-accent text-accent-foreground"
                   : "bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground"
                   }`}
@@ -139,7 +173,8 @@ const Services = () => {
         <div className="max-w-7xl mx-auto">
           <div className="flex items-center justify-between mb-8">
             <p className="font-body text-muted-foreground">
-              {services.length} services available
+              {filteredServices.length} services available
+              {filters.location && ` in ${filters.location}`}
             </p>
             <select className="p-2 border border-border rounded-lg bg-background text-foreground">
               <option>Sort by: Recommended</option>
@@ -150,7 +185,7 @@ const Services = () => {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-8">
-            {services.map((service, index) => (
+            {filteredServices.map((service, index) => (
               <div
                 key={service.id}
                 className="card-listing hover-lift cursor-pointer animate-slide-up"

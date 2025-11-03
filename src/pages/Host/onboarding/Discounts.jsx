@@ -5,6 +5,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
 import { auth, db } from '@/lib/firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { updateSessionStorageBeforeNav } from './utils/sessionStorageHelper';
 
 const Discounts = () => {
   const navigate = useNavigate();
@@ -187,6 +188,9 @@ const Discounts = () => {
         // Continue with save & exit even if Firebase save fails
       }
       
+      // Update sessionStorage before Save & Exit navigation
+      updateSessionStorageBeforeNav('discounts');
+      
       // Navigate to dashboard
       navigate('/host/hostdashboard', { 
         state: { 
@@ -303,7 +307,11 @@ const Discounts = () => {
       </main>
 
       <OnboardingFooter
-        onBack={() => navigate('/pages/weekendpricing')}
+        onBack={() => {
+          // Update sessionStorage before navigating back
+          updateSessionStorageBeforeNav('discounts');
+          navigate('/pages/weekendpricing');
+        }}
         onNext={async () => {
           if (canProceed) {
             try {
@@ -327,6 +335,9 @@ const Discounts = () => {
               if (actions.setCurrentStep) {
                 actions.setCurrentStep('safetydetails');
               }
+              
+              // Update sessionStorage before navigating forward
+              updateSessionStorageBeforeNav('discounts', 'safetydetails');
               
               // Navigate to safety details page
               navigate('/pages/safetydetails', { 

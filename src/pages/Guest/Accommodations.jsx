@@ -1,73 +1,43 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import Navigation from '@/components/Navigation';
 import Footer from '@/components/Footer';
 import { Search, MapPin, Calendar, Users, Filter, Share2, Star, X } from 'lucide-react';
 import FavoriteButton from '@/components/FavoriteButton';
 import LogIn from "@/pages/Auth/LogIn";
-import { auth } from '@/lib/firebase';
+import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
+import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faXTwitter, faFacebookF, faInstagram, faFacebookMessenger } from "@fortawesome/free-brands-svg-icons";
 
-const accommodationsData = [
-    {
-        id: 1,
-        title: "Luxury Beachfront Villa",
-        location: "Malibu, CA",
-        price: 450,
-        rating: 4.9,
-        reviews: 127,
-        image:
-            "https://images.unsplash.com/photo-1564013799919-ab600027ffc6?auto=format&fit=crop&w=800&q=80",
-        features: ["Ocean View", "Private Pool", "5 Bedrooms", "WiFi"],
-        type: "accommodation",
-    },
-    {
-        id: 2,
-        title: "Cozy Mountain Cabin",
-        location: "Aspen, CO",
-        price: 280,
-        rating: 4.8,
-        reviews: 89,
-        image:
-            "https://images.unsplash.com/photo-1449824913935-59a10b8d2000?auto=format&fit=crop&w=800&q=80",
-        features: ["Mountain View", "Fireplace", "3 Bedrooms", "Hot Tub"],
-        type: "accommodation",
-    },
-    {
-        id: 3,
-        title: "Modern City Loft",
-        location: "New York, NY",
-        price: 320,
-        rating: 4.7,
-        reviews: 156,
-        image:
-            "https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=80",
-        features: ["City View", "Rooftop Access", "2 Bedrooms", "Gym"],
-        type: "accommodation",
-    },
-    {
-        id: 4,
-        title: "Charming Country House",
-        location: "Tuscany, Italy",
-        price: 380,
-        rating: 4.9,
-        reviews: 203,
-        image:
-            "https://images.unsplash.com/photo-1480074568708-e7b720bb3f09?auto=format&fit=crop&w=800&q=80",
-        features: ["Vineyard View", "Garden", "4 Bedrooms", "Kitchen"],
-        type: "accommodation",
-    },
-];
-
 const Accommodations = () => {
+    const [searchParams] = useSearchParams();
     const [showLoginModal, setShowLoginModal] = useState(false);
     const [user, setUser] = useState(null);
     const [activeShare, setActiveShare] = useState(null);
     const [copied, setCopied] = useState(false);
     const navigate = useNavigate();
     const [favorites, setFavorites] = useState([]);
+    const [accommodations, setAccommodations] = useState([]);
+    const [filteredAccommodations, setFilteredAccommodations] = useState([]);
+    const [loading, setLoading] = useState(true);
+    
+    // Search filters from URL
+    const [filters, setFilters] = useState({
+        location: searchParams.get('location') || '',
+        checkIn: searchParams.get('checkIn') || '',
+        checkOut: searchParams.get('checkOut') || '',
+        guests: searchParams.get('guests') || '',
+        adults: searchParams.get('adults') || '',
+        children: searchParams.get('children') || '',
+        infants: searchParams.get('infants') || '',
+        pets: searchParams.get('pets') || '',
+        monthFrom: searchParams.get('monthFrom') || '',
+        monthTo: searchParams.get('monthTo') || '',
+        flexibleOption: searchParams.get('flexibleOption') || '',
+        flexibleMonth: searchParams.get('flexibleMonth') || ''
+    });
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -75,6 +45,245 @@ const Accommodations = () => {
         });
         return () => unsubscribe();
     }, []);
+
+    // Load accommodations from Firestore
+    useEffect(() => {
+        const loadAccommodations = async () => {
+            try {
+                setLoading(true);
+                console.log('📦 Accommodations: Loading published listings...');
+                
+                // Query listings collection for active accommodations
+                const listingsRef = collection(db, 'listings');
+                
+                // Try with orderBy first, fallback without if index missing
+                let querySnapshot;
+                try {
+                    const q = query(
+                        listingsRef,
+                        where('category', '==', 'accommodation'),
+                        where('status', '==', 'active'),
+                        orderBy('publishedAt', 'desc')
+                    );
+                    querySnapshot = await getDocs(q);
+                } catch (indexError) {
+                    console.warn('⚠️ Index error (expected on first use), trying without orderBy:', indexError.message);
+                    try {
+                        // Fallback: query without orderBy
+                        const q = query(
+                            listingsRef,
+                            where('category', '==', 'accommodation'),
+                            where('status', '==', 'active')
+                        );
+                        querySnapshot = await getDocs(q);
+                    } catch (indexError2) {
+                        console.warn('⚠️ Index error for status filter, querying by category only:', indexError2.message);
+                        // Final fallback: query by category only, filter status in JavaScript
+                        const q = query(
+                            listingsRef,
+                            where('category', '==', 'accommodation')
+                        );
+                        querySnapshot = await getDocs(q);
+                    }
+                }
+                
+                // Map all accommodations with ALL available Firebase data
+                const allAccommodationsData = querySnapshot.docs.map(doc => {
+                    const data = doc.data();
+                    const locationData = data.locationData || {};
+                    const pricing = data.pricing || {};
+                    const propertyBasics = data.propertyBasics || {};
+                    const amenities = data.amenities || {};
+                    
+                    // Format location display
+                    const location = data.location || 
+                        (locationData.city && locationData.province 
+                            ? `${locationData.city}, ${locationData.province}`
+                            : locationData.city || locationData.country || 'No location');
+                    
+                    // Get main price (weekday price as default)
+                    const price = data.price || pricing.weekdayPrice || pricing.basePrice || 0;
+                    
+                    // Flatten amenities for display (combine all categories)
+                    const amenitiesList = [
+                        ...(amenities.favorites || []),
+                        ...(amenities.standout || []),
+                        ...(amenities.safety || [])
+                    ];
+                    
+                    // Debug: Log photos data for this accommodation
+                    const photosData = data.photos || [];
+                    const firstPhoto = photosData[0];
+                    console.log(`📸 Accommodations: Listing ${doc.id} - Photos:`, {
+                        photosCount: photosData.length,
+                        firstPhoto: firstPhoto ? {
+                            id: firstPhoto.id,
+                            name: firstPhoto.name,
+                            hasBase64: !!firstPhoto.base64,
+                            hasUrl: !!firstPhoto.url,
+                            base64Length: firstPhoto.base64 ? firstPhoto.base64.length : 0,
+                            allKeys: Object.keys(firstPhoto)
+                        } : 'no first photo',
+                        imageField: data.image,
+                        hasImageField: !!data.image
+                    });
+                    
+                    return {
+                        id: doc.id,
+                        // Core info
+                        title: data.title || 'Untitled Listing',
+                        description: data.description || '',
+                        descriptionHighlights: data.descriptionHighlights || [],
+                        location: location,
+                        locationData: locationData,
+                        price: price,
+                        rating: data.rating || 0,
+                        reviews: data.reviews || 0,
+                        // Images - ensure we always have a valid image URL
+                        image: (() => {
+                          // Try to get image from photos array first
+                          const firstPhoto = photosData[0];
+                          if (firstPhoto?.base64) {
+                            return firstPhoto.base64;
+                          }
+                          if (firstPhoto?.url) {
+                            return firstPhoto.url;
+                          }
+                          // Fallback to top-level image field
+                          if (data.image) {
+                            return data.image;
+                          }
+                          // Final fallback
+                          return "fallback.jpg";
+                        })(),
+                        images: photosData.map(p => p.base64 || p.url).filter(Boolean) || data.images || [],
+                        photos: photosData,
+                        // Property details
+                        propertyBasics: propertyBasics,
+                        bedrooms: propertyBasics.bedrooms || 0,
+                        bathrooms: propertyBasics.bathrooms || 0,
+                        beds: propertyBasics.beds || 0,
+                        maxGuests: propertyBasics.guestCapacity || propertyBasics.guests || 0,
+                        // Property type info
+                        privacyType: data.privacyType || '',
+                        propertyStructure: data.propertyStructure || '',
+                        // Amenities
+                        amenities: amenities,
+                        amenitiesList: amenitiesList,
+                        features: amenitiesList.length > 0 ? amenitiesList.slice(0, 4) : (data.descriptionHighlights || []).slice(0, 4), // Show first 4 as features
+                        // Pricing details
+                        pricing: pricing,
+                        weekdayPrice: pricing.weekdayPrice || price,
+                        weekendPrice: pricing.weekendPrice || price,
+                        // Discounts
+                        discounts: data.discounts || {},
+                        // Booking info
+                        bookingSettings: data.bookingSettings || {},
+                        guestSelection: data.guestSelection || {},
+                        instantBook: data.guestSelection === 'instant-book',
+                        // Safety & details
+                        safetyDetails: data.safetyDetails || [],
+                        finalDetails: data.finalDetails || {},
+                        // Host info
+                        ownerId: data.ownerId,
+                        ownerEmail: data.ownerEmail,
+                        // Meta
+                        type: "accommodation",
+                        status: data.status,
+                        publishedAt: data.publishedAt,
+                        createdAt: data.createdAt,
+                        updatedAt: data.updatedAt,
+                        imageIndex: data.imageIndex
+                        // Note: subscription info is now in user.payment field map, not in listing
+                    };
+                });
+                
+                // Filter by status if we had to query without status filter
+                const accommodationsData = allAccommodationsData.filter(acc => acc.status === 'active');
+                
+                // Sort manually if orderBy failed
+                if (accommodationsData.length > 0) {
+                    accommodationsData.sort((a, b) => {
+                        const aDate = a.publishedAt?.toDate ? a.publishedAt.toDate() : new Date(0);
+                        const bDate = b.publishedAt?.toDate ? b.publishedAt.toDate() : new Date(0);
+                        return bDate - aDate; // Descending
+                    });
+                }
+                
+                console.log('✅ Accommodations: Loaded', accommodationsData.length, 'listings');
+                console.log('📋 Accommodations data:', accommodationsData);
+                setAccommodations(accommodationsData);
+                setFilteredAccommodations(accommodationsData);
+            } catch (error) {
+                console.error('❌ Error loading accommodations:', error);
+                console.error('Error details:', error.code, error.message);
+                setAccommodations([]);
+                setFilteredAccommodations([]);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        loadAccommodations();
+    }, []);
+
+    // Update filters when URL params change
+    useEffect(() => {
+        const newFilters = {
+            location: searchParams.get('location') || '',
+            checkIn: searchParams.get('checkIn') || '',
+            checkOut: searchParams.get('checkOut') || '',
+            guests: searchParams.get('guests') || '',
+            adults: searchParams.get('adults') || '',
+            children: searchParams.get('children') || '',
+            infants: searchParams.get('infants') || '',
+            pets: searchParams.get('pets') || '',
+            monthFrom: searchParams.get('monthFrom') || '',
+            monthTo: searchParams.get('monthTo') || '',
+            flexibleOption: searchParams.get('flexibleOption') || '',
+            flexibleMonth: searchParams.get('flexibleMonth') || ''
+        };
+        setFilters(newFilters);
+    }, [searchParams]);
+
+    // Filter accommodations based on search params
+    useEffect(() => {
+        let filtered = [...accommodations];
+
+        // Filter by location
+        if (filters.location) {
+            const locationLower = filters.location.toLowerCase();
+            filtered = filtered.filter(acc => {
+                const accLocation = (acc.location || '').toLowerCase();
+                const city = (acc.locationData?.city || '').toLowerCase();
+                const province = (acc.locationData?.province || '').toLowerCase();
+                const country = (acc.locationData?.country || '').toLowerCase();
+                return accLocation.includes(locationLower) || 
+                       city.includes(locationLower) || 
+                       province.includes(locationLower) ||
+                       country.includes(locationLower);
+            });
+        }
+
+        // Filter by guest capacity
+        if (filters.guests) {
+            const guestCount = parseInt(filters.guests, 10);
+            filtered = filtered.filter(acc => {
+                const maxGuests = acc.maxGuests || acc.propertyBasics?.guestCapacity || 0;
+                return maxGuests >= guestCount;
+            });
+        }
+
+        // Filter by dates (check availability)
+        if (filters.checkIn && filters.checkOut) {
+            const checkIn = new Date(filters.checkIn);
+            const checkOut = new Date(filters.checkOut);
+            // This would require checking against booking dates - simplified for now
+            // In a real implementation, you'd query unavailable dates from bookings
+        }
+
+        setFilteredAccommodations(filtered);
+    }, [accommodations, filters]);
 
     const handleRequireLogin = () => setShowLoginModal(true);
 
@@ -166,7 +375,7 @@ const Accommodations = () => {
                             <MapPin className="w-5 h-5 text-muted-foreground" />
                             <div>
                                 <p className="font-medium text-sm text-foreground">Where</p>
-                                <p className="text-muted-foreground text-sm">Search destinations</p>
+                                <p className="text-muted-foreground text-sm">{filters.location || 'Search destinations'}</p>
                             </div>
                         </div>
                         {/* Check-in */}
@@ -174,7 +383,7 @@ const Accommodations = () => {
                             <Calendar className="w-5 h-5 text-muted-foreground" />
                             <div>
                                 <p className="font-medium text-sm text-foreground">Check-in</p>
-                                <p className="text-muted-foreground text-sm">Add dates</p>
+                                <p className="text-muted-foreground text-sm">{filters.checkIn ? new Date(filters.checkIn).toLocaleDateString() : 'Add dates'}</p>
                             </div>
                         </div>
                         {/* Check-out */}
@@ -182,7 +391,7 @@ const Accommodations = () => {
                             <Calendar className="w-5 h-5 text-muted-foreground" />
                             <div>
                                 <p className="font-medium text-sm text-foreground">Check-out</p>
-                                <p className="text-muted-foreground text-sm">Add dates</p>
+                                <p className="text-muted-foreground text-sm">{filters.checkOut ? new Date(filters.checkOut).toLocaleDateString() : 'Add dates'}</p>
                             </div>
                         </div>
                         {/* Guests + Search */}
@@ -191,7 +400,7 @@ const Accommodations = () => {
                                 <Users className="w-5 h-5 text-muted-foreground" />
                                 <div>
                                     <p className="font-medium text-sm text-foreground">Guests</p>
-                                    <p className="text-muted-foreground text-sm">Add guests</p>
+                                    <p className="text-muted-foreground text-sm">{filters.guests ? `${filters.guests} guests` : 'Add guests'}</p>
                                 </div>
                             </div>
                             <button className="btn-primary p-3 rounded-full">
@@ -210,7 +419,8 @@ const Accommodations = () => {
                 <div className="max-w-7xl mx-auto">
                     <div className="flex items-center justify-between mb-8">
                         <p className="font-body text-muted-foreground">
-                            {accommodationsData.length} accommodations found
+                            {loading ? 'Loading...' : `${filteredAccommodations.length} accommodations found`}
+                            {filters.location && ` in ${filters.location}`}
                         </p>
                         <select className="p-2 border border-border rounded-lg bg-background text-foreground">
                             <option>Sort by: Recommended</option>
@@ -221,12 +431,26 @@ const Accommodations = () => {
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-8">
-                        {accommodationsData.map((accommodation, index) => {
+                        {loading ? (
+                            <div className="text-center py-12">
+                                <p className="text-muted-foreground">Loading accommodations...</p>
+                            </div>
+                        ) : accommodations.length === 0 ? (
+                            <div className="text-center py-12">
+                                <p className="text-muted-foreground">No accommodations available yet.</p>
+                            </div>
+                        ) : (
+                            filteredAccommodations.map((accommodation, index) => {
                             // Check if accommodation is null or undefined before accessing its properties
                             if (!accommodation) return null;
                             
                             const accommodationInFavorites = favorites?.find(fav => fav && fav.id === accommodation.id && fav.type === "accommodation");
-                            const mainImage = accommodationInFavorites?.image || accommodation.image || "fallback.jpg";
+                            // Support both old format (image field) and new format (photos array)
+                            const mainImage = accommodationInFavorites?.image || 
+                                            accommodation.image ||
+                                            (accommodation.photos?.[0]?.base64 || accommodation.photos?.[0]?.url) ||
+                                            (accommodation.images?.[0]) ||
+                                            "fallback.jpg";
                             const shareUrl = `${window.location.origin}/accommodations/${accommodation.id}`;
 
                             return (
@@ -282,20 +506,48 @@ const Accommodations = () => {
                                                 </span>
                                             </div>
                                         </div>
+                                        {/* Property Info */}
+                                        {(accommodation.bedrooms > 0 || accommodation.bathrooms > 0 || accommodation.maxGuests > 0) && (
+                                            <div className="flex items-center gap-3 mb-3 text-sm text-muted-foreground">
+                                                {accommodation.bedrooms > 0 && <span>{accommodation.bedrooms} {accommodation.bedrooms === 1 ? 'bedroom' : 'bedrooms'}</span>}
+                                                {accommodation.bathrooms > 0 && <span>•</span>}
+                                                {accommodation.bathrooms > 0 && <span>{accommodation.bathrooms} {accommodation.bathrooms === 1 ? 'bathroom' : 'bathrooms'}</span>}
+                                                {accommodation.maxGuests > 0 && <span>•</span>}
+                                                {accommodation.maxGuests > 0 && <span>Up to {accommodation.maxGuests} {accommodation.maxGuests === 1 ? 'guest' : 'guests'}</span>}
+                                            </div>
+                                        )}
+                                        
+                                        {/* Property Type Badge */}
+                                        {(accommodation.privacyType || accommodation.propertyStructure) && (
+                                            <div className="mb-3">
+                                                <span className="inline-block px-2 py-1 text-xs font-medium bg-primary/10 text-primary rounded-md">
+                                                    {accommodation.privacyType && accommodation.propertyStructure
+                                                        ? `${accommodation.privacyType} in ${accommodation.propertyStructure}`
+                                                        : accommodation.privacyType || accommodation.propertyStructure}
+                                                </span>
+                                            </div>
+                                        )}
+                                        
+                                        {/* Features/Amenities Preview */}
+                                        {accommodation.features && accommodation.features.length > 0 && (
                                         <div className="flex flex-wrap gap-2 mb-4">
-                                            {accommodation.features.map((feature, idx) => (
+                                                {accommodation.features.slice(0, 3).map((feature, idx) => {
+                                                    const featureName = typeof feature === 'string' ? feature : (feature.name || feature);
+                                                    return (
                                                 <span
                                                     key={idx}
-                                                    className="px-3 py-1 bg-muted rounded-full text-sm text-muted-foreground"
+                                                            className="px-3 py-1 bg-muted rounded-full text-sm text-muted-foreground capitalize"
                                                 >
-                                                    {feature}
+                                                            {typeof featureName === 'string' ? featureName.replace(/_/g, ' ') : featureName}
                                                 </span>
-                                            ))}
+                                                    );
+                                                })}
                                         </div>
+                                        )}
                                         <div className="flex items-center justify-between">
                                             <div>
                                                 <span className="font-heading text-2xl font-bold text-foreground">
-                                                    ${accommodation.price}
+                                                    ₱{accommodation.price.toLocaleString()}
                                                 </span>
                                                 <span className="font-body text-muted-foreground">
                                                     {" "} / night
@@ -308,7 +560,8 @@ const Accommodations = () => {
                                     </div>
                                 </div>
                             );
-                        })}
+                        })
+                        )}
                     </div>
 
                     <div className="text-center mt-12">

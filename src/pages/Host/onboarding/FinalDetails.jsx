@@ -4,7 +4,8 @@ import OnboardingFooter from './components/OnboardingFooter';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
 import { auth, db } from '@/lib/firebase';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { updateSessionStorageBeforeNav } from './utils/sessionStorageHelper';
 
 const FinalDetails = () => {
   const navigate = useNavigate();
@@ -23,6 +24,8 @@ const FinalDetails = () => {
   });
   
   const [isBusinessHost, setIsBusinessHost] = useState(null);
+  const [isEditMode, setIsEditMode] = useState(location.state?.isEditMode || false);
+  const [listingId, setListingId] = useState(location.state?.listingId || null);
 
   const handleAddressChange = (field, value) => {
     setAddress(prev => ({
@@ -39,6 +42,84 @@ const FinalDetails = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]); // Run when route changes
+
+  // Update isEditMode and listingId from location.state when route changes
+  useEffect(() => {
+    if (location.state?.isEditMode !== undefined) {
+      setIsEditMode(location.state.isEditMode);
+    }
+    if (location.state?.listingId) {
+      setListingId(location.state.listingId);
+    }
+  }, [location.state]);
+
+  // Initialize from context first (if available from OnboardingContext loadDraft)
+  useEffect(() => {
+    if (state.finalDetails) {
+      console.log('📍 FinalDetails: Initializing from context:', state.finalDetails);
+      
+      if (state.finalDetails.residentialAddress) {
+        setAddress(prev => ({
+          ...prev,
+          ...state.finalDetails.residentialAddress
+        }));
+      }
+      
+      if (state.finalDetails.isBusinessHost !== undefined) {
+        setIsBusinessHost(state.finalDetails.isBusinessHost);
+      }
+    }
+  }, [state.finalDetails]);
+
+  // Load draft data from Firebase when editing (if draftId exists and not in context)
+  useEffect(() => {
+    const loadDraftData = async () => {
+      const draftId = location.state?.draftId || state?.draftId;
+      // Skip if already loaded from context
+      if (!draftId || draftId.startsWith('temp_') || state.finalDetails) {
+        return;
+      }
+      
+      try {
+        console.log('📍 FinalDetails: Loading draft data from Firebase:', draftId);
+        const draftRef = doc(db, 'onboardingDrafts', draftId);
+        const draftSnap = await getDoc(draftRef);
+        
+        if (draftSnap.exists()) {
+          const draftData = draftSnap.data();
+          const data = draftData.data || {};
+          
+          // Check for publishedListingId to detect edit mode
+          if (draftData.publishedListingId) {
+            setIsEditMode(true);
+            setListingId(draftData.publishedListingId);
+            console.log('📍 FinalDetails: Detected edit mode from draft:', { isEditMode: true, listingId: draftData.publishedListingId });
+          }
+          
+          // Extract finalDetails from data.finalDetails
+          if (data.finalDetails) {
+            console.log('📍 FinalDetails: Found finalDetails in Firebase:', data.finalDetails);
+            
+            // Extract residentialAddress and isBusinessHost
+            if (data.finalDetails.residentialAddress) {
+              setAddress(prev => ({
+                ...prev,
+                ...data.finalDetails.residentialAddress
+              }));
+            }
+            
+            if (data.finalDetails.isBusinessHost !== undefined) {
+              setIsBusinessHost(data.finalDetails.isBusinessHost);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('📍 FinalDetails: Error loading draft from Firebase:', error);
+      }
+    };
+    
+    loadDraftData();
+  }, [location.state?.draftId, state?.draftId, state.finalDetails]);
 
   const canProceed = address.street && address.city && address.province && isBusinessHost !== null;
 
@@ -168,6 +249,9 @@ const FinalDetails = () => {
       }
       
       // Navigate to dashboard
+      // Update sessionStorage before Save & Exit navigation
+      updateSessionStorageBeforeNav('finaldetails');
+      
       navigate('/host/hostdashboard', { 
         state: { 
           message: 'Draft saved successfully!',
@@ -339,21 +423,142 @@ const FinalDetails = () => {
                         // Continue navigation even if save fails
                       }
                       
-                      // Update current step in context
-                      if (actions.setCurrentStep) {
-                        actions.setCurrentStep('completed');
+                      // Check if this is edit mode (has publishedListingId in draft)
+                      // isEditMode and listingId are now state variables, but double-check draft just to be sure
+                      let currentIsEditMode = isEditMode;
+                      let currentListingId = listingId;
+                      
+                      // Also check draft for publishedListingId (for edit mode) if not already set
+                      if (!currentIsEditMode && draftIdToUse) {
+                        try {
+                          const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
+                          const draftSnap = await getDoc(draftRef);
+                          if (draftSnap.exists()) {
+                            const draftData = draftSnap.data();
+                            if (draftData.publishedListingId) {
+                              currentIsEditMode = true;
+                              currentListingId = draftData.publishedListingId;
+                              setIsEditMode(true);
+                              setListingId(currentListingId);
+                              console.log('📍 FinalDetails: Detected edit mode from draft:', { isEditMode: true, listingId: currentListingId });
+                            }
+                          }
+                        } catch (error) {
+                          console.error('📍 FinalDetails: Error checking draft for edit mode:', error);
+                        }
                       }
                       
-                      // Navigate to dashboard
-                      navigate('/host/hostdashboard', { 
-                        state: { 
-                          ...location.state,
-                          residentialAddress: address,
-                          isBusinessHost: isBusinessHost,
-                          draftId: draftIdToUse || state?.draftId || location.state?.draftId,
-                          onboardingCompleted: true
-                        } 
-                      });
+                      // If edit mode and listing exists, check if it's already paid
+                      if (currentIsEditMode && currentListingId) {
+                        try {
+                          const listingRef = doc(db, 'listings', currentListingId);
+                          const listingSnap = await getDoc(listingRef);
+                          if (listingSnap.exists()) {
+                            const listingData = listingSnap.data();
+                            
+                            // Check user's payment status instead of listing subscription status
+                            // (Subscription info is now stored in user.payment, not in listing)
+                            const userRef = doc(db, 'users', auth.currentUser.uid);
+                            const userSnap = await getDoc(userRef);
+                            const userPayment = userSnap.exists() ? (userSnap.data().payment || {}) : {};
+                            
+                            if (userPayment.status === 'active' && listingData.status === 'active') {
+                              console.log('📍 FinalDetails: User has active payment, skipping payment');
+                              // Update listing directly without payment
+                              await ensureDraftAndSave(finalDetailsData, '/host/hostdashboard');
+                              
+                              // Publish/update listing directly
+                              const { createListing } = await import('@/pages/Host/services/listing');
+                              const draftRef = doc(db, 'onboardingDrafts', draftIdToUse || state?.draftId);
+                              const draftSnap = await getDoc(draftRef);
+                              if (draftSnap.exists()) {
+                                const draftData = draftSnap.data();
+                                const data = draftData.data || {};
+                                
+                                // Prepare listing data (similar to Payment.jsx publishListing)
+                                const locationData = data.locationData || {};
+                                const photos = data.photos || [];
+                                const pricing = data.pricing || {};
+                                
+                                const listingDataToSave = {
+                                  category: draftData.category || 'accommodation',
+                                  title: data.title || 'Untitled Listing',
+                                  description: data.description || '',
+                                  descriptionHighlights: data.descriptionHighlights || [],
+                                  location: locationData,
+                                  propertyBasics: data.propertyBasics || {},
+                                  amenities: data.amenities || {},
+                                  photos: photos,
+                                  privacyType: data.privacyType || '',
+                                  propertyStructure: data.propertyStructure || '',
+                                  pricing: pricing,
+                                  bookingSettings: data.bookingSettings || {},
+                                  guestSelection: data.guestSelection || {},
+                                  discounts: data.discounts || {},
+                                  safetyDetails: data.safetyDetails || {},
+                                  finalDetails: finalDetailsData,
+                                  status: 'active',
+                                  rating: listingData.rating || 0,
+                                  reviews: listingData.reviews || 0
+                                  // Note: Subscription info is no longer stored in listings - it's in user.payment
+                                };
+                                
+                                await createListing(listingDataToSave, currentListingId);
+                                console.log('✅ Listing updated directly without payment');
+                                
+                                // Delete the draft document since listing is now published
+                                await deleteDoc(draftRef);
+                                console.log('✅ Draft deleted after successful listing update');
+                              }
+                              
+                              // Navigate directly to dashboard
+                              updateSessionStorageBeforeNav('finaldetails', 'payment');
+                              setTimeout(() => {
+                                if (actions.setCurrentStep) {
+                                  actions.setCurrentStep('payment');
+                                }
+                                navigate('/host/hostdashboard', {
+                                  state: {
+                                    message: 'Listing updated successfully!',
+                                    listingUpdated: true,
+                                    listingId: currentListingId
+                                  }
+                                });
+                              }, 0);
+                              return;
+                            }
+                          }
+                        } catch (error) {
+                          console.error('📍 FinalDetails: Error checking listing subscription:', error);
+                          // Continue to payment if check fails (better safe than sorry)
+                        }
+                      }
+                      
+                      // Update sessionStorage before navigating to payment
+                      updateSessionStorageBeforeNav('finaldetails', 'payment');
+                      
+                      // Defer setCurrentStep to avoid setState during render
+                      setTimeout(() => {
+                        if (actions.setCurrentStep) {
+                          actions.setCurrentStep('payment');
+                        }
+                        
+                        // Navigate to payment page (subscription required before publishing)
+                        navigate('/pages/payment', { 
+                      state: { 
+                        ...location.state,
+                            residentialAddress: address,
+                            isBusinessHost: isBusinessHost,
+                            draftId: draftIdToUse || state?.draftId || location.state?.draftId,
+                            isEditMode: currentIsEditMode,
+                            listingId: currentListingId,
+                            finalDetails: {
+                        residentialAddress: address,
+                        isBusinessHost: isBusinessHost
+                            }
+                      } 
+                    });
+                      }, 0);
                     } catch (error) {
                       console.error('Error saving final details:', error);
                       alert('Error saving progress. Please try again.');
@@ -362,7 +567,7 @@ const FinalDetails = () => {
                 }}
                 disabled={!canProceed}
               >
-                Create listing
+                {isEditMode ? 'Update listing' : 'Create listing'}
               </button>
             </div>
           </div>

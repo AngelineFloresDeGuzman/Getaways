@@ -7,6 +7,7 @@ import { auth, db } from '@/lib/firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import OnboardingHeader from './components/OnboardingHeader';
 import OnboardingFooter from './components/OnboardingFooter';
+import { updateSessionStorageBeforeNav } from './utils/sessionStorageHelper';
 
 const BookingSettings = () => {
   const navigate = useNavigate();
@@ -223,6 +224,9 @@ const BookingSettings = () => {
         // Continue with save & exit even if Firebase save fails
       }
       
+      // Update sessionStorage before Save & Exit navigation
+      updateSessionStorageBeforeNav('bookingsettings');
+      
       // Navigate to dashboard
       navigate('/host/hostdashboard', { 
         state: { 
@@ -300,7 +304,11 @@ const BookingSettings = () => {
 
       {/* Footer */}
       <OnboardingFooter
-        onBack={() => navigate('/pages/finishsetup')}
+        onBack={() => {
+          // Update sessionStorage before navigating back
+          updateSessionStorageBeforeNav('bookingsettings');
+          navigate('/pages/finishsetup');
+        }}
         onNext={async () => {
           if (canProceed) {
             try {
@@ -321,6 +329,9 @@ const BookingSettings = () => {
               if (actions.setCurrentStep) {
                 actions.setCurrentStep('guestselection');
               }
+              
+              // Update sessionStorage before navigating forward
+              updateSessionStorageBeforeNav('bookingsettings', 'guestselection');
               
               // Navigate to guest selection page
               navigate('/pages/guestselection', { 

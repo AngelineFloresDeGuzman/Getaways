@@ -6,6 +6,7 @@ import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
 import { useSaveAndExitWithContext } from './hooks/useSaveAndExit';
 import { auth, db } from '@/lib/firebase';
 import { doc, getDoc, updateDoc, deleteField } from 'firebase/firestore';
+import { updateSessionStorageBeforeNav } from './utils/sessionStorageHelper';
 
 const DescriptionDetails = () => {
   const navigate = useNavigate();
@@ -76,6 +77,9 @@ const DescriptionDetails = () => {
         console.error('📍 DescriptionDetails: Error saving to Firebase on Save & Exit:', saveError);
         // Continue with save & exit even if Firebase save fails
       }
+      
+      // Update sessionStorage before Save & Exit navigation
+      updateSessionStorageBeforeNav('descriptiondetails');
       
       // Navigate to dashboard
       navigate('/host/hostdashboard', { 
@@ -405,7 +409,11 @@ const DescriptionDetails = () => {
       </main>
 
       <OnboardingFooter
-        onBack={() => navigate('/pages/description')}
+        onBack={() => {
+          // Update sessionStorage before navigating back
+          updateSessionStorageBeforeNav('descriptiondetails');
+          navigate('/pages/description');
+        }}
         onNext={async () => {
           if (canProceed) {
             try {
@@ -426,6 +434,9 @@ const DescriptionDetails = () => {
               if (actions.setCurrentStep) {
                 actions.setCurrentStep('finishsetup');
               }
+              
+              // Update sessionStorage before navigating forward
+              updateSessionStorageBeforeNav('descriptiondetails', 'finishsetup');
               
               // Navigate to finish setup page
               navigate('/pages/finishsetup', { 

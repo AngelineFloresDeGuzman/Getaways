@@ -12,17 +12,18 @@ import AccommodationDetail from "./pages/Guest/AccommodationDetail";
 import Services from "./pages/Guest/Services";
 import ServicesDetail from "./pages/Guest/ServicesDetail";
 import Bookings from "./pages/Guest/Bookings";
+import BookingRequest from "./pages/Guest/BookingRequest";
 import Experiences from "./pages/Guest/Experiences";
 import ExperiencesDetails from "./pages/Guest/ExperiencesDetails";
 import Login from "./pages/Auth/LogIn";
 import SignUp from "./pages/Auth/SignUp";
 import GuestIndex from "./pages/Guest/Index";
-import Favorites from "@/pages/Guest/Favorites";
 import HostDashboard from "@/pages/Host/HostDashboard";
-import Wishlists from "@/pages/Host/Wishlists";
+import CalendarPage from "@/pages/Host/Calendar";
+import HostListings from "@/pages/Host/Listings";
 import AdminDashboard from "@/pages/Admin/AdminDashboard";
-import Profile from "@/pages/Common/Profile";
 import AccountSettings from "@/pages/Common/AccountSettings";
+import Favorites from "@/pages/Guest/Favorites";
 import HostingSteps from './pages/Host/onboarding/HostingSteps.jsx';
 import PropertyDetails from "./pages/Host/onboarding/PropertyDetails";
 import PropertyStructure from "./pages/Host/onboarding/PropertyStructure";
@@ -30,6 +31,8 @@ import PrivacyType from "./pages/Host/onboarding/PrivacyType";
 import Location from "./pages/Host/onboarding/Location";
 import LocationConfirmation from "./pages/Host/onboarding/LocationConfirmation";
 import PropertyBasics from "./pages/Host/onboarding/PropertyBasics";
+import BathroomTypes from "./pages/Host/onboarding/BathroomTypes";
+import Occupancy from "./pages/Host/onboarding/Occupancy";
 import MakeItStandOut from "./pages/Host/onboarding/MakeItStandOut";
 import Amenities from "./pages/Host/onboarding/Amenities";
 import Photos from "./pages/Host/onboarding/Photos";
@@ -44,8 +47,17 @@ import WeekendPricing from "./pages/Host/onboarding/WeekendPricing";
 import Discounts from "./pages/Host/onboarding/Discounts";
 import SafetyDetails from "./pages/Host/onboarding/SafetyDetails";
 import FinalDetails from "./pages/Host/onboarding/FinalDetails";
+import Payment from "./pages/Host/onboarding/Payment";
 import ResetPassword from "./pages/Auth/ResetPassword.jsx";
 import VerifyEmail from "./pages/Auth/VerifyEmail";
+import GuestMessages from "./pages/Guest/Messages";
+import HostMessages from "./pages/Host/Messages";
+import Resources from "./pages/Host/Resources";
+import FindCohost from "./pages/Host/FindCohost";
+import Refer from "./pages/Common/Refer";
+import Languages from "./pages/Common/Languages";
+import Help from "./pages/Common/Help";
+import Notifications from "./pages/Guest/Notifications";
 
 const queryClient = new QueryClient();
 
@@ -75,6 +87,7 @@ const App = () => {
             <Route path="/" element={<Index darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/accommodations" element={<Accommodations darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/accommodations/:id" element={<AccommodationDetail darkMode={darkMode} setDarkMode={setDarkMode} />} />
+            <Route path="/booking-request" element={<BookingRequest />} />
             <Route path="/services" element={<Services darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/services/:id" element={<ServicesDetail darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/experiences" element={<Experiences darkMode={darkMode} setDarkMode={setDarkMode} />} />
@@ -83,26 +96,37 @@ const App = () => {
             <Route path="/resetpassword" element={<ResetPassword darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/signup" element={<SignUp darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/verifyemail" element={<VerifyEmail darkMode={darkMode} setDarkMode={setDarkMode} />} />
+            <Route path="/verify-email" element={<VerifyEmail darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/guest/index" element={<GuestIndex darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/bookings" element={<Bookings darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/favorites" element={<Favorites darkMode={darkMode} setDarkMode={setDarkMode} />} />
+            <Route path="/messages" element={<GuestMessages />} />
             <Route path="/host/hostdashboard" element={<HostDashboard darkMode={darkMode} setDarkMode={setDarkMode} />} />
-            <Route path="/host/wishlists" element={<Wishlists darkMode={darkMode} setDarkMode={setDarkMode} />} />
+            <Route path="/host/calendar" element={<CalendarPage />} />
+            <Route path="/host/listings" element={<HostListings />} />
+            <Route path="/host/messages" element={<HostMessages />} />
+            <Route path="/host/resources" element={<Resources />} />
+            <Route path="/find-cohost" element={<FindCohost />} />
+            <Route path="/refer" element={<Refer />} />
+            <Route path="/languages" element={<Languages />} />
+            <Route path="/help" element={<Help />} />
+            <Route path="/notifications" element={<Notifications darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/admin/admindashboard" element={<AdminDashboard darkMode={darkMode} setDarkMode={setDarkMode} />} />
-            <Route path="/profile" element={<Profile darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/accountsettings" element={<AccountSettings darkMode={darkMode} setDarkMode={setDarkMode} />} />
             
             {/* Onboarding Routes with Context */}
             <Route path="/pages/*" element={
               <OnboardingProvider>
                 <Routes>
-                  <Route path="/hostingsteps" element={<HostingSteps />} />
+                  <Route path="hostingsteps" element={<HostingSteps />} />
                   <Route path="propertydetails" element={<PropertyDetails />} />
                   <Route path="propertystructure" element={<PropertyStructure />} />
                   <Route path="privacytype" element={<PrivacyType />} />
                   <Route path="location" element={<Location />} />
                   <Route path="locationconfirmation" element={<LocationConfirmation />} />
                   <Route path="propertybasics" element={<PropertyBasics />} />
+                  <Route path="bathroomtypes" element={<BathroomTypes />} />
+                  <Route path="occupancy" element={<Occupancy />} />
                   <Route path="makeitstandout" element={<MakeItStandOut />} />
                   <Route path="amenities" element={<Amenities />} />
                   <Route path="photos" element={<Photos />} />
@@ -117,6 +141,7 @@ const App = () => {
                   <Route path="discounts" element={<Discounts />} />
                   <Route path="safetydetails" element={<SafetyDetails />} />
                   <Route path="finaldetails" element={<FinalDetails />} />
+                  <Route path="payment" element={<Payment />} />
                 </Routes>
               </OnboardingProvider>
             } />

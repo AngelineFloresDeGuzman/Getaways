@@ -97,8 +97,11 @@ const Description = () => {
         return prev; // No change if already at max
       }
       
-      // Update context in real-time
+      // Update context in real-time (defer to avoid setState during render)
+      setTimeout(() => {
       updateHighlightsContext(newHighlights);
+      }, 0);
+      
       return newHighlights;
     });
   };
@@ -302,11 +305,14 @@ const Description = () => {
               setPropertyStructure(structureLower);
               
               // Also update context if it's not set there yet or is different
+              // Wrap in setTimeout to avoid setState during render
               if (!state.propertyStructure || state.propertyStructure.toLowerCase() !== structureLower) {
                 console.log('📍 Description: Updating context with propertyStructure:', structure);
-                if (actions.updatePropertyStructure) {
-                  actions.updatePropertyStructure(structure);
-                }
+                setTimeout(() => {
+                  if (actions?.updatePropertyStructure) {
+                    actions.updatePropertyStructure(structure);
+                  }
+                }, 0);
               }
               return; // Exit early if we found it in Firebase
             } else {
@@ -403,12 +409,17 @@ const Description = () => {
     loadDraftData();
   }, [location.state?.draftId, state.user]);
 
-  // Set current step when component mounts or route changes
+  // Set current step when component mounts or route changes (wrapped to avoid setState during render)
   useEffect(() => {
-    if (actions.setCurrentStep && state.currentStep !== 'description') {
+    // Use setTimeout to ensure this runs after render
+    const timer = setTimeout(() => {
+      if (actions?.setCurrentStep && state.currentStep !== 'description') {
       console.log('📍 Description page - Setting currentStep to description');
       actions.setCurrentStep('description');
     }
+    }, 0);
+    
+    return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]); // Run when route changes
 
@@ -480,7 +491,7 @@ const Description = () => {
               Next, let's describe your {propertyType}
             </h1>
             <p className="text-gray-600">
-              Choose up to 2 highlights (optional). We'll use these to get your description started.
+              Choose up to 2 highlights. We'll use these to get your description started.
             </p>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -517,7 +528,37 @@ const Description = () => {
 
       {/* Footer */}
       <OnboardingFooter
-        onBack={() => navigate('/pages/titledescription')}
+        onBack={() => {
+          // Update sessionStorage BEFORE navigating to ensure progress bar detects backward movement
+          // This is critical - we need to set the previous step as 'description' so when 
+          // titledescription loads, it knows we came from a later step in the same group
+          const storagePrevStepKey = 'onb_prev_step_name';
+          const storageStepKey = 'onb_progress_step';
+          const storageKey = 'onb_progress_value';
+          
+          // Calculate current step's progress for sessionStorage (description is index 4 of 6 in Step 2)
+          const stepGroups = {
+            2: ['makeitstandout', 'amenities', 'photos', 'titledescription', 'description', 'descriptiondetails']
+          };
+          const currentIndex = stepGroups[2].indexOf('description');
+          const currentProgress = currentIndex >= 0 ? ((currentIndex + 1) / stepGroups[2].length) * 100 : 83.33;
+          
+          // CRITICAL: Set 'description' as the previous step before navigating
+          // When titledescription loads, it will read this and detect backward navigation
+          // (description index 4 > titledescription index 3)
+          sessionStorage.setItem(storagePrevStepKey, 'description');
+          sessionStorage.setItem(storageStepKey, '2');
+          sessionStorage.setItem(storageKey, String(currentProgress));
+          
+          // Small delay to ensure sessionStorage is written before navigation
+          setTimeout(() => {
+            // Update context after render to avoid setState during render warning
+            if (actions.setCurrentStep) {
+              actions.setCurrentStep('description');
+            }
+            navigate('/pages/titledescription');
+          }, 0);
+        }}
         onNext={async () => {
           if (canProceed) {
             try {
@@ -534,19 +575,20 @@ const Description = () => {
                 // Continue navigation even if save fails - data is in context
               }
               
-              // Update current step in context
-              if (actions.setCurrentStep) {
-                actions.setCurrentStep('descriptiondetails');
-              }
-              
               // Navigate to description details page
+              // Defer setCurrentStep to avoid setState during render
+              setTimeout(() => {
+                if (actions.setCurrentStep) {
+                  actions.setCurrentStep('descriptiondetails');
+                }
             navigate('/pages/descriptiondetails', { 
               state: { 
                 ...location.state,
-                  descriptionHighlights: selectedHighlights,
-                  draftId: draftIdToUse || state?.draftId || location.state?.draftId
+                    descriptionHighlights: selectedHighlights,
+                    draftId: draftIdToUse || state?.draftId || location.state?.draftId
               } 
             });
+              }, 0);
             } catch (error) {
               console.error('Error saving highlights:', error);
               alert('Error saving progress. Please try again.');

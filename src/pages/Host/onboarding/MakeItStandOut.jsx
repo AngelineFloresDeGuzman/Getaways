@@ -6,6 +6,7 @@ import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
 import { useSaveAndExitWithContext } from './hooks/useSaveAndExit.js';
 import { db } from '@/lib/firebase';
 import { doc, updateDoc, getDoc } from 'firebase/firestore';
+import { updateSessionStorageBeforeNav } from './utils/sessionStorageHelper';
 
 const MakeItStandOut = () => {
   const navigate = useNavigate();
@@ -96,6 +97,9 @@ const MakeItStandOut = () => {
         
         // Use context saveDraft to ensure only one draft per session
         const draftId = await actions.saveDraft();
+        
+        // Update sessionStorage before Save & Exit navigation
+        updateSessionStorageBeforeNav('makeitstandout');
         
         // Navigate to dashboard
         navigate('/host/hostdashboard', { 
@@ -250,7 +254,11 @@ const MakeItStandOut = () => {
       </main>
 
       <OnboardingFooter
-        onBack={() => navigate('/pages/propertybasics')}
+        onBack={() => {
+          // Update sessionStorage before navigating back
+          updateSessionStorageBeforeNav('makeitstandout');
+          navigate('/pages/propertybasics');
+        }}
         onNext={async () => {
           // Set currentStep to 'amenities' in context
           if (actions.setCurrentStep) {
@@ -276,6 +284,9 @@ const MakeItStandOut = () => {
               // Continue navigation even if save fails
             }
           }
+          
+          // Update sessionStorage before navigating forward
+          updateSessionStorageBeforeNav('makeitstandout', 'amenities');
           
           // Navigate to amenities step
           navigate('/pages/amenities', { 

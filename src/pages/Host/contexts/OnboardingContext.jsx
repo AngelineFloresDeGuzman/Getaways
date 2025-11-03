@@ -763,6 +763,60 @@ export const OnboardingProvider = ({ children }) => {
             console.log('📍 OnboardingContext: Loaded descriptionHighlights from Firebase:', data.descriptionHighlights);
           }
           
+          // Extract amenities from nested data
+          // Amenities are stored as object with favorites, standout, safety subcategories
+          // Need to convert to flat array for selectedAmenities
+          if (data.amenities) {
+            if (Array.isArray(data.amenities)) {
+              // If already an array, use it directly
+              mappedData.selectedAmenities = data.amenities;
+            } else if (typeof data.amenities === 'object') {
+              // Convert object format { favorites: [...], standout: [...], safety: [...] } to flat array
+              const amenitiesArray = [
+                ...(data.amenities.favorites || []),
+                ...(data.amenities.standout || []),
+                ...(data.amenities.safety || [])
+              ];
+              mappedData.selectedAmenities = amenitiesArray;
+              console.log('📍 OnboardingContext: Loaded amenities from Firebase (converted from object to array):', mappedData.selectedAmenities);
+            }
+          }
+          
+          // Extract safetyDetails from nested data (array format)
+          if (data.safetyDetails) {
+            if (Array.isArray(data.safetyDetails)) {
+              mappedData.safetyAmenities = data.safetyDetails;
+            } else if (typeof data.safetyDetails === 'object') {
+              // Convert object to array
+              mappedData.safetyAmenities = Object.keys(data.safetyDetails).filter(key => data.safetyDetails[key]);
+            }
+            console.log('📍 OnboardingContext: Loaded safetyDetails from Firebase:', mappedData.safetyAmenities);
+          }
+          
+          // Extract pricing from nested data
+          if (data.pricing) {
+            if (data.pricing.weekdayPrice !== undefined) {
+              mappedData.weekdayPrice = data.pricing.weekdayPrice;
+            }
+            if (data.pricing.weekendPrice !== undefined) {
+              mappedData.weekendPrice = data.pricing.weekendPrice;
+              // Also set weekendPricingEnabled if weekendPrice exists and is > 0
+              mappedData.weekendPricingEnabled = data.pricing.weekendPrice > 0;
+            }
+            console.log('📍 OnboardingContext: Loaded pricing from Firebase:', {
+              weekdayPrice: mappedData.weekdayPrice,
+              weekendPrice: mappedData.weekendPrice,
+              weekendPricingEnabled: mappedData.weekendPricingEnabled
+            });
+          }
+          
+          // Extract finalDetails from nested data
+          if (data.finalDetails) {
+            // Store finalDetails under a temporary key for pages to access
+            mappedData.finalDetails = data.finalDetails;
+            console.log('📍 OnboardingContext: Loaded finalDetails from Firebase:', data.finalDetails);
+          }
+          
           // Load the mapped draft data AND set the draftId
           dispatch({ type: ACTIONS.LOAD_DRAFT, payload: mappedData });
           dispatch({ type: ACTIONS.SET_DRAFT_ID, payload: draftId });

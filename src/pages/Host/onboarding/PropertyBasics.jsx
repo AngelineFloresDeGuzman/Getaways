@@ -5,6 +5,7 @@ import { db } from '@/lib/firebase';
 import { doc, updateDoc, getDoc } from 'firebase/firestore';
 import OnboardingHeader from './components/OnboardingHeader';
 import OnboardingFooter from './components/OnboardingFooter';
+import { updateSessionStorageBeforeNav } from './utils/sessionStorageHelper';
 
 const PropertyBasics = () => {
   const navigate = useNavigate();
@@ -87,8 +88,12 @@ const PropertyBasics = () => {
         } else {
           // No drafts exist, create a new one
           console.log('📍 PropertyBasics: No existing drafts, creating new draft');
+          // Determine next step based on privacyType
+          const currentPrivacyType = privacyType || state.privacyType || 'An entire place';
+          const nextStep = currentPrivacyType === 'A room' ? 'bathroomtypes' : 'makeitstandout';
+          
           const newDraftData = {
-            currentStep: 'makeitstandout',
+            currentStep: nextStep,
             category: state.category || 'accommodation',
             data: {
               propertyBasics: propertyBasicsToSave
@@ -113,11 +118,15 @@ const PropertyBasics = () => {
         const docSnap = await getDoc(draftRef);
         
         if (docSnap.exists()) {
+          // Determine next step based on privacyType
+          const currentPrivacyType = privacyType || state.privacyType || 'An entire place';
+          const nextStep = currentPrivacyType === 'A room' ? 'bathroomtypes' : 'makeitstandout';
+          
           // Update existing document - save as nested propertyBasics object (similar to locationData)
           // Only save fields relevant to the current privacyType
           await updateDoc(draftRef, {
             'data.propertyBasics': propertyBasicsToSave,
-            currentStep: 'makeitstandout',
+            currentStep: nextStep,
             lastModified: new Date()
           });
           console.log('📍 PropertyBasics: ✅ Saved propertyBasics to Firebase (privacyType:', privacyType || state.privacyType, '):', propertyBasicsToSave);
@@ -125,8 +134,12 @@ const PropertyBasics = () => {
           // Document doesn't exist, create it
           console.log('📍 PropertyBasics: Document not found, creating new one');
           const { saveDraft } = await import('@/pages/Host/services/draftService');
+          // Determine next step based on privacyType
+          const currentPrivacyType = privacyType || state.privacyType || 'An entire place';
+          const nextStep = currentPrivacyType === 'A room' ? 'bathroomtypes' : 'makeitstandout';
+          
           const newDraftData = {
-            currentStep: 'makeitstandout',
+            currentStep: nextStep,
             category: state.category || 'accommodation',
             data: {
               propertyBasics: propertyBasicsToSave
@@ -590,12 +603,16 @@ const PropertyBasics = () => {
 
       {/* Footer */}
       <OnboardingFooter
-        onBack={() => navigate('/pages/locationconfirmation', {
+        onBack={() => {
+          // Update sessionStorage before navigating back
+          updateSessionStorageBeforeNav('propertybasics');
+          navigate('/pages/locationconfirmation', {
           state: {
             ...location.state,
             draftId: state?.draftId || location.state?.draftId
           }
-        })}
+          });
+        }}
         onNext={async () => {
           // Update context first
           updatePropertyBasics(propertyBasics);
@@ -636,8 +653,23 @@ const PropertyBasics = () => {
             // Continue navigation even if save fails - data is in context
           }
           
-          // Navigate to next step
-          navigate('/pages/makeitstandout', { 
+          // Navigate to next step based on privacyType
+          const currentPrivacyType = privacyType || state.privacyType || 'An entire place';
+          const nextStep = currentPrivacyType === 'A room' 
+            ? '/pages/bathroomtypes' 
+            : '/pages/makeitstandout';
+          
+          // If navigating to bathroomtypes, update sessionStorage accordingly
+          if (currentPrivacyType === 'A room') {
+            sessionStorage.setItem(storagePrevStepKey, 'propertybasics');
+            sessionStorage.setItem(storageStepKey, '1'); // Step 1
+            // Step 1 has 9 pages when "A room" is selected: hostingsteps, propertydetails, propertystructure, privacytype, location, locationconfirmation, propertybasics, bathroomtypes, occupancy
+            const bathroomtypesProgress = ((7 + 1) / 9) * 100; // ~88.89% (bathroomtypes is index 7 in step 1)
+            sessionStorage.setItem(storageKey, String(bathroomtypesProgress));
+            console.log('📍 PropertyBasics: Navigating to BathroomTypes (A room selected)');
+          }
+          
+          navigate(nextStep, { 
             state: { 
               ...location.state,
               propertyBasics,

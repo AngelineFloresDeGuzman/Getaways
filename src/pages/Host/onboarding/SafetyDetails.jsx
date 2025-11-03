@@ -6,6 +6,7 @@ import { auth, db } from '@/lib/firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import OnboardingHeader from './components/OnboardingHeader';
 import OnboardingFooter from './components/OnboardingFooter';
+import { updateSessionStorageBeforeNav } from './utils/sessionStorageHelper';
 
 const SafetyDetails = () => {
   const navigate = useNavigate();
@@ -23,14 +24,81 @@ const SafetyDetails = () => {
   // Ref to track initialization
   const hasInitialized = useRef(false);
 
-  // Set current step when component mounts or route changes
+  // Set current step when component mounts or route changes (wrapped to avoid setState during render)
   useEffect(() => {
-    if (actions.setCurrentStep && state.currentStep !== 'safetydetails') {
-      console.log('📍 SafetyDetails page - Setting currentStep to safetydetails');
-      actions.setCurrentStep('safetydetails');
-    }
+    // Use setTimeout to ensure this runs after render
+    const timer = setTimeout(() => {
+      if (actions?.setCurrentStep && state.currentStep !== 'safetydetails') {
+        console.log('📍 SafetyDetails page - Setting currentStep to safetydetails');
+        actions.setCurrentStep('safetydetails');
+      }
+    }, 0);
+    
+    return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]); // Run when route changes
+
+  // Load draft data from Firebase when editing (if draftId exists)
+  useEffect(() => {
+    const loadDraftData = async () => {
+      const draftId = location.state?.draftId || state?.draftId;
+      if (!draftId || draftId.startsWith('temp_') || hasInitialized.current) {
+        return;
+      }
+      
+      try {
+        console.log('📍 SafetyDetails: Loading draft data from Firebase:', draftId);
+        const draftRef = doc(db, 'onboardingDrafts', draftId);
+        const draftSnap = await getDoc(draftRef);
+        
+        if (draftSnap.exists()) {
+          const draftData = draftSnap.data();
+          const data = draftData.data || {};
+          
+          // Extract safetyDetails from data.safetyDetails
+          if (data.safetyDetails) {
+            console.log('📍 SafetyDetails: Found safetyDetails in Firebase:', data.safetyDetails);
+            
+            // SafetyDetails can be an array (from context) or an object
+            let safetyArray = [];
+            if (Array.isArray(data.safetyDetails)) {
+              safetyArray = data.safetyDetails;
+            } else if (typeof data.safetyDetails === 'object') {
+              // Convert object to array
+              safetyArray = Object.keys(data.safetyDetails).filter(key => data.safetyDetails[key]);
+            }
+            
+            // Convert array to object format for local state
+            const featuresFromFirebase = {
+              'exterior-camera': false,
+              'noise-monitor': false,
+              'weapons': false
+            };
+            
+            safetyArray.forEach(amenity => {
+              if (featuresFromFirebase.hasOwnProperty(amenity)) {
+                featuresFromFirebase[amenity] = true;
+              }
+            });
+            
+            setSafetyFeatures(featuresFromFirebase);
+            hasInitialized.current = true;
+            
+            // Update context as well (wrap in setTimeout to avoid setState during render)
+            setTimeout(() => {
+              if (actions?.updateSafetyDetails) {
+                actions.updateSafetyDetails(safetyArray);
+              }
+            }, 0);
+          }
+        }
+      } catch (error) {
+        console.error('📍 SafetyDetails: Error loading draft from Firebase:', error);
+      }
+    };
+    
+    loadDraftData();
+  }, [location.state?.draftId, state?.draftId]);
 
   // Initialize from context if available
   useEffect(() => {
@@ -86,8 +154,10 @@ const SafetyDetails = () => {
         [featureId]: !prev[featureId]
       };
       
-      // Update context in real-time
-      updateSafetyContext(updatedFeatures);
+      // Update context in real-time (defer to avoid setState during render)
+      setTimeout(() => {
+        updateSafetyContext(updatedFeatures);
+      }, 0);
       
       return updatedFeatures;
     });
@@ -209,9 +279,12 @@ const SafetyDetails = () => {
     
     try {
       // Set current step before saving so "Continue Editing" returns to this page
+      // Wrap in setTimeout to avoid setState during render
       if (actions.setCurrentStep) {
-        console.log('SafetyDetails: Setting currentStep to safetydetails');
-        actions.setCurrentStep('safetydetails');
+        setTimeout(() => {
+          console.log('SafetyDetails: Setting currentStep to safetydetails');
+          actions.setCurrentStep('safetydetails');
+        }, 0);
       }
       
       // Ensure safety details are updated in context
@@ -229,6 +302,9 @@ const SafetyDetails = () => {
         console.error('📍 SafetyDetails: Error saving to Firebase on Save & Exit:', saveError);
         // Continue with save & exit even if Firebase save fails
       }
+      
+      // Update sessionStorage before Save & Exit navigation
+      updateSessionStorageBeforeNav('safetydetails');
       
       // Navigate to dashboard
       navigate('/host/hostdashboard', { 
@@ -323,7 +399,11 @@ const SafetyDetails = () => {
 
       {/* Footer */}
       <OnboardingFooter
-        onBack={() => navigate('/pages/discounts')}
+        onBack={() => {
+          // Update sessionStorage before navigating back
+          updateSessionStorageBeforeNav('safetydetails');
+          navigate('/pages/discounts');
+        }}
         onNext={async () => {
           if (canProceed) {
             try {
@@ -347,6 +427,9 @@ const SafetyDetails = () => {
               if (actions.setCurrentStep) {
                 actions.setCurrentStep('finaldetails');
               }
+              
+              // Update sessionStorage before navigating forward
+              updateSessionStorageBeforeNav('safetydetails', 'finaldetails');
               
               // Navigate to final details page
               navigate('/pages/finaldetails', { 

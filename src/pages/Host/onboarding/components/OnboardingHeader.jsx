@@ -87,10 +87,11 @@ export default OnboardingHeader;
 // StepProgress component
 const StepProgress = ({ currentStepName = 'hostingsteps' }) => {
   // Define the 3 main steps with their respective pages
+  // Note: 'bathroomtypes' and 'occupancy' are part of Step 1 (only appear when privacyType === 'A room')
   const stepGroups = {
-    1: ['hostingsteps', 'propertydetails', 'propertystructure', 'privacytype', 'location', 'locationconfirmation', 'propertybasics'],
+    1: ['hostingsteps', 'propertydetails', 'propertystructure', 'privacytype', 'location', 'locationconfirmation', 'propertybasics', 'bathroomtypes', 'occupancy'],
     2: ['makeitstandout', 'amenities', 'photos', 'titledescription', 'description', 'descriptiondetails'],
-    3: ['finishsetup', 'bookingsettings', 'guestselection', 'pricing', 'weekendpricing', 'discounts', 'safetydetails', 'finaldetails']
+    3: ['finishsetup', 'bookingsettings', 'guestselection', 'pricing', 'weekendpricing', 'discounts', 'safetydetails', 'finaldetails', 'payment']
   };
 
   // Find which main step group the current page belongs to
@@ -147,15 +148,23 @@ const StepProgress = ({ currentStepName = 'hostingsteps' }) => {
   const isNavigatingBackward = prevStepInfo.mainStep === currentStepInfo.mainStep && 
                                prevStepInfo.index > currentStepInfo.index;
   
+  // Check if we're moving backward between step groups (e.g., Step 2 -> Step 1)
+  const isMovingBackwardBetweenGroups = storedStepSync > currentMainStep && storedStepSync > 0 && currentMainStep > 0;
+  
   // Check if we're moving to a different step group synchronously (before useEffect)
   const isMovingToNewStepGroupSync = storedStepSync !== currentMainStep && storedStepSync > 0 && currentMainStep > 0;
   const isMovingForwardBetweenGroupsSync = isMovingToNewStepGroupSync && currentMainStep > storedStepSync;
   
   // On HostingSteps, start rendered at the last value so it can animate DOWN to 0
   // When moving forward to a new step group, always start at 0 (not the previous step's progress)
+  // When moving backward to a previous step group, start from 0 or the stored value for that step
   const initialDisplayed = isHostingSteps
     ? storedValSync
-    : (isMovingForwardBetweenGroupsSync ? 0 : (storedStepSync === currentMainStep ? storedValSync : 0));
+    : (isMovingForwardBetweenGroupsSync 
+        ? 0 
+        : (isMovingBackwardBetweenGroups 
+            ? 0  // When going back, start from 0 of the target step group and animate to correct progress
+            : (storedStepSync === currentMainStep ? storedValSync : 0)));
   const prevProgressRef = React.useRef(initialDisplayed);
   const [displayedProgress, setDisplayedProgress] = React.useState(initialDisplayed);
 
@@ -189,10 +198,25 @@ const StepProgress = ({ currentStepName = 'hostingsteps' }) => {
     // Check if we're moving to a different step group (Step 1 -> Step 2, Step 2 -> Step 3)
     const isMovingToNewStepGroup = prevStoredStep !== currentMainStep && prevStoredStep > 0 && currentMainStep > 0;
     const isMovingForwardBetweenGroups = isMovingToNewStepGroup && currentMainStep > prevStoredStep;
+    const isMovingBackwardBetweenGroupsInEffect = prevStoredStep > currentMainStep && prevStoredStep > 0 && currentMainStep > 0;
     
     // Determine starting progress point
     let startProgress;
-    if (prevStoredStep === currentMainStep) {
+    if (isMovingBackwardBetweenGroupsInEffect) {
+      // CRITICAL FIX: When moving backward to a PREVIOUS step group (e.g., Step 2 -> Step 1)
+      // We're switching progress bars, so start from 0 of the target step group
+      // The previous step's progress bar will naturally reset/hide since currentMainStep changed
+      // Then animate smoothly to the target step's progress
+      startProgress = 0;
+      console.log('🔙 Moving backward to previous step group - starting from 0%, animating to target', {
+        fromStep: prevStoredStep,
+        toStep: currentMainStep,
+        fromStepName: prevStepName,
+        toStepName: currentStepName,
+        previousStepProgress: prevStoredVal,
+        targetProgress: progressInStep
+      });
+    } else if (prevStoredStep === currentMainStep) {
       // Same step group - use existing logic
       if (isForwardByIndex) {
         // Forward navigation: if stored value is higher than calculated (stale data), 
@@ -208,7 +232,7 @@ const StepProgress = ({ currentStepName = 'hostingsteps' }) => {
           // Stored value is significantly higher - likely stale, use calculated
           startProgress = progressInStep;
         } else {
-          startProgress = prevStoredVal;
+      startProgress = prevStoredVal;
         }
       }
     } else if (isMovingForwardBetweenGroups) {
@@ -226,7 +250,7 @@ const StepProgress = ({ currentStepName = 'hostingsteps' }) => {
         targetProgress: progressInStep
       });
     } else {
-      // Different step (backward or uncertain) or first time: start from current displayed or 0
+      // Different step (uncertain) or first time: start from current displayed or 0
       startProgress = prevProgressRef.current || 0;
     }
     
@@ -255,16 +279,45 @@ const StepProgress = ({ currentStepName = 'hostingsteps' }) => {
         toStepName: currentStepName,
         targetProgress: progressInStep
       });
-    } else if (isNavigatingBackward && prevStoredStep === currentMainStep) {
-      // User clicked back button - allow backward movement
+    } else if (isMovingBackwardBetweenGroupsInEffect) {
+      // Backward navigation between step groups (e.g., Step 2 -> Step 1)
       targetProgress = progressInStep;
-      console.log('🔙 Backward navigation detected - animating progress backward', {
+      console.log('🔙 Backward navigation between step groups - animating progress backward', {
+        fromStep: prevStoredStep,
+        toStep: currentMainStep,
+        fromStepName: prevStepName,
+        toStepName: currentStepName,
+        fromProgress: prevStoredVal,
+        toProgress: progressInStep
+      });
+    } else if (isNavigatingBackward && prevStoredStep === currentMainStep) {
+      // User clicked back button within same step group - allow backward movement
+      // Ensure target progress is the calculated progress (which should be lower than previous)
+      targetProgress = progressInStep;
+      
+      // Safety check: if calculated progress seems wrong (>= stored), use a calculated fallback
+      if (targetProgress >= prevStoredVal && prevStepInfo.index >= 0 && currentStepInfo.index >= 0) {
+        // Recalculate based on index if the progress seems incorrect
+        const pagesInStep = stepGroups[currentMainStep];
+        const recalculatedProgress = ((currentStepInfo.index + 1) / pagesInStep.length) * 100;
+        if (recalculatedProgress < prevStoredVal) {
+          targetProgress = recalculatedProgress;
+          console.log('⚠️ Corrected target progress for backward navigation', {
+            original: progressInStep,
+            corrected: recalculatedProgress,
+            stored: prevStoredVal
+          });
+        }
+      }
+      
+      console.log('🔙 Backward navigation detected (same step group) - animating progress backward', {
         from: prevStepName,
         to: currentStepName,
         fromIndex: prevStepInfo.index,
         toIndex: currentStepInfo.index,
         fromProgress: prevStoredVal,
-        toProgress: progressInStep
+        toProgress: targetProgress,
+        calculatedProgressInStep: progressInStep
       });
     } else if (prevStoredStep === currentMainStep && progressInStep < prevStoredVal && !isNavigatingBackward && !isForwardByIndex) {
       // Progress decreased unexpectedly - might be stale data
@@ -281,12 +334,12 @@ const StepProgress = ({ currentStepName = 'hostingsteps' }) => {
         startProgress = Math.min(startProgress, progressInStep);
       } else {
         console.warn('⚠️ Progress decreased unexpectedly', {
-          step: currentStepName,
-          calculated: progressInStep,
-          stored: prevStoredVal,
+        step: currentStepName,
+        calculated: progressInStep,
+        stored: prevStoredVal,
           currentIndex: currentStepInfo.index,
           prevIndex: prevStepInfo.index
-        });
+      });
       }
       targetProgress = progressInStep;
     }
@@ -296,8 +349,8 @@ const StepProgress = ({ currentStepName = 'hostingsteps' }) => {
       setDisplayedProgress(startProgress);
       prevProgressRef.current = startProgress;
     } else {
-      // Jump to start progress, then animate to target
-      setDisplayedProgress(startProgress);
+    // Jump to start progress, then animate to target
+    setDisplayedProgress(startProgress);
     }
     
     // Force a double rAF to guarantee a layout pass before transitioning (fixes 0% -> X% jump)

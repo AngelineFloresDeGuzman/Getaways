@@ -7,6 +7,7 @@ import { db } from '@/lib/firebase';
 import { doc, updateDoc, getDoc } from 'firebase/firestore';
 import OnboardingHeader from './components/OnboardingHeader';
 import OnboardingFooter from './components/OnboardingFooter';
+import { updateSessionStorageBeforeNav } from './utils/sessionStorageHelper';
 
 const Photos = () => {
   const navigate = useNavigate();
@@ -469,6 +470,8 @@ const Photos = () => {
             lastModified: new Date()
           });
           console.log('📍 Photos: ✅ Saved photos and currentStep to Firebase:', draftIdToUse, '-', photosToSave.length, 'photos, currentStep:', nextStep);
+          console.log('📍 Photos: First photo has base64:', !!photosToSave[0]?.base64);
+          console.log('📍 Photos: First photo keys:', photosToSave[0] ? Object.keys(photosToSave[0]) : 'no photos');
         } else {
           // Document doesn't exist, create it
           console.log('📍 Photos: Document not found, creating new one');
@@ -522,6 +525,17 @@ const Photos = () => {
       if (actions.setCurrentStep) {
         const nextStep = route === '/pages/titledescription' ? 'titledescription' : 'photos';
         actions.setCurrentStep(nextStep);
+      }
+      
+      // Determine if going forward or backward based on route
+      const isBackward = route === '/pages/amenities';
+      if (isBackward) {
+        // Going back - update sessionStorage before navigating
+        updateSessionStorageBeforeNav('photos');
+        } else {
+        // Going forward - update sessionStorage for next step
+        const nextStep = route === '/pages/titledescription' ? 'titledescription' : 'photos';
+        updateSessionStorageBeforeNav('photos', nextStep);
       }
       
       console.log('Photos saved successfully:', uploadedPhotos.length);
@@ -717,12 +731,15 @@ const Photos = () => {
       } catch (saveError) {
         console.error('📍 Photos: Error saving to Firebase on Save & Exit:', saveError);
         // Continue with save & exit even if Firebase save fails
-      }
-      
+        }
+        
       // Update current step before navigating
       if (actions.setCurrentStep) {
         actions.setCurrentStep('photos');
       }
+      
+      // Update sessionStorage before Save & Exit navigation
+      updateSessionStorageBeforeNav('photos');
         
         // Navigate to dashboard
         navigate('/host/hostdashboard', { 
@@ -1273,7 +1290,7 @@ const Photos = () => {
                     {pendingPhotos.length === 0 
                       ? 'No items selected' 
                       : `${pendingPhotos.length} item${pendingPhotos.length !== 1 ? 's' : ''} selected`}
-                  </p>
+                </p>
                 </div>
               </div>
                 <button

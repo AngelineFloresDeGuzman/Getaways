@@ -5,52 +5,225 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, setDoc, updateDoc, deleteField } from 'firebase/firestore';
-import {
-  Home,
-  Building2 as Building,
-  Warehouse,
-  Hotel,
-  Castle,
-  Tent,
-  CaravanIcon,
-  House as Villa,
-  Mountain,
-  HomeIcon,
-  LandmarkIcon
-} from 'lucide-react';
+// Unique icon components for each property type - designed to match their labels
+const HouseIcon = () => (
+  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+  </svg>
+);
+
+const ApartmentIcon = () => (
+  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4M12 9v6M9 12h6" />
+  </svg>
+);
+
+const BarnIcon = () => (
+  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18c-4-2-4-6 0-8M18 18c4-2 4-6 0-8M6 18h12M6 18v4h12v-4M10 14h4M8 16v2M16 16v2" />
+  </svg>
+);
+
+const BedBreakfastIcon = () => (
+  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6M9 10h.01M15 10h.01M12 12v2" />
+  </svg>
+);
+
+const BoatIcon = () => (
+  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 18l18-4M3 14l18-2M5 20c2-4 14-4 14 0M3 18c2-3 10-3 12 0M17 18c2-3 6-3 8 0M8 18l2-10M16 18l-2-10" />
+  </svg>
+);
+
+const CabinIcon = () => (
+  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18c-2-2-2-6 0-8s6-2 8 0M6 18h12M6 18v4h12v-4M8 14h8M10 16v2M14 16v2M4 20h16" />
+  </svg>
+);
+
+const CamperRVIcon = () => (
+  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2v-6a2 2 0 012-2zM2 12h20M8 8V6M16 8V6M6 14h2M16 14h2M12 10v4" />
+  </svg>
+);
+
+const CasaParticularIcon = () => (
+  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6M9 10h.01M15 10h.01M12 13v2M10 15h4" />
+  </svg>
+);
+
+const CastleIcon = () => (
+  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4M7 3v4m0 4v4m10-8V3m0 4v4" />
+  </svg>
+);
+
+const CaveIcon = () => (
+  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18c-2-2-2-6 0-8s6-2 8 0 6-2 8 0 2 6 0 8M6 18h12M6 18v4h12v-4M12 14v2" />
+  </svg>
+);
+
+const ContainerIcon = () => (
+  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V8a2 2 0 012-2zM4 10h16M4 14h16M6 8v12M18 8v12" />
+  </svg>
+);
+
+const CycladicHomeIcon = () => (
+  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 8v8h16V8M4 12h16M8 10v4M16 10v4M12 10v4M6 20h12M10 8v2M14 8v2" />
+  </svg>
+);
+
+const DammusoIcon = () => (
+  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3c-4 0-8 2-8 5v10c0 3 4 5 8 5s8-2 8-5V8c0-3-4-5-8-5zM12 7v10M8 12h8M4 8h16M4 12h16M10 16v2M14 16v2" />
+  </svg>
+);
+
+const DomeIcon = () => (
+  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3c-6 0-12 3-12 6v6c0 3 6 6 12 6s12-3 12-6V9c0-3-6-6-12-6zM12 9v12M0 12h24M6 9v12M18 9v12" />
+  </svg>
+);
+
+const EarthHomeIcon = () => (
+  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3c4-2 8 0 8 4v8c0 4-4 6-8 4s-8 0-8-4V7c0-4 4-6 8-4zM12 7v10M8 12h8M3 12a9 9 0 1018 0" />
+  </svg>
+);
+
+const FarmIcon = () => (
+  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8v10h14V8M5 12h14M9 10v2M15 10v2M6 18c-1-2 2-4 6-4s7 2 6 4M10 12h4" />
+  </svg>
+);
+
+const GuesthouseIcon = () => (
+  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6M12 8h.01" />
+  </svg>
+);
+
+const HotelIcon = () => (
+  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4M7 3v4m0 4v4m10-8V3m0 4v4M12 9v6M9 12h6" />
+  </svg>
+);
+
+const HouseboatIcon = () => (
+  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 18l18-4M3 14l18-2M3 12l2-2m0 0l7-7 7 7M5 10v8a1 1 0 001 1h3m10-9l2 2m-2-2v8a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6M8 18v2M16 18v2" />
+  </svg>
+);
+
+const KezhanIcon = () => (
+  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6M8 10h2M14 10h2M12 12h.01M8 16h8M10 14v4M14 14v4" />
+  </svg>
+);
+
+const MinsuIcon = () => (
+  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6M9 10h.01M15 10h.01M12 12h.01M9 16h6M10 14v4M14 14v4" />
+  </svg>
+);
+
+const RiadIcon = () => (
+  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6M12 12c0-1-1-2-2-2s-2 1-2 2M12 16v4M10 14h4" />
+  </svg>
+);
+
+const RyokanIcon = () => (
+  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6M8 10h2M14 10h2M10 12v4M14 12v4M9 8h6" />
+  </svg>
+);
+
+const ShepherdsHutIcon = () => (
+  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18c-2-2-2-6 0-8s6-2 8 0M6 18h12M6 18v4h12v-4M8 14h8M10 16v2M14 16v2M12 12v2" />
+  </svg>
+);
+
+const TentIcon = () => (
+  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+  </svg>
+);
+
+const TinyHomeIcon = () => (
+  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h2m10-11l2 2m-2-2v10a1 1 0 01-1 1h-2m-8 0a1 1 0 001-1v-4a1 1 0 011-1h1a1 1 0 011 1v4a1 1 0 001 1m-4 0h2M10 10h.01" />
+  </svg>
+);
+
+const TowerIcon = () => (
+  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4M7 3v4m0 4v4m10-8V3m0 4v4M12 8v4" />
+  </svg>
+);
+
+const TreehouseIcon = () => (
+  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m-4-4h8M8 12h8M8 8h8M8 16h8M6 20l-2-4h4l-2 4zm12 0l-2-4h4l-2 4zM10 4l-1-2h6l-1 2z" />
+  </svg>
+);
+
+const TrulloIcon = () => (
+  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3c-4 0-8 2-8 5v10c0 3 4 5 8 5s8-2 8-5V8c0-3-4-5-8-5zM12 7v10M8 12h8M4 8h16M4 12h16" />
+  </svg>
+);
+
+const WindmillIcon = () => (
+  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3l8 4v12H4V7l8-4zM12 7v14M4 7l8 4M20 7l-8 4M12 11l-4-2M12 11l4-2M8 15l8-4M16 15l-8-4M13 10V3L4 14h7v7l9-11h-7zM12 12h4M8 12h4" />
+  </svg>
+);
+
+const YurtIcon = () => (
+  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v18M3 12h18M12 3a9 9 0 019 9M12 3a9 9 0 00-9 9m9 9a9 9 0 01-9-9m9 9a9 9 0 009-9M12 8v8M8 12h8" />
+  </svg>
+);
 
 const propertyTypes = [
-  { icon: Home, label: 'House' },
-  { icon: Building, label: 'Apartment' },
-  { icon: Warehouse, label: 'Barn' },
-  { icon: Hotel, label: 'Bed & breakfast' },
-  { icon: Tent, label: 'Boat' },
-  { icon: HomeIcon, label: 'Cabin' },
-  { icon: CaravanIcon, label: 'Camper/RV' },
-  { icon: Villa, label: 'Casa particular' },
-  { icon: Castle, label: 'Castle' },
-  { icon: Mountain, label: 'Cave' },
-  { icon: Building, label: 'Container' },
-  { icon: LandmarkIcon, label: 'Cycladic home' },
-  { icon: Building, label: 'Dammuso' },  // Add this line
-  { icon: Building, label: 'Dome' },
-  { icon: HomeIcon, label: 'Earth home' },
-  { icon: Warehouse, label: 'Farm' },
-  { icon: Building, label: 'Guesthouse' },
-  { icon: Building, label: 'Hotel' },
-  { icon: HomeIcon, label: 'Houseboat' },
-  { icon: HomeIcon, label: 'Kezhan' },
-  { icon: Building, label: 'Minsu' },
-  { icon: Building, label: 'Riad' },
-  { icon: HomeIcon, label: 'Ryokan' },
-  { icon: HomeIcon, label: "Shepherd's hut" },
-  { icon: Tent, label: 'Tent' },
-  { icon: HomeIcon, label: 'Tiny home' },
-  { icon: Castle, label: 'Tower' },
-  { icon: HomeIcon, label: 'Treehouse' },
-  { icon: HomeIcon, label: 'Trullo' },
-  { icon: Warehouse, label: 'Windmill' },
-  { icon: Tent, label: 'Yurt' }
+  { icon: HouseIcon, label: 'House' },
+  { icon: ApartmentIcon, label: 'Apartment' },
+  { icon: BarnIcon, label: 'Barn' },
+  { icon: BedBreakfastIcon, label: 'Bed & breakfast' },
+  { icon: BoatIcon, label: 'Boat' },
+  { icon: CabinIcon, label: 'Cabin' },
+  { icon: CamperRVIcon, label: 'Camper/RV' },
+  { icon: CasaParticularIcon, label: 'Casa particular' },
+  { icon: CastleIcon, label: 'Castle' },
+  { icon: CaveIcon, label: 'Cave' },
+  { icon: ContainerIcon, label: 'Container' },
+  { icon: CycladicHomeIcon, label: 'Cycladic home' },
+  { icon: DammusoIcon, label: 'Dammuso' },
+  { icon: DomeIcon, label: 'Dome' },
+  { icon: EarthHomeIcon, label: 'Earth home' },
+  { icon: FarmIcon, label: 'Farm' },
+  { icon: GuesthouseIcon, label: 'Guesthouse' },
+  { icon: HotelIcon, label: 'Hotel' },
+  { icon: HouseboatIcon, label: 'Houseboat' },
+  { icon: KezhanIcon, label: 'Kezhan' },
+  { icon: MinsuIcon, label: 'Minsu' },
+  { icon: RiadIcon, label: 'Riad' },
+  { icon: RyokanIcon, label: 'Ryokan' },
+  { icon: ShepherdsHutIcon, label: "Shepherd's hut" },
+  { icon: TentIcon, label: 'Tent' },
+  { icon: TinyHomeIcon, label: 'Tiny home' },
+  { icon: TowerIcon, label: 'Tower' },
+  { icon: TreehouseIcon, label: 'Treehouse' },
+  { icon: TrulloIcon, label: 'Trullo' },
+  { icon: WindmillIcon, label: 'Windmill' },
+  { icon: YurtIcon, label: 'Yurt' }
 ];
 
 const PropertyStructure = () => {
@@ -204,14 +377,13 @@ const PropertyStructure = () => {
                     : 'border-gray-200'
                 }`}
               >
-                <type.icon 
-                  className={`w-8 h-8 mb-2 transition-all duration-300 group-hover:text-primary group-hover:animate-rotate ${
+                <div className={`mb-2 transition-all duration-300 group-hover:text-primary group-hover:animate-rotate ${
                     selectedType === type.label
                       ? 'text-primary animate-rotate'
                       : ''
-                  }`}
-                  style={{ transformStyle: 'preserve-3d' }}
-                />
+                  }`}>
+                  <type.icon />
+                </div>
                 <span className={`text-sm transition-all duration-300 group-hover:text-primary group-hover:font-semibold ${
                   selectedType === type.label
                     ? 'text-primary font-semibold'

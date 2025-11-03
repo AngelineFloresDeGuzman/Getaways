@@ -5,6 +5,7 @@ import { auth, db } from '@/lib/firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import OnboardingHeader from './components/OnboardingHeader';
 import OnboardingFooter from './components/OnboardingFooter';
+import { updateSessionStorageBeforeNav } from './utils/sessionStorageHelper';
 
 const WeekendPricing = () => {
   const navigate = useNavigate();
@@ -13,8 +14,9 @@ const WeekendPricing = () => {
   // OnboardingContext integration
   const { state, actions } = useOnboarding();
   
-  // Get weekday price from previous page or state, default to 1511
-  const weekdayPrice = location.state?.weekdayPrice || state.weekdayPrice || 1511;
+  // Get weekday price from state (loaded from draft), location state, or default to 1511
+  // State.weekdayPrice takes priority as it's loaded from Firebase
+  const weekdayPrice = state.weekdayPrice || location.state?.weekdayPrice || 1511;
   
   const [premiumPercentage, setPremiumPercentage] = useState(3);
   const [isPriceBreakdownOpen, setIsPriceBreakdownOpen] = useState(false);
@@ -23,7 +25,7 @@ const WeekendPricing = () => {
   
   // Ref to track initialization
   const hasInitialized = useRef(false);
-
+  
   // Calculate weekend price based on premium
   const weekendPrice = Math.round(weekdayPrice * (1 + premiumPercentage / 100));
   
@@ -35,6 +37,25 @@ const WeekendPricing = () => {
 
   const canProceed = true; // Always can proceed with any percentage
 
+  // Load draft data when navigating from "Continue Editing"
+  useEffect(() => {
+    const loadDraftData = async () => {
+      const draftIdToLoad = location.state?.draftId || state?.draftId;
+      // Only load draft if user is authenticated and we have a draftId
+      if (draftIdToLoad && actions.loadDraft && state.user) {
+        console.log('📍 WeekendPricing: Loading draft with ID:', draftIdToLoad);
+        try {
+          await actions.loadDraft(draftIdToLoad);
+          console.log('✅ WeekendPricing: Draft loaded successfully');
+        } catch (error) {
+          console.error('❌ WeekendPricing: Error loading draft:', error);
+        }
+      }
+    };
+
+    loadDraftData();
+  }, [location.state?.draftId, state?.draftId, state.user, actions]);
+
   // Set current step when component mounts or route changes
   useEffect(() => {
     if (actions.setCurrentStep && state.currentStep !== 'weekendpricing') {
@@ -44,22 +65,31 @@ const WeekendPricing = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]); // Run when route changes
 
-  // Initialize from context if available
+  // Initialize from context if available (after draft loads)
   useEffect(() => {
-    if (!hasInitialized.current && state.weekendPricingEnabled !== undefined) {
-      console.log('WeekendPricing - Initializing from context:', {
+    const currentWeekdayPrice = state.weekdayPrice || location.state?.weekdayPrice || 1511;
+    
+    if (!hasInitialized.current && (state.weekendPrice !== undefined || state.weekendPricingEnabled !== undefined) && currentWeekdayPrice > 0) {
+      console.log('📍 WeekendPricing: Initializing from context:', {
+        weekdayPrice: currentWeekdayPrice,
         weekendPrice: state.weekendPrice,
         weekendPricingEnabled: state.weekendPricingEnabled
       });
       
-      if (state.weekendPrice > 0 && weekdayPrice > 0) {
+      if (state.weekendPrice > 0 && currentWeekdayPrice > 0) {
         // Calculate premium percentage from saved weekend price
-        const calculatedPremium = Math.round(((state.weekendPrice / weekdayPrice) - 1) * 100);
-        setPremiumPercentage(Math.max(0, Math.min(99, calculatedPremium)));
+        const calculatedPremium = Math.round(((state.weekendPrice / currentWeekdayPrice) - 1) * 100);
+        const validPremium = Math.max(0, Math.min(99, calculatedPremium));
+        console.log('📍 WeekendPricing: Calculated premium percentage:', validPremium, 'from weekendPrice:', state.weekendPrice, 'and weekdayPrice:', currentWeekdayPrice);
+        setPremiumPercentage(validPremium);
+      } else if (state.weekendPrice === 0) {
+        // If weekendPrice is 0, set premium to 0
+        console.log('📍 WeekendPricing: Weekend price is 0, setting premium to 0');
+        setPremiumPercentage(0);
       }
       hasInitialized.current = true;
     }
-  }, [state.weekendPrice, state.weekendPricingEnabled, weekdayPrice]);
+  }, [state.weekendPrice, state.weekendPricingEnabled, state.weekdayPrice, location.state?.weekdayPrice]);
 
   // Real-time context updates
   const updateWeekendPricingContext = (percentage) => {
@@ -257,6 +287,9 @@ const WeekendPricing = () => {
         // Continue with save & exit even if Firebase save fails
       }
       
+      // Update sessionStorage before Save & Exit navigation
+      updateSessionStorageBeforeNav('weekendpricing');
+      
       // Navigate to dashboard
       navigate('/host/hostdashboard', { 
         state: { 
@@ -357,7 +390,7 @@ const WeekendPricing = () => {
                 <p className="text-sm text-gray-600">Tip: 3%</p>
               </div>
               {isEditingPercentage ? (
-                <div className="text-2xl font-medium text-gray-900">
+              <div className="text-2xl font-medium text-gray-900">
                   <input
                     type="text"
                     value={editPercentageValue}
@@ -374,7 +407,7 @@ const WeekendPricing = () => {
                   className="text-2xl font-medium text-gray-900 cursor-pointer relative group"
                   onClick={handlePercentageClick}
                 >
-                  {premiumPercentage}%
+                {premiumPercentage}%
                   <svg 
                     className="w-4 h-4 inline-block ml-2 opacity-0 group-hover:opacity-100 transition-opacity" 
                     fill="none" 
@@ -383,7 +416,7 @@ const WeekendPricing = () => {
                   >
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                   </svg>
-                </div>
+              </div>
               )}
             </div>
 
@@ -401,7 +434,7 @@ const WeekendPricing = () => {
                 }}
               />
               <div className="flex justify-between text-xs text-gray-500 mt-2">
-                <span>0%</span>
+                <span>{premiumPercentage}%</span>
                 <span>99%</span>
               </div>
             </div>
@@ -410,13 +443,32 @@ const WeekendPricing = () => {
       </main>
 
       <OnboardingFooter
-        onBack={() => navigate('/pages/pricing')}
+        onBack={() => {
+          // CRITICAL: Update sessionStorage BEFORE navigating back
+          // Set 'weekendpricing' as the previous step with its progress (~62.5%)
+          // This ensures OnboardingHeader detects backward navigation (weekendpricing index 4 > pricing index 3)
+          
+          // Manually set sessionStorage to ensure it's set before navigation
+          const storagePrevStepKey = 'onb_prev_step_name';
+          const storageStepKey = 'onb_progress_step';
+          const storageKey = 'onb_progress_value';
+          
+          // Calculate weekendpricing progress: index 4 in step 3 (8 pages) = ((4+1)/8)*100 = 62.5%
+          sessionStorage.setItem(storagePrevStepKey, 'weekendpricing');
+          sessionStorage.setItem(storageStepKey, '3');
+          sessionStorage.setItem(storageKey, '62.5');
+          
+          console.log('📍 WeekendPricing Back: Set sessionStorage - prevStep: weekendpricing, step: 3, progress: 62.5%');
+          
+          // Navigate back - OnboardingHeader will detect backward navigation (weekendpricing index 4 > pricing index 3)
+          navigate('/pages/pricing');
+        }}
         onNext={async () => {
-          if (canProceed) {
+                  if (canProceed) {
             try {
               // Update context first
-              updateWeekendPricingContext(premiumPercentage);
-              
+                    updateWeekendPricingContext(premiumPercentage);
+                    
               // Prepare weekend pricing data to save
               const weekendPricingData = {
                 weekdayPrice: weekdayPrice,
@@ -438,21 +490,24 @@ const WeekendPricing = () => {
                 actions.setCurrentStep('discounts');
               }
               
+              // Update sessionStorage before navigating forward
+              updateSessionStorageBeforeNav('weekendpricing', 'discounts');
+              
               // Navigate to discounts page
-              navigate('/pages/discounts', { 
-                state: { 
-                  ...location.state,
-                  weekendPrice: weekendPrice,
+                    navigate('/pages/discounts', { 
+                      state: { 
+                        ...location.state,
+                        weekendPrice: weekendPrice,
                   premiumPercentage: premiumPercentage,
                   draftId: draftIdToUse || state?.draftId || location.state?.draftId
-                } 
-              });
+                      } 
+                    });
             } catch (error) {
               console.error('Error saving weekend pricing:', error);
               alert('Error saving progress. Please try again.');
             }
-          }
-        }}
+                  }
+                }}
         canProceed={canProceed}
       />
 

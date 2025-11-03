@@ -5,13 +5,15 @@ import Navigation from '@/components/Navigation';
 import Footer from '@/components/Footer';
 import WishlistSection from '@/components/WishlistSection';
 import {
-  MapPin, Star, Heart, Share2, Clock, Users, ArrowLeft, X, Check
+  MapPin, Star, Heart, Share2, Clock, Users, ArrowLeft, X, Check, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { auth } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import LogIn from '@/pages/Auth/LogIn';
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faFacebookF, faInstagram, faFacebookMessenger, faXTwitter } from "@fortawesome/free-brands-svg-icons";
+import { Calendar } from '@/components/ui/calendar';
+import { format } from 'date-fns';
 
 const ServicesDetail = () => {
   const { id } = useParams();
@@ -21,6 +23,11 @@ const ServicesDetail = () => {
   const [activeShare, setActiveShare] = useState(null);
   const [copied, setCopied] = useState(false);
   const shareUrl = activeShare ? `${window.location.origin}/services/${activeShare}` : '';
+  const [checkInDate, setCheckInDate] = useState(null);
+  const [checkOutDate, setCheckOutDate] = useState(null);
+  const [selectedDateRange, setSelectedDateRange] = useState(null);
+  const [guests, setGuests] = useState(1);
+  const [defaultMonth, setDefaultMonth] = useState(new Date());
 
 
   const service = services.find(item => item.id === Number(id));
@@ -200,6 +207,93 @@ const ServicesDetail = () => {
                     )}
                   </div>
                 ))}
+              </div>
+            </div>
+
+            {/* Select Check-in Date Section */}
+            <div className="space-y-4 pt-8 border-t border-border">
+              <div>
+                <h2 className="font-heading text-2xl font-bold text-foreground mb-2">Select check-in date</h2>
+                <p className="text-muted-foreground">Add your travel dates for exact pricing</p>
+              </div>
+              
+              <div className="flex justify-center w-full">
+                <div className="bg-white rounded-xl border border-gray-200 shadow-lg p-6 w-full max-w-4xl mx-auto relative">
+                  <Calendar
+                    mode="range"
+                    selected={selectedDateRange}
+                    onSelect={(range) => {
+                      setSelectedDateRange(range);
+                      if (range?.from) {
+                        setCheckInDate(range.from);
+                      }
+                      if (range?.to) {
+                        setCheckOutDate(range.to);
+                      } else if (range?.from && !range?.to) {
+                        setCheckOutDate(null);
+                      }
+                    }}
+                    numberOfMonths={2}
+                    showOutsideDays={true}
+                    navLayout="around"
+                    defaultMonth={defaultMonth}
+                    fromDate={new Date()}
+                    className="w-full"
+                    classNames={{
+                      months: "flex flex-col sm:flex-row space-y-4 sm:space-x-8 sm:space-y-0 justify-center",
+                      month: "space-y-4",
+                      caption: "flex justify-between items-center pt-2 relative mb-4",
+                      caption_label: "text-lg font-semibold text-gray-900 flex-1 text-center",
+                      nav: "flex items-center",
+                      nav_button: "h-8 w-8 bg-transparent border-0 p-0 opacity-70 hover:opacity-100 hover:bg-gray-100 rounded-md transition-all flex items-center justify-center text-gray-700 hover:text-gray-900",
+                      nav_button_previous: "",
+                      nav_button_next: "",
+                      table: "w-full border-collapse space-y-2",
+                      head_row: "flex mb-2",
+                      head_cell: "text-gray-600 rounded-md w-10 h-10 font-medium text-xs flex items-center justify-center",
+                      row: "flex w-full mt-1",
+                      cell: "h-10 w-10 text-center text-sm p-0 relative [&:has([aria-selected].day-range-end)]:rounded-r-md [&:has([aria-selected].day-outside)]:bg-accent/50 [&:has([aria-selected])]:bg-accent first:[&:has([aria-selected])]:rounded-l-md last:[&:has([aria-selected])]:rounded-r-md focus-within:relative focus-within:z-20",
+                      day: "h-10 w-10 p-0 font-normal rounded-md hover:bg-gray-100 transition-colors aria-selected:opacity-100 flex items-center justify-center",
+                      day_range_end: "day-range-end rounded-r-md",
+                      day_selected: "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground focus:bg-primary focus:text-primary-foreground font-semibold",
+                      day_today: "bg-blue-50 text-blue-700 font-semibold border-2 border-blue-500",
+                      day_outside: "day-outside text-gray-400 opacity-50 aria-selected:bg-accent/50 aria-selected:text-muted-foreground aria-selected:opacity-30",
+                      day_disabled: "!bg-amber-200 !text-amber-800 !opacity-75 !cursor-not-allowed hover:!bg-amber-200 !font-medium !border !border-amber-400 !line-through",
+                      day_range_middle: "aria-selected:bg-primary/20 aria-selected:text-primary-foreground rounded-none",
+                      day_hidden: "invisible"
+                    }}
+                    components={{
+                      IconLeft: () => <ChevronLeft className="h-5 w-5 text-gray-700" />,
+                      IconRight: () => <ChevronRight className="h-5 w-5 text-gray-700" />
+                    }}
+                    disabled={(date) => {
+                      // Disable all dates before today
+                      const today = new Date();
+                      today.setHours(0, 0, 0, 0);
+                      const dateToCheck = new Date(date);
+                      dateToCheck.setHours(0, 0, 0, 0);
+                      return dateToCheck < today;
+                    }}
+                    modifiersClassNames={{
+                      selected: "bg-primary text-white",
+                      today: "bg-blue-50 text-blue-700 border-2 border-blue-500"
+                    }}
+                  />
+                  {(checkInDate || checkOutDate) && (
+                    <div className="absolute bottom-4 right-6">
+                      <button
+                        onClick={() => {
+                          setCheckInDate(null);
+                          setCheckOutDate(null);
+                          setSelectedDateRange(null);
+                        }}
+                        className="text-primary hover:underline text-sm font-medium"
+                      >
+                        Clear dates
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 

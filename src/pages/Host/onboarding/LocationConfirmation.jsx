@@ -9,6 +9,7 @@ import { doc, updateDoc, getDoc } from 'firebase/firestore';
 import { useSaveAndExitWithContext } from './hooks/useSaveAndExit.js';
 import OnboardingHeader from './components/OnboardingHeader';
 import OnboardingFooter from './components/OnboardingFooter';
+import { updateSessionStorageBeforeNav } from './utils/sessionStorageHelper';
 
 // Fix marker icon issue
 delete L.Icon.Default.prototype._getIconUrl;
@@ -128,7 +129,7 @@ const LocationConfirmation = () => {
   // Use ref to avoid infinite re-renders
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
-  
+
   // Keep only fields we actually use across pages and normalize values
   // Define this BEFORE using it to avoid "Cannot access before initialization" error
   const normalizeLocationData = (input) => {
@@ -274,9 +275,9 @@ const LocationConfirmation = () => {
         if (hasDifferentAddressFields || !prevLocationData.street) {
           // Only update if address fields actually differ or if we don't have address data yet
           console.log('LocationConfirmation: Updating local state from context (address fields differ):', state.locationData);
-          if (state.locationData.latitude && state.locationData.longitude) {
-            setPosition([state.locationData.latitude, state.locationData.longitude]);
-          }
+      if (state.locationData.latitude && state.locationData.longitude) {
+        setPosition([state.locationData.latitude, state.locationData.longitude]);
+      }
           return state.locationData;
         } else if (state.locationData.latitude && state.locationData.longitude) {
           // Only update coordinates if address fields are the same
@@ -1033,6 +1034,9 @@ const LocationConfirmation = () => {
       {/* Footer */}
       <OnboardingFooter
         onBack={() => {
+          // Update sessionStorage before navigating back
+          updateSessionStorageBeforeNav('locationconfirmation');
+          
           // Check if location data exists and has meaningful content
           const hasLocationData = locationData && (
             locationData.country || 

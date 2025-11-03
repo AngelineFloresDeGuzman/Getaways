@@ -1,0 +1,116 @@
+═══════════════════════════════════════════════════════════════
+  FIREBASE FIRESTORE DATABASE RULES - USE THIS!
+═══════════════════════════════════════════════════════════════
+
+Go to: Firebase Console → Firestore Database → Rules
+Delete ALL existing rules and paste this EXACTLY:
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Users collection - allow authenticated users to read any user
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && request.auth.uid == userId;
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    // Conversations collection
+    match /conversations/{conversationId} {
+      // Use "allow read" - works for both queries AND single document reads
+      allow read: if isAuthenticated() && 
+        request.auth.uid in resource.data.participants;
+      
+      allow create: if isAuthenticated() && 
+        request.auth.uid in request.resource.data.participants;
+      
+      allow update: if isAuthenticated() && 
+        request.auth.uid in resource.data.participants;
+      
+      allow delete: if isAuthenticated() && 
+        request.auth.uid in resource.data.participants;
+      
+      // Messages subcollection
+      match /messages/{messageId} {
+        allow read, write: if isAuthenticated() && 
+          request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
+        allow create: if isAuthenticated() && 
+          request.resource.data.senderId == request.auth.uid;
+      }
+    }
+    
+    // Listings collection
+    match /listings/{listingId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && resource.data.hostId == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.hostId == request.auth.uid;
+    }
+    
+    // Bookings collection
+    match /bookings/{bookingId} {
+      allow read: if isAuthenticated() && (
+        resource.data.guestId == request.auth.uid ||
+        resource.data.hostId == request.auth.uid
+      );
+      allow create: if isAuthenticated() && request.resource.data.guestId == request.auth.uid;
+      allow update: if isAuthenticated() && (
+        resource.data.guestId == request.auth.uid ||
+        resource.data.hostId == request.auth.uid
+      );
+    }
+    
+    // Onboarding drafts
+    match /onboardingDrafts/{draftId} {
+      allow read, write: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+    }
+  }
+}
+
+═══════════════════════════════════════════════════════════════
+  FIREBASE STORAGE RULES - USE THIS TO FIX CORS ERRORS!
+═══════════════════════════════════════════════════════════════
+
+Go to: Firebase Console → Storage → Rules
+Delete ALL existing rules and paste this EXACTLY:
+
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Allow authenticated users to upload/download files in messages folder
+    match /messages/{conversationId}/{fileName} {
+      allow read, write: if request.auth != null;
+    }
+    
+    // Allow authenticated users to access any other paths (for profile images, etc.)
+    match /{allPaths=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
+
+⚠️ IMPORTANT: After pasting Storage rules:
+1. Click "Publish" button
+2. Wait 30-60 seconds for rules to propagate
+3. If you still get CORS errors, try:
+   - Clear browser cache completely
+   - Open in Incognito/Private window
+   - Wait a few minutes and try again (rules can take time to propagate globally)
+
+═══════════════════════════════════════════════════════════════
+  CRITICAL STEPS:
+═══════════════════════════════════════════════════════════════
+
+1. Copy Firestore rules above → Go to Firestore Database → Rules → Paste → Publish
+2. Copy Storage rules above → Go to Storage → Rules → Paste → Publish  
+3. WAIT 60 seconds for rules to fully propagate
+4. Hard refresh browser (Ctrl+Shift+R or Cmd+Shift+R)
+5. Clear browser cache if needed
+6. Try again
+
+The key fix: Using "allow read" instead of separate "allow list" and "allow get"
+This works for both query operations and single document reads.
