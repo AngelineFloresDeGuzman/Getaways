@@ -7,14 +7,18 @@ import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc, onSnapshot, collection, query, where } from "firebase/firestore";
 import { getGuestBookings } from "@/pages/Guest/services/bookingService";
+import { createReview, getReviewByBookingId } from "@/pages/Guest/services/reviewService";
 import { format } from "date-fns";
 import LogIn from "@/pages/Auth/LogIn";
+import ReviewModal from "@/components/ReviewModal";
 
 const Bookings = () => {
   const [user, setUser] = useState(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [selectedBooking, setSelectedBooking] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -40,12 +44,15 @@ const Bookings = () => {
         setLoading(true);
         const guestBookings = await getGuestBookings(user.uid);
 
-        // Fetch listing details for each booking
+        // Fetch listing details and review status for each booking
         const bookingsWithDetails = await Promise.all(
           guestBookings.map(async (booking) => {
             try {
               const listingRef = doc(db, 'listings', booking.listingId);
               const listingSnap = await getDoc(listingRef);
+              
+              // Check if review exists for this booking
+              const existingReview = await getReviewByBookingId(booking.id);
               
               if (listingSnap.exists()) {
                 const listingData = listingSnap.data();
@@ -60,7 +67,8 @@ const Bookings = () => {
                       ? `${locationData.city}, ${locationData.province}`
                       : locationData.city || locationData.country || 'Unknown Location'),
                   listingImage: photos[0]?.base64 || photos[0]?.url || null,
-                  category: listingData.category || booking.category || 'accommodation'
+                  category: listingData.category || booking.category || 'accommodation',
+                  reviewed: !!existingReview || booking.reviewed || false
                 };
               } else {
                 return {
@@ -68,7 +76,8 @@ const Bookings = () => {
                   listingTitle: 'Listing not found',
                   listingLocation: 'Unknown',
                   listingImage: null,
-                  category: booking.category || 'accommodation'
+                  category: booking.category || 'accommodation',
+                  reviewed: !!existingReview || booking.reviewed || false
                 };
               }
             } catch (error) {
@@ -78,7 +87,8 @@ const Bookings = () => {
                 listingTitle: 'Error loading listing',
                 listingLocation: 'Unknown',
                 listingImage: null,
-                category: booking.category || 'accommodation'
+                category: booking.category || 'accommodation',
+                reviewed: booking.reviewed || false
               };
             }
           })
@@ -120,6 +130,9 @@ const Bookings = () => {
                   const photos = listingData.photos || [];
                   const locationData = listingData.locationData || {};
                   
+                  // Check if review exists
+                  const existingReview = await getReviewByBookingId(docSnap.id);
+                  
                   updatedBookings.push({
                     id: docSnap.id,
                     ...bookingData,
@@ -132,7 +145,8 @@ const Bookings = () => {
                         ? `${locationData.city}, ${locationData.province}`
                         : locationData.city || locationData.country || 'Unknown Location'),
                     listingImage: photos[0]?.base64 || photos[0]?.url || null,
-                    category: listingData.category || bookingData.category || 'accommodation'
+                    category: listingData.category || bookingData.category || 'accommodation',
+                    reviewed: !!existingReview || bookingData.reviewed || false
                   });
                 }
               } catch (error) {
@@ -333,17 +347,24 @@ const Bookings = () => {
                         <p className="text-xs text-muted-foreground">Total</p>
                         <p className="text-lg font-bold text-foreground">₱{(booking.totalPrice || 0).toLocaleString()}</p>
                       </div>
-                      {booking.status === 'completed' && (
-                        <button 
-                          className="btn-outline text-xs px-3 py-1.5"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            // TODO: Implement review functionality
-                          }}
-                        >
-                          Review
-                        </button>
-                      )}
+                              {booking.status === 'completed' && (
+                                <button 
+                                  className="btn-outline text-xs px-3 py-1.5"
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    // Check if review already exists
+                                    const existingReview = await getReviewByBookingId(booking.id);
+                                    if (existingReview) {
+                                      // Already reviewed - could show a message or navigate to edit
+                                      return;
+                                    }
+                                    setSelectedBooking(booking);
+                                    setShowReviewModal(true);
+                                  }}
+                                >
+                                  {booking.reviewed ? 'Reviewed' : 'Review'}
+                                </button>
+                              )}
                     </div>
                   </div>
                 </div>
@@ -422,6 +443,27 @@ const Bookings = () => {
       </main>
 
       <Footer />
+      {showLoginModal && <LogIn isOpen={showLoginModal} onClose={() => setShowLoginModal(false)} />}
+      {showReviewModal && selectedBooking && (
+        <ReviewModal
+          isOpen={showReviewModal}
+          onClose={() => {
+            setShowReviewModal(false);
+            setSelectedBooking(null);
+          }}
+          listingId={selectedBooking.listingId}
+          listingTitle={selectedBooking.listingTitle}
+          bookingId={selectedBooking.id}
+          onSubmit={async (reviewData) => {
+            await createReview(reviewData);
+            // Reload bookings to update reviewed status
+            const updatedBookings = bookings.map(b => 
+              b.id === selectedBooking.id ? { ...b, reviewed: true } : b
+            );
+            setBookings(updatedBookings);
+          }}
+        />
+      )}
     </div>
   );
 };

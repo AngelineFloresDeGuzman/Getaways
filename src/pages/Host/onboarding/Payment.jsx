@@ -163,6 +163,32 @@ const Payment = () => {
                 console.log('✅ Listing ' + (isEditMode ? 'updated' : 'published') + ' without payment:', listingIdResult);
                 isAutoPublishingRef.current = false;
                 
+                // Award points for first listing (only for new listings, not edits)
+                if (!isEditMode && auth.currentUser) {
+                  try {
+                    const { awardPointsForFirstListing, awardMilestonePoints } = await import('@/pages/Host/services/pointsService');
+                    await awardPointsForFirstListing(auth.currentUser.uid);
+                    
+                    // Check for listing milestones
+                    const { collection, query, where, getDocs } = await import('firebase/firestore');
+                    const listingsRef = collection(db, 'listings');
+                    const userListingsQuery = query(
+                      listingsRef,
+                      where('ownerId', '==', auth.currentUser.uid),
+                      where('status', '==', 'active')
+                    );
+                    const listingsSnapshot = await getDocs(userListingsQuery);
+                    const listingCount = listingsSnapshot.size;
+                    
+                    if ([3, 5, 10].includes(listingCount)) {
+                      await awardMilestonePoints(auth.currentUser.uid, 'listings', listingCount);
+                    }
+                  } catch (pointsError) {
+                    console.error('Error awarding points for listing:', pointsError);
+                    // Don't block navigation if points fail
+                  }
+                }
+                
                 setUploadProgress('Finalizing...');
                 await new Promise(resolve => setTimeout(resolve, 500));
                 
@@ -929,6 +955,32 @@ const Payment = () => {
       isAutoPublishingRef.current = false; // Ensure manual clicks are not treated as auto-publishing
       const listingId = await publishListing();
       console.log('✅ PayPal payment processed and listing ' + (isEditMode ? 'updated' : 'published') + ':', listingId);
+
+      // Award points for first listing (only for new listings, not edits)
+      if (!isEditMode && auth.currentUser) {
+        try {
+          const { awardPointsForFirstListing, awardMilestonePoints } = await import('@/pages/Host/services/pointsService');
+          await awardPointsForFirstListing(auth.currentUser.uid);
+          
+          // Check for listing milestones
+          const { collection, query, where, getDocs } = await import('firebase/firestore');
+          const listingsRef = collection(db, 'listings');
+          const userListingsQuery = query(
+            listingsRef,
+            where('ownerId', '==', auth.currentUser.uid),
+            where('status', '==', 'active')
+          );
+          const listingsSnapshot = await getDocs(userListingsQuery);
+          const listingCount = listingsSnapshot.size;
+          
+          if ([3, 5, 10].includes(listingCount)) {
+            await awardMilestonePoints(auth.currentUser.uid, 'listings', listingCount);
+          }
+        } catch (pointsError) {
+          console.error('Error awarding points for listing:', pointsError);
+          // Don't block navigation if points fail
+        }
+      }
 
       // Clear sessionStorage for onboarding completion
       updateSessionStorageBeforeNav('payment');

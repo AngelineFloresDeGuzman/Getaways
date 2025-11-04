@@ -23,7 +23,9 @@ const BookingRequest = () => {
     checkOutDate, 
     guests, 
     totalPrice,
-    nightlyPrice
+    nightlyPrice,
+    couponCode,
+    couponDiscount
   } = location.state || {};
 
   const [currentStep, setCurrentStep] = useState(1);
@@ -190,6 +192,9 @@ const BookingRequest = () => {
         guests: guests || 1,
         totalPrice: totalPrice,
         message: messageToHost || undefined,
+        couponCode: couponCode || undefined,
+        couponDiscount: couponDiscount || 0,
+        couponId: location.state?.couponId || undefined
       });
 
       toast.success('Booking request submitted successfully! The host will be notified.');
@@ -771,6 +776,20 @@ const BookingRequest = () => {
                   ₱{serviceFee?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
                 </div>
               </div>
+
+              {/* Coupon Discount */}
+              {couponCode && couponDiscount > 0 && (
+                <div className="flex items-center justify-between text-green-600">
+                  <div>
+                    <p className="text-sm font-medium">
+                      Coupon discount ({couponCode})
+                    </p>
+                  </div>
+                  <div className="text-sm font-medium">
+                    -₱{couponDiscount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                </div>
+              )}
 
               {/* Separator */}
               <div className="border-t border-border my-4"></div>

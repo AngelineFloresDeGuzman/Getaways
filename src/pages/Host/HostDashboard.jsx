@@ -7,11 +7,11 @@ import { startConversationFromHost } from '@/pages/Guest/services/messagingServi
 import { getUserDrafts, deleteDraft, getDraftSummary } from '@/pages/Host/services/draftService';
 import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc, setDoc, collection, addDoc, query, where, getDocs, orderBy, serverTimestamp, updateDoc, deleteDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, addDoc, query, where, getDocs, orderBy, serverTimestamp, updateDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
 import {
   Home, Calendar as CalendarIcon, MessageSquare, DollarSign, Plus,
   TrendingUp, Eye, Star, Users, Clock, MapPin, Camera,
-  Bed, Bath, Edit, Check, X, EyeOff, Trash2, User
+  Bed, Bath, Edit, Check, X, EyeOff, Trash2, User, Award
 } from 'lucide-react';
 
 import { Home as HomeIcon, Grid, List } from 'lucide-react';
@@ -56,19 +56,26 @@ const HostDashboard = () => {
   const [bookings, setBookings] = useState([]);
   const [bookingTab, setBookingTab] = useState('all'); // all, pending, confirmed, completed, cancelled
   const [userProfile, setUserProfile] = useState(null); // Store user profile data
+  const [hostPoints, setHostPoints] = useState(0); // Host points
+  const [pointsHistory, setPointsHistory] = useState([]); // Points history
+  const [showPointsHistoryModal, setShowPointsHistoryModal] = useState(false); // Points history modal
 
   // Calculate stats (will update when bookings/listings change)
   const totalBookings = bookings.length;
   const totalEarnings = bookings
-    .filter(b => b.status === 'confirmed')
+    .filter(b => b.status === 'completed')
     .reduce((sum, b) => sum + (b.totalPrice || 0), 0);
+
+  // Points to currency conversion rate (100 points = ₱1)
+  const POINTS_TO_CURRENCY_RATE = 100;
+  const pointsCurrencyValue = (hostPoints / POINTS_TO_CURRENCY_RATE).toFixed(2);
 
   // ...existing code...
   const stats = [
     { icon: Home, label: "Active Listings", value: listings.length.toString(), change: "" },
     { icon: CalendarIcon, label: "Bookings", value: totalBookings.toString(), change: "" },
-    { icon: DollarSign, label: "Potential Earnings", value: `₱${totalEarnings.toLocaleString()}`, change: "" },
-    { icon: Star, label: "Rating", value: "", change: "" }
+    { icon: DollarSign, label: "Earnings", value: `₱${totalEarnings.toLocaleString()}`, change: "" },
+    { icon: Award, label: "Points", value: hostPoints.toLocaleString(), change: `≈ ₱${parseFloat(pointsCurrencyValue).toLocaleString()}`, clickable: true }
   ];
 
   // Load user profile data
@@ -76,7 +83,31 @@ const HostDashboard = () => {
     try {
       const userDoc = await getDoc(doc(db, 'users', userId));
       if (userDoc.exists()) {
-        setUserProfile(userDoc.data());
+        const userData = userDoc.data();
+        setUserProfile(userData);
+        setHostPoints(userData.points || 0);
+        setPointsHistory(userData.pointsHistory || []);
+
+        // Check and award birthday points if today is birthday
+        if (userData.birthday) {
+          try {
+            const { awardBirthdayPoints } = await import('@/pages/Host/services/pointsService');
+            const result = await awardBirthdayPoints(userId, userData.birthday);
+            if (result.success) {
+              toast.success(`🎉 Happy Birthday! You've earned ${result.points} points!`);
+              // Reload points to show updated value
+              const updatedUserDoc = await getDoc(doc(db, 'users', userId));
+              if (updatedUserDoc.exists()) {
+                const updatedData = updatedUserDoc.data();
+                setHostPoints(updatedData.points || 0);
+                setPointsHistory(updatedData.pointsHistory || []);
+              }
+            }
+          } catch (birthdayError) {
+            console.error('Error checking birthday points:', birthdayError);
+            // Don't block profile loading if birthday check fails
+          }
+        }
       }
     } catch (error) {
       console.error('Error loading user profile:', error);
@@ -84,21 +115,46 @@ const HostDashboard = () => {
   };
 
   useEffect(() => {
+    let unsubscribePoints = null;
+    
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUser(user);
       if (user) {
         loadUserProfile(user.uid); // Load user profile
         loadDrafts(); // This will also load listings
         loadBookings(); // Load bookings
+        
+        // Set up real-time listener for points updates
+        const userRef = doc(db, 'users', user.uid);
+        unsubscribePoints = onSnapshot(userRef, async (doc) => {
+          if (doc.exists()) {
+            const userData = doc.data();
+            setHostPoints(userData.points || 0);
+            setUserProfile(userData);
+            setPointsHistory(userData.pointsHistory || []);
+
+            // Check birthday once per day (only on first load, not on every snapshot update)
+            // This prevents spam checking, we'll check it when profile loads
+          }
+        }, (error) => {
+          console.error('Error listening to user points:', error);
+        });
       } else {
         setDrafts([]);
         setListings([]);
         setBookings([]);
         setUserProfile(null);
+        setHostPoints(0);
         setLoading(false);
       }
     });
-    return () => unsubscribe();
+    
+    return () => {
+      unsubscribe();
+      if (unsubscribePoints) {
+        unsubscribePoints();
+      }
+    };
   }, []);
 
   const [draftToastShown, setDraftToastShown] = useState(false);
@@ -592,10 +648,49 @@ const HostDashboard = () => {
       if (!auth.currentUser) return;
 
       const bookingRef = doc(db, 'bookings', bookingId);
+      
+      // Get booking data before updating to check if status is changing to 'confirmed'
+      const bookingDoc = await getDoc(bookingRef);
+      const bookingData = bookingDoc.data();
+      const previousStatus = bookingData.status;
+      
       await updateDoc(bookingRef, {
         status: newStatus,
         updatedAt: serverTimestamp()
       });
+
+      // Award points when booking is confirmed (only if status changed to confirmed)
+      if (newStatus === 'confirmed' && previousStatus !== 'confirmed') {
+        try {
+          const { awardPointsForBookingConfirmed, awardMilestonePoints } = await import('@/pages/Host/services/pointsService');
+          const bookingAmount = bookingData.totalPrice || bookingData.price || 0;
+          await awardPointsForBookingConfirmed(auth.currentUser.uid, bookingAmount, bookingId);
+          
+          // Check for booking milestones
+          const confirmedBookings = bookings.filter(b => b.status === 'confirmed').length + 1; // +1 for the one just confirmed
+          if ([10, 25, 50, 100, 250].includes(confirmedBookings)) {
+            await awardMilestonePoints(auth.currentUser.uid, 'bookings', confirmedBookings);
+          }
+
+          // Increment coupon usage if a coupon was used
+          if (bookingData.couponId || bookingData.couponCode) {
+            try {
+              const { incrementCouponUsage } = await import('@/pages/Host/services/couponService');
+              const couponId = bookingData.couponId;
+              if (couponId) {
+                await incrementCouponUsage(couponId);
+                console.log('✅ Coupon usage incremented:', couponId);
+              }
+            } catch (couponError) {
+              console.error('Error incrementing coupon usage:', couponError);
+              // Don't block booking update if coupon increment fails
+            }
+          }
+        } catch (pointsError) {
+          console.error('Error awarding points for booking:', pointsError);
+          // Don't block booking update if points fail
+        }
+      }
 
       toast.success(`Booking ${newStatus} successfully`);
       await loadBookings(); // Reload bookings
@@ -906,13 +1001,13 @@ const HostDashboard = () => {
                 ) : null}
                 <User className={`w-10 h-10 text-primary user-icon ${(userProfile?.profileImage || userProfile?.photoURL) ? 'hidden' : ''}`} />
               </div>
-              <div>
-                <h1 className="font-heading text-4xl font-bold text-foreground mb-4">
+            <div>
+              <h1 className="font-heading text-4xl font-bold text-foreground mb-4">
                   Welcome back, Host {userProfile?.firstName || ''}!
-                </h1>
-                <p className="font-body text-xl text-muted-foreground">
-                  Manage your listings, bookings, and account settings here.
-                </p>
+              </h1>
+              <p className="font-body text-xl text-muted-foreground">
+                Manage your listings, bookings, and account settings here.
+              </p>
               </div>
             </div>
             <div className="flex items-center gap-4">
@@ -936,8 +1031,9 @@ const HostDashboard = () => {
             {stats.map((stat, index) => (
               <div
                 key={index}
-                className="card-listing p-6 animate-slide-up"
+                className={`card-listing p-6 animate-slide-up ${stat.clickable ? 'cursor-pointer hover:shadow-lg transition-shadow' : ''}`}
                 style={{ animationDelay: `${index * 100}ms` }}
+                onClick={() => stat.clickable && setShowPointsHistoryModal(true)}
               >
                 <div className="flex items-center justify-between mb-4">
                   <div className="w-12 h-12 bg-primary/10 rounded-2xl flex items-center justify-center">
@@ -947,7 +1043,15 @@ const HostDashboard = () => {
                 </div>
                 <h3 className="font-heading text-2xl font-bold text-foreground">{stat.value}</h3>
                 <p className="text-muted-foreground text-sm">{stat.label}</p>
-                <p className="text-xs text-muted-foreground mt-2">{stat.change}</p>
+                {stat.clickable && (
+                  <>
+                    <p className="text-xs text-primary mt-1 font-medium">{stat.change}</p>
+                    <p className="text-xs text-primary mt-1 font-medium">Click to view history →</p>
+                  </>
+                )}
+                {!stat.clickable && (
+                  <p className="text-xs text-muted-foreground mt-2">{stat.change}</p>
+                )}
               </div>
             ))}
           </div>
@@ -973,7 +1077,7 @@ const HostDashboard = () => {
           });
           
           return (
-            <div className="max-w-7xl mx-auto px-6 mb-12">
+          <div className="max-w-7xl mx-auto px-6 mb-12">
               <h2 className="text-xl font-bold text-foreground mb-6">Scheduled Bookings</h2>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Today's Bookings */}
@@ -981,20 +1085,20 @@ const HostDashboard = () => {
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-lg font-semibold text-foreground">Today</h3>
                     <span className="text-sm text-muted-foreground">({todayBookings.length})</span>
-                  </div>
+            </div>
                   {todayBookings.length > 0 ? (
                     <div className="space-y-3 max-h-96 overflow-y-auto">
                       {todayBookings.map((booking) => {
                         const listing = listings.find(l => l.id === booking.listingId);
-                        return (
+                    return (
                           <div key={booking.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
                             <div className="flex items-start gap-3">
                               {listing?.mainImage && (
-                                <img
-                                  src={listing.mainImage}
+                              <img 
+                                src={listing.mainImage} 
                                   alt={listing?.title || 'Listing'}
                                   className="w-16 h-16 object-cover rounded-lg flex-shrink-0"
-                                />
+                              />
                               )}
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 mb-1">
@@ -1008,8 +1112,8 @@ const HostDashboard = () => {
                                     'bg-yellow-100 text-yellow-700'
                                   }`}>
                                     {booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}
-                                  </span>
-                                </div>
+                                </span>
+                              </div>
                                 <p className="text-xs text-muted-foreground mb-1 line-clamp-1">
                                   {booking.guestEmail || 'Guest'}
                                 </p>
@@ -1017,36 +1121,36 @@ const HostDashboard = () => {
                                   <div className="flex items-center gap-1">
                                     <CalendarIcon className="w-3 h-3" />
                                     <span>{booking.checkInFormatted} - {booking.checkOutFormatted}</span>
-                                  </div>
+                            </div>
                                   <div className="flex items-center gap-1">
                                     <Users className="w-3 h-3" />
                                     <span>{booking.guests || 1}</span>
-                                  </div>
-                                </div>
+                            </div>
+                          </div>
                                 <div className="mt-2 flex items-center justify-between">
                                   <span className="text-sm font-bold text-foreground">₱{(booking.totalPrice || 0).toLocaleString()}</span>
                                   {booking.status === 'pending' && (
-                                    <button
+                              <button 
                                       className="btn-primary px-3 py-1 text-xs font-medium"
                                       onClick={() => handleUpdateBookingStatus(booking.id, 'confirmed')}
-                                    >
+                              >
                                       Confirm
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
+                              </button>
+                )}
+              </div>
+            </div>
+            </div>
                           </div>
-                        );
-                      })}
-                    </div>
+                    );
+                  })}
+                </div>
                   ) : (
                     <div className="text-center py-12">
                       <CalendarIcon className="w-12 h-12 text-gray-300 mx-auto mb-3" />
                       <p className="text-sm text-muted-foreground">No bookings scheduled for today</p>
-                    </div>
-                  )}
                 </div>
+                  )}
+              </div>
                 
                 {/* Upcoming Bookings */}
                 <div className="bg-white rounded-xl shadow p-6">
@@ -1062,7 +1166,7 @@ const HostDashboard = () => {
                           <div key={booking.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
                             <div className="flex items-start gap-3">
                               {listing?.mainImage && (
-                                <img
+                              <img 
                                   src={listing.mainImage}
                                   alt={listing?.title || 'Listing'}
                                   className="w-16 h-16 object-cover rounded-lg flex-shrink-0"
@@ -1081,7 +1185,7 @@ const HostDashboard = () => {
                                   }`}>
                                     {booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}
                                   </span>
-                                </div>
+                          </div>
                                 <p className="text-xs text-muted-foreground mb-1 line-clamp-1">
                                   {booking.guestEmail || 'Guest'}
                                 </p>
@@ -1089,12 +1193,12 @@ const HostDashboard = () => {
                                   <div className="flex items-center gap-1">
                                     <CalendarIcon className="w-3 h-3" />
                                     <span>{booking.checkInFormatted} - {booking.checkOutFormatted}</span>
-                                  </div>
+                          </div>
                                   <div className="flex items-center gap-1">
                                     <Users className="w-3 h-3" />
                                     <span>{booking.guests || 1}</span>
-                                  </div>
-                                </div>
+                          </div>
+                            </div>
                                 <div className="mt-2 flex items-center justify-between">
                                   <span className="text-sm font-bold text-foreground">₱{(booking.totalPrice || 0).toLocaleString()}</span>
                                   {booking.status === 'pending' && (
@@ -1105,14 +1209,14 @@ const HostDashboard = () => {
                                       Confirm
                                     </button>
                                   )}
-                                </div>
+                              </div>
                               </div>
                             </div>
-                          </div>
+                            </div>
                         );
                       })}
                       {upcomingBookings.length > 5 && (
-                        <button
+                              <button 
                           onClick={() => {
                             setBookingTab('all');
                             setBookingView('grid');
@@ -1121,21 +1225,21 @@ const HostDashboard = () => {
                           className="w-full text-center text-sm text-primary hover:underline py-2"
                         >
                           View all {upcomingBookings.length} upcoming bookings →
-                        </button>
+                              </button>
                       )}
                     </div>
                   ) : (
                     <div className="text-center py-12">
                       <CalendarIcon className="w-12 h-12 text-gray-300 mx-auto mb-3" />
                       <p className="text-sm text-muted-foreground">No upcoming bookings</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
+                              </div>
+                            )}
+                              </div>
+                              </div>
+                            </div>
           );
         })()}
-
+                            
         {/* Bookings Container */}
         {user && bookings.length > 0 && (
           <div className="max-w-7xl mx-auto px-6 mb-12" data-bookings-section>
@@ -1143,7 +1247,7 @@ const HostDashboard = () => {
               <h2 className="text-xl font-bold text-foreground mb-2">Bookings</h2>
               {/* View Toggle */}
               <div className="flex items-center gap-2 bg-gray-100 rounded-lg p-1">
-                <button
+                              <button 
                   onClick={() => setBookingView('grid')}
                   className={`p-2 rounded transition-colors ${
                     bookingView === 'grid'
@@ -1153,8 +1257,8 @@ const HostDashboard = () => {
                   title="Grid view"
                 >
                   <Grid className="w-5 h-5" />
-                </button>
-                <button
+                              </button>
+                              <button 
                   onClick={() => setBookingView('list')}
                   className={`p-2 rounded transition-colors ${
                     bookingView === 'list'
@@ -1162,10 +1266,10 @@ const HostDashboard = () => {
                       : 'text-gray-600 hover:bg-gray-200'
                   }`}
                   title="List view"
-                >
+                              >
                   <List className="w-5 h-5" />
-                </button>
-              </div>
+                              </button>
+                            </div>
             </div>
             <div className="bg-white rounded-xl shadow p-8">
               <div className="flex items-center justify-between mb-6">
@@ -1191,9 +1295,9 @@ const HostDashboard = () => {
                     );
                   })}
                 </div>
-              </div>
+                </div>
               {bookingView === 'grid' ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {(bookingTab === 'all' ? bookings : bookings.filter(b => b.status === bookingTab)).map((booking) => {
                     const listing = listings.find(l => l.id === booking.listingId);
                     
@@ -1202,16 +1306,16 @@ const HostDashboard = () => {
                         {/* Image */}
                         <div className="relative w-full overflow-hidden rounded-t-2xl aspect-[4/3]">
                           {listing?.mainImage ? (
-                            <img
-                              src={listing.mainImage}
+                          <img 
+                            src={listing.mainImage} 
                               alt={listing?.title || 'Listing'}
                               className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
-                            />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center bg-gray-200">
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center bg-gray-200">
                               <CalendarIcon className="w-12 h-12 text-gray-400" />
-                            </div>
-                          )}
+                          </div>
+                        )}
                           <div className="absolute top-3 right-3">
                             <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                               booking.status === 'confirmed' ? 'bg-green-500 text-white' :
@@ -1221,11 +1325,11 @@ const HostDashboard = () => {
                             }`}>
                               {booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}
                             </span>
-                          </div>
                         </div>
+                      </div>
                         
                         {/* Content */}
-                        <div className="p-4">
+                      <div className="p-4">
                           <h3 className="font-heading text-lg font-semibold text-foreground mb-1 line-clamp-1">
                             {listing?.title || `Listing ${booking.listingId}`}
                           </h3>
@@ -1237,48 +1341,48 @@ const HostDashboard = () => {
                             <div className="flex items-center gap-2">
                               <CalendarIcon className="w-3 h-3 text-primary" />
                               <span>{booking.checkInFormatted} - {booking.checkOutFormatted}</span>
-                            </div>
+                        </div>
                             <div className="flex items-center gap-2">
                               <Users className="w-3 h-3 text-primary" />
                               <span>{booking.guests || 1} guest{(booking.guests || 1) > 1 ? 's' : ''}</span>
-                            </div>
+                              </div>
                             <div className="flex items-center gap-2">
                               <Clock className="w-3 h-3 text-primary" />
                               <span>Booked {booking.createdAtFormatted}</span>
-                            </div>
+                          </div>
                           </div>
 
                           <div className="flex items-center justify-between pt-3 border-t border-border mb-3">
                             <div>
                               <p className="text-xs text-muted-foreground">Total</p>
                               <p className="text-lg font-bold text-foreground">₱{(booking.totalPrice || 0).toLocaleString()}</p>
-                            </div>
+                        </div>
                           </div>
 
                           {/* Actions */}
                           {booking.status === 'pending' && (
                             <div className="flex gap-2">
-                              <button
+                          <button 
                                 className="btn-primary flex-1 px-4 py-2 text-sm font-medium"
                                 onClick={() => handleUpdateBookingStatus(booking.id, 'confirmed')}
-                              >
+                          >
                                 Confirm
-                              </button>
-                              <button
+                          </button>
+                          <button 
                                 className="btn-outline flex-1 px-4 py-2 text-sm font-medium text-red-600 hover:text-red-700 hover:border-red-300"
                                 onClick={() => handleUpdateBookingStatus(booking.id, 'cancelled')}
                               >
                                 Decline
-                              </button>
-                            </div>
-                          )}
+                          </button>
+                          </div>
+                        )}
                           {booking.status === 'confirmed' && (
-                            <button
+                          <button 
                               className="btn-outline w-full px-4 py-2 text-sm font-medium"
                               onClick={() => handleUpdateBookingStatus(booking.id, 'completed')}
-                            >
+                          >
                               Mark Complete
-                            </button>
+                          </button>
                           )}
                           {booking.status === 'completed' && (
                             <span className="text-sm text-green-600 font-medium block text-center">✓ Completed</span>
@@ -1288,7 +1392,7 @@ const HostDashboard = () => {
                           )}
                           
                           {booking.guestId && (
-                            <button
+                      <button
                               onClick={async () => {
                                 try {
                                   const conversationId = await startConversationFromHost(
@@ -1305,7 +1409,7 @@ const HostDashboard = () => {
                             >
                               <MessageSquare className="w-4 h-4" />
                               Message Guest
-                            </button>
+                      </button>
                           )}
                         </div>
                       </div>
@@ -1313,55 +1417,55 @@ const HostDashboard = () => {
                   })}
                 </div>
               ) : (
-                <div className="space-y-4">
+              <div className="space-y-4">
                   {(bookingTab === 'all' ? bookings : bookings.filter(b => b.status === bookingTab)).map((booking) => {
                     const listing = listings.find(l => l.id === booking.listingId);
                     
                     return (
-                      <div key={booking.id} className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow">
-                        <div className="flex items-start justify-between">
+                  <div key={booking.id} className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-3">
                           <div className="flex-1">
-                            <div className="flex items-center gap-3 mb-3">
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2 mb-1">
-                                  <span className="font-heading text-lg font-semibold text-foreground">
-                                    {booking.guestEmail || 'Guest'}
-                                  </span>
-                                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                    booking.status === 'confirmed' ? 'bg-green-100 text-green-700' :
-                                    booking.status === 'completed' ? 'bg-blue-100 text-blue-700' :
-                                    booking.status === 'cancelled' ? 'bg-red-100 text-red-700' :
-                                    'bg-yellow-100 text-yellow-700'
-                                  }`}>
-                                    {booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}
-                                  </span>
-                                </div>
-                                <p className="text-sm text-muted-foreground mb-2">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-heading text-lg font-semibold text-foreground">
+                                {booking.guestEmail || 'Guest'}
+                              </span>
+                              <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                booking.status === 'confirmed' ? 'bg-green-100 text-green-700' :
+                                booking.status === 'completed' ? 'bg-blue-100 text-blue-700' :
+                                booking.status === 'cancelled' ? 'bg-red-100 text-red-700' :
+                                'bg-yellow-100 text-yellow-700'
+                              }`}>
+                                {booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}
+                              </span>
+                            </div>
+                            <p className="text-sm text-muted-foreground mb-2">
                                   Listing: {listing?.title || `Listing ${booking.listingId}`}
-                                </p>
-                                <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                                  <div className="flex items-center gap-1">
-                                    <CalendarIcon className="w-4 h-4" />
-                                    <span>{booking.checkInFormatted} - {booking.checkOutFormatted}</span>
-                                  </div>
-                                  <div className="flex items-center gap-1">
-                                    <Users className="w-4 h-4" />
-                                    <span>{booking.guests || 1} guest{(booking.guests || 1) > 1 ? 's' : ''}</span>
-                                  </div>
-                                  <div className="flex items-center gap-1">
-                                    <Clock className="w-4 h-4" />
-                                    <span>Booked {booking.createdAtFormatted}</span>
-                                  </div>
-                                </div>
+                            </p>
+                            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                              <div className="flex items-center gap-1">
+                                <CalendarIcon className="w-4 h-4" />
+                                <span>{booking.checkInFormatted} - {booking.checkOutFormatted}</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <Users className="w-4 h-4" />
+                                <span>{booking.guests || 1} guest{(booking.guests || 1) > 1 ? 's' : ''}</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <Clock className="w-4 h-4" />
+                                <span>Booked {booking.createdAtFormatted}</span>
                               </div>
                             </div>
-                            <div className="mt-3 pt-3 border-t border-gray-100">
+                          </div>
+                        </div>
+                        <div className="mt-3 pt-3 border-t border-gray-100">
                               <div className="flex items-center justify-between mb-3">
-                                <span className="text-sm text-muted-foreground">Total Price:</span>
-                                <span className="font-heading text-xl font-bold text-foreground">
-                                  ₱{(booking.totalPrice || 0).toLocaleString()}
-                                </span>
-                              </div>
+                            <span className="text-sm text-muted-foreground">Total Price:</span>
+                            <span className="font-heading text-xl font-bold text-foreground">
+                              ₱{(booking.totalPrice || 0).toLocaleString()}
+                            </span>
+                          </div>
                               {booking.guestId && (
                                 <button
                                   onClick={async () => {
@@ -1382,45 +1486,45 @@ const HostDashboard = () => {
                                   Message Guest
                                 </button>
                               )}
-                            </div>
-                          </div>
-                          <div className="ml-4 flex flex-col gap-2">
-                            {booking.status === 'pending' && (
-                              <>
-                                <button
-                                  className="btn-primary px-4 py-2 text-sm font-medium"
-                                  onClick={() => handleUpdateBookingStatus(booking.id, 'confirmed')}
-                                >
-                                  Confirm
-                                </button>
-                                <button
-                                  className="btn-outline px-4 py-2 text-sm font-medium text-red-600 hover:text-red-700 hover:border-red-300"
-                                  onClick={() => handleUpdateBookingStatus(booking.id, 'cancelled')}
-                                >
-                                  Decline
-                                </button>
-                              </>
-                            )}
-                            {booking.status === 'confirmed' && (
-                              <button
-                                className="btn-outline px-4 py-2 text-sm font-medium"
-                                onClick={() => handleUpdateBookingStatus(booking.id, 'completed')}
-                              >
-                                Mark Complete
-                              </button>
-                            )}
-                            {booking.status === 'completed' && (
-                              <span className="text-sm text-green-600 font-medium">✓ Completed</span>
-                            )}
-                            {booking.status === 'cancelled' && (
-                              <span className="text-sm text-red-600 font-medium">✕ Cancelled</span>
-                            )}
-                          </div>
                         </div>
                       </div>
+                      <div className="ml-4 flex flex-col gap-2">
+                        {booking.status === 'pending' && (
+                          <>
+                            <button
+                              className="btn-primary px-4 py-2 text-sm font-medium"
+                              onClick={() => handleUpdateBookingStatus(booking.id, 'confirmed')}
+                            >
+                              Confirm
+                            </button>
+                            <button
+                              className="btn-outline px-4 py-2 text-sm font-medium text-red-600 hover:text-red-700 hover:border-red-300"
+                              onClick={() => handleUpdateBookingStatus(booking.id, 'cancelled')}
+                            >
+                              Decline
+                            </button>
+                          </>
+                        )}
+                        {booking.status === 'confirmed' && (
+                          <button
+                            className="btn-outline px-4 py-2 text-sm font-medium"
+                            onClick={() => handleUpdateBookingStatus(booking.id, 'completed')}
+                          >
+                            Mark Complete
+                          </button>
+                        )}
+                        {booking.status === 'completed' && (
+                          <span className="text-sm text-green-600 font-medium">✓ Completed</span>
+                        )}
+                        {booking.status === 'cancelled' && (
+                          <span className="text-sm text-red-600 font-medium">✕ Cancelled</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                     );
                   })}
-                </div>
+              </div>
               )}
             </div>
           </div>
@@ -1439,6 +1543,91 @@ const HostDashboard = () => {
           </div>
         )}
       </div>
+
+      {/* Points History Modal */}
+      <AlertDialog open={showPointsHistoryModal} onOpenChange={setShowPointsHistoryModal}>
+        <AlertDialogContent className="bg-white max-w-2xl max-h-[80vh] overflow-y-auto">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-gray-900 flex items-center gap-2">
+              <Award className="w-5 h-5 text-primary" />
+              Points History
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-gray-600">
+              Total Points: <span className="font-bold text-primary">{hostPoints.toLocaleString()}</span>
+              <span className="ml-2 text-gray-500">
+                (≈ ₱{parseFloat(pointsCurrencyValue).toLocaleString()} value)
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          
+          <div className="mt-4 space-y-3">
+            {pointsHistory && pointsHistory.length > 0 ? (
+              pointsHistory.map((entry, index) => {
+                const timestamp = entry.timestamp?.toDate ? entry.timestamp.toDate() : 
+                                  (entry.timestamp?.seconds ? new Date(entry.timestamp.seconds * 1000) : 
+                                  new Date());
+                const isPositive = entry.points > 0;
+                const formattedDate = timestamp.toLocaleDateString('en-US', { 
+                  year: 'numeric', 
+                  month: 'short', 
+                  day: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit'
+                });
+                
+                return (
+                  <div
+                    key={index}
+                    className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className={`font-semibold text-lg ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
+                            {isPositive ? '+' : ''}{entry.points.toLocaleString()} points
+                          </span>
+                          <span className="text-sm text-gray-500">
+                            (Total: {entry.totalPoints?.toLocaleString() || 0})
+                          </span>
+                        </div>
+                        <p className="text-gray-700 font-medium mb-1">{entry.reason || 'Points transaction'}</p>
+                        {entry.source && (
+                          <span className="inline-block px-2 py-1 text-xs bg-primary/10 text-primary rounded-full mb-2">
+                            {entry.source.replace('_', ' ')}
+                          </span>
+                        )}
+                        {entry.bookingId && (
+                          <p className="text-xs text-gray-500 mt-1">Booking ID: {entry.bookingId}</p>
+                        )}
+                        {entry.reviewId && (
+                          <p className="text-xs text-gray-500 mt-1">Review ID: {entry.reviewId}</p>
+                        )}
+                        {entry.milestoneKey && (
+                          <p className="text-xs text-gray-500 mt-1">Milestone: {entry.milestoneKey}</p>
+                        )}
+                        <p className="text-xs text-gray-400 mt-2">{formattedDate}</p>
+                      </div>
+                      <div className={`w-2 h-2 rounded-full ${isPositive ? 'bg-green-500' : 'bg-red-500'}`} />
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="text-center py-8">
+                <Award className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                <p className="text-gray-500">No points history yet.</p>
+                <p className="text-sm text-gray-400 mt-2">Points will appear here when you earn them!</p>
+              </div>
+            )}
+          </div>
+          
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => setShowPointsHistoryModal(false)}>
+              Close
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Footer />
 

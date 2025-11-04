@@ -6,7 +6,7 @@ import {
   User, Calendar, Heart, Camera, Edit3, Save, X, MapPin,
   Star, CalendarCheck, Grid, List, Loader2, CalendarIcon, Users,
   Sparkles, Mail, Clock, CheckCircle, Circle, Search, Filter, ExternalLink,
-  MessageSquare, Ticket, Plus, Trash2, Edit, Copy
+  MessageSquare, Ticket, Plus, Trash2, Edit, Copy, CreditCard, Shield, CheckCircle2
 } from "lucide-react";
 import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
@@ -18,6 +18,10 @@ import { format } from "date-fns";
 import { toast } from "@/components/ui/sonner";
 import LogIn from "@/pages/Auth/LogIn";
 import { startConversationFromHost } from "@/pages/Guest/services/messagingService";
+import { createReview, getReviewByBookingId, getUserReviews } from "@/pages/Guest/services/reviewService";
+import ReviewModal from "@/components/ReviewModal";
+import CouponModal from "@/components/CouponModal";
+import { createCoupon, getHostCoupons, updateCoupon, deleteCoupon } from "@/pages/Host/services/couponService";
 
 const AccountSettings = () => {
   const navigate = useNavigate();
@@ -37,18 +41,31 @@ const AccountSettings = () => {
     lastName: '',
     email: '',
     phone: '',
+    phoneCountryCode: '+1',
     location: '',
     residentialAddress: '',
     bio: '',
     profileImage: '',
+    gender: '',
+    birthday: '',
     createdAt: null,
-    joinDate: ''
+    joinDate: '',
+    paypalEmail: '',
+    paypalAccount: '',
+    paypalStatus: '',
+    paymentMethod: '',
+    paymentType: '',
+    paymentStatus: '',
+    lastPayPalTransactionId: '',
+    lastPayPalPayerEmail: '',
+    paypalConnectedAt: null
   });
   const [isHost, setIsHost] = useState(false);
   const [stats, setStats] = useState({
     reviews: 0,
     favorites: 0,
-    bookings: 0
+    bookings: 0,
+    averageRating: 0
   });
 
   // Bookings state (for both guests and hosts)
@@ -68,6 +85,15 @@ const AccountSettings = () => {
   const [couponsLoading, setCouponsLoading] = useState(false);
   const [showCouponModal, setShowCouponModal] = useState(false);
   const [editingCoupon, setEditingCoupon] = useState(null);
+
+  // Review modal state (for guest bookings)
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [selectedBookingForReview, setSelectedBookingForReview] = useState(null);
+  
+  // User reviews modal state
+  const [showUserReviewsModal, setShowUserReviewsModal] = useState(false);
+  const [userReviews, setUserReviews] = useState([]);
+  const [userReviewsLoading, setUserReviewsLoading] = useState(false);
 
   // Wishlist state (for hosts - Guest wishes)
   const [wishes, setWishes] = useState([]);
@@ -240,51 +266,117 @@ const AccountSettings = () => {
           : new Date();
         const joinDate = `Member since ${createdAt.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`;
         
+        // Load residentialAddress from listings collection for all users
         let residentialAddressDisplay = '';
-        if (userRoles.includes('host')) {
-          try {
-            const listingsQuery = query(
-              collection(db, 'listings'),
-              where('ownerId', '==', userId)
-            );
-            const listingsSnapshot = await getDocs(listingsQuery);
+        try {
+          const listingsQuery = query(
+            collection(db, 'listings'),
+            where('ownerId', '==', userId)
+          );
+          const listingsSnapshot = await getDocs(listingsQuery);
+          
+          for (const listingDoc of listingsSnapshot.docs) {
+            const listingData = listingDoc.data();
+            let residentialAddr = listingData.data?.finalDetails?.residentialAddress || 
+                                 listingData.finalDetails?.residentialAddress ||
+                                 listingData.residentialAddress;
             
-            for (const listingDoc of listingsSnapshot.docs) {
-              const listingData = listingDoc.data();
-              let residentialAddr = listingData.data?.finalDetails?.residentialAddress || 
-                                   listingData.finalDetails?.residentialAddress ||
-                                   listingData.residentialAddress;
-              
-              if (residentialAddr) {
-                if (typeof residentialAddr === 'object') {
-                  const addr = residentialAddr;
-                  const parts = [
-                    addr.unit, addr.building, addr.street, addr.barangay,
-                    addr.city, addr.province, addr.zipCode, addr.country
-                  ].filter(Boolean);
-                  residentialAddressDisplay = parts.join(', ');
-                } else {
-                  residentialAddressDisplay = String(residentialAddr);
-                }
-                break;
+            if (residentialAddr) {
+              if (typeof residentialAddr === 'object') {
+                const addr = residentialAddr;
+                const parts = [
+                  addr.unit, addr.building, addr.street, addr.barangay,
+                  addr.city, addr.province, addr.zipCode, addr.country
+                ].filter(Boolean);
+                residentialAddressDisplay = parts.join(', ');
+              } else {
+                residentialAddressDisplay = String(residentialAddr);
               }
+              break; // Use the first listing's residential address found
             }
-          } catch (error) {
-            console.warn('Error loading residential address:', error);
+          }
+        } catch (error) {
+          console.warn('Error loading residential address from listings:', error);
+        }
+        
+        // Handle birthday - could be stored as Date, string, or timestamp
+        let birthdayValue = '';
+        if (userData.birthday) {
+          if (userData.birthday.toDate) {
+            // Firestore Timestamp
+            birthdayValue = userData.birthday.toDate().toISOString().split('T')[0];
+          } else if (userData.birthday instanceof Date) {
+            // Date object
+            birthdayValue = userData.birthday.toISOString().split('T')[0];
+          } else if (typeof userData.birthday === 'string') {
+            // String (already formatted)
+            birthdayValue = userData.birthday;
+          } else if (userData.birthday.seconds) {
+            // Timestamp object
+            birthdayValue = new Date(userData.birthday.seconds * 1000).toISOString().split('T')[0];
           }
         }
+        
+        // Parse phone number and country code
+        let phoneNumber = userData.phone || '';
+        let countryCode = userData.phoneCountryCode || '+1';
+        
+        // If phoneCountryCode exists in userData, use it
+        if (userData.phoneCountryCode) {
+          countryCode = userData.phoneCountryCode;
+        }
+        
+        // If phone starts with + and we don't have phoneCountryCode, try to extract it
+        if (phoneNumber.startsWith('+') && !userData.phoneCountryCode) {
+          // Common country codes (sorted by length, longest first to match correctly)
+          const commonCodes = ['+1242', '+1246', '+1264', '+1268', '+1284', '+1340', '+1345', '+1441', '+1473', '+1649', '+1664', '+1670', '+1671', '+1684', '+1721', '+1758', '+1767', '+1784', '+1787', '+1809', '+1829', '+1849', '+1868', '+1869', '+1876', '+1939', '+852', '+853', '+886', '+971', '+972', '+973', '+974', '+975', '+976', '+977', '+992', '+993', '+994', '+995', '+996', '+998', '+1', '+7', '+20', '+27', '+30', '+31', '+32', '+33', '+34', '+39', '+41', '+43', '+44', '+45', '+46', '+47', '+48', '+49', '+51', '+52', '+54', '+55', '+56', '+57', '+58', '+60', '+61', '+62', '+63', '+64', '+65', '+66', '+81', '+82', '+84', '+86', '+91', '+234', '+351', '+358'];
+          
+          // Sort by length descending to match longer codes first
+          const sortedCodes = commonCodes.sort((a, b) => b.length - a.length);
+          
+          for (const code of sortedCodes) {
+            if (phoneNumber.startsWith(code)) {
+              countryCode = code;
+              phoneNumber = phoneNumber.substring(code.length).trim();
+              break;
+            }
+          }
+        }
+        
+        // Get payment data from Firebase
+        const paymentData = userData.payment || {};
+        const paypalEmail = paymentData.paypalEmail || userData.paypalEmail || '';
+        const paypalStatus = paymentData.paypalStatus || '';
+        const paymentMethod = paymentData.method || '';
+        const paymentType = paymentData.type || '';
+        const paymentStatus = paymentData.status || '';
+        const lastPayPalTransactionId = paymentData.lastPayPalTransactionId || '';
+        const lastPayPalPayerEmail = paymentData.lastPayPalPayerEmail || '';
+        const paypalConnectedAt = paymentData.paypalConnectedAt || null;
         
         setProfile({
           firstName: userData.firstName || '',
           lastName: userData.lastName || '',
           email: email,
-          phone: userData.phone || '',
+          phone: phoneNumber,
+          phoneCountryCode: countryCode,
           location: userData.location || '',
           residentialAddress: residentialAddressDisplay,
           bio: userData.bio || '',
           profileImage: userData.profileImage || userData.photoURL || '',
+          gender: userData.gender || '',
+          birthday: birthdayValue,
           createdAt: createdAt,
-          joinDate: joinDate
+          joinDate: joinDate,
+          paypalEmail: paypalEmail,
+          paypalAccount: lastPayPalPayerEmail || paypalEmail,
+          paypalStatus: paypalStatus,
+          paymentMethod: paymentMethod,
+          paymentType: paymentType,
+          paymentStatus: paymentStatus,
+          lastPayPalTransactionId: lastPayPalTransactionId,
+          lastPayPalPayerEmail: lastPayPalPayerEmail,
+          paypalConnectedAt: paypalConnectedAt
         });
       } else {
         const email = auth.currentUser?.email || '';
@@ -294,12 +386,24 @@ const AccountSettings = () => {
           lastName: '',
           email: email,
           phone: '',
+          phoneCountryCode: '+1',
           location: '',
           residentialAddress: '',
           bio: '',
           profileImage: '',
+          gender: '',
+          birthday: '',
           createdAt: createdAt,
-          joinDate: `Member since ${createdAt.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`
+          joinDate: `Member since ${createdAt.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`,
+          paypalEmail: '',
+          paypalAccount: '',
+          paypalStatus: '',
+          paymentMethod: '',
+          paymentType: '',
+          paymentStatus: '',
+          lastPayPalTransactionId: '',
+          lastPayPalPayerEmail: '',
+          paypalConnectedAt: null
         });
       }
     } catch (error) {
@@ -321,10 +425,23 @@ const AccountSettings = () => {
       const storedFavorites = JSON.parse(localStorage.getItem(favoritesKey) || '[]');
       const favoritesCount = storedFavorites.length;
 
+      // Get review count and average rating
+      let reviewsCount = 0;
+      let averageRating = 0;
+      try {
+        const { getUserReviewStats } = await import('@/pages/Guest/services/reviewService');
+        const reviewStats = await getUserReviewStats(userId);
+        reviewsCount = reviewStats.totalReviews;
+        averageRating = reviewStats.averageRating;
+      } catch (error) {
+        console.error('Error loading review stats:', error);
+      }
+
       setStats({
-        reviews: 0,
+        reviews: reviewsCount,
         favorites: favoritesCount,
-        bookings: bookingsCount
+        bookings: bookingsCount,
+        averageRating: averageRating
       });
     } catch (error) {
       console.error('Error loading stats:', error);
@@ -381,6 +498,9 @@ const AccountSettings = () => {
             const listingRef = doc(db, 'listings', booking.listingId);
             const listingSnap = await getDoc(listingRef);
             
+            // Check if review exists for this booking
+            const existingReview = await getReviewByBookingId(booking.id);
+            
             if (listingSnap.exists()) {
               const listingData = listingSnap.data();
               const photos = listingData.photos || [];
@@ -397,7 +517,8 @@ const AccountSettings = () => {
                     ? `${locationData.city}, ${locationData.province}`
                     : locationData.city || locationData.country || 'Unknown Location'),
                 listingImage: photos[0]?.base64 || photos[0]?.url || null,
-                category: listingData.category || booking.category || 'accommodation'
+                category: listingData.category || booking.category || 'accommodation',
+                reviewed: !!existingReview || booking.reviewed || false
               };
             } else {
               return {
@@ -408,7 +529,8 @@ const AccountSettings = () => {
                 listingTitle: 'Listing not found',
                 listingLocation: 'Unknown',
                 listingImage: null,
-                category: booking.category || 'accommodation'
+                category: booking.category || 'accommodation',
+                reviewed: !!existingReview || booking.reviewed || false
               };
             }
           } catch (error) {
@@ -421,7 +543,8 @@ const AccountSettings = () => {
               listingTitle: 'Error loading listing',
               listingLocation: 'Unknown',
               listingImage: null,
-              category: booking.category || 'accommodation'
+              category: booking.category || 'accommodation',
+              reviewed: booking.reviewed || false
             };
           }
         })
@@ -495,14 +618,28 @@ const AccountSettings = () => {
 
     try {
       setCouponsLoading(true);
-      // TODO: Load coupons from Firestore
-      // For now, using empty array
-      setCoupons([]);
+      const hostCoupons = await getHostCoupons(user.uid);
+      setCoupons(hostCoupons);
     } catch (error) {
       console.error('Error loading coupons:', error);
       toast.error('Failed to load coupons');
     } finally {
       setCouponsLoading(false);
+    }
+  };
+
+  const handleDeleteCoupon = async (couponId) => {
+    if (!confirm('Are you sure you want to delete this coupon? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      await deleteCoupon(couponId);
+      toast.success('Coupon deleted successfully');
+      loadCoupons(); // Reload coupons
+    } catch (error) {
+      console.error('Error deleting coupon:', error);
+      toast.error(error.message || 'Failed to delete coupon');
     }
   };
 
@@ -790,16 +927,29 @@ const AccountSettings = () => {
       const userRef = doc(db, 'users', user.uid);
       const userDoc = await getDoc(userRef);
       
+      // Combine country code and phone number
+      const fullPhoneNumber = profile.phone.trim() 
+        ? `${profile.phoneCountryCode}${profile.phone.trim()}` 
+        : '';
+      
       const updateData = {
         firstName: profile.firstName.trim(),
         lastName: profile.lastName.trim(),
         email: profile.email.trim(),
-        phone: profile.phone.trim(),
-        location: profile.location.trim(),
+        phone: fullPhoneNumber,
+        phoneCountryCode: profile.phoneCountryCode,
         bio: profile.bio.trim(),
         profileImage: profile.profileImage.trim(),
+        gender: profile.gender.trim(),
+        birthday: profile.birthday.trim() || null,
         updatedAt: new Date().toISOString()
       };
+
+      // Only save location if there's no residentialAddress from listings
+      // residentialAddress comes from listings collection and shouldn't be overwritten
+      if (!profile.residentialAddress && profile.location.trim()) {
+        updateData.location = profile.location.trim();
+      }
 
       Object.keys(updateData).forEach(key => {
         if (updateData[key] === '') {
@@ -1001,7 +1151,7 @@ const AccountSettings = () => {
                     <div className="flex items-center gap-1 text-yellow-500">
                       <Star className="w-4 h-4 fill-current" />
                       <span className="text-sm font-medium text-foreground">
-                        {stats.reviews > 0 ? '4.9' : '—'}
+                        {stats.averageRating > 0 ? stats.averageRating.toFixed(1) : '—'}
                       </span>
                     </div>
                   </div>
@@ -1034,12 +1184,28 @@ const AccountSettings = () => {
 
               {/* Stats - Only Reviews */}
               <div className="mb-8">
-                <div className="card-listing p-6 text-center max-w-xs">
+                <div 
+                  className="card-listing p-6 text-center max-w-xs cursor-pointer hover:shadow-lg transition-shadow"
+                  onClick={async () => {
+                    if (!user || stats.reviews === 0) return;
+                    setShowUserReviewsModal(true);
+                    setUserReviewsLoading(true);
+                    try {
+                      const reviews = await getUserReviews(user.uid);
+                      setUserReviews(reviews);
+                    } catch (error) {
+                      console.error('Error loading user reviews:', error);
+                      toast.error('Failed to load reviews');
+                    } finally {
+                      setUserReviewsLoading(false);
+                    }
+                  }}
+                >
                   <div className="w-12 h-12 bg-primary/10 rounded-2xl flex items-center justify-center mx-auto mb-3">
                     <Star className="w-6 h-6 text-primary" />
                   </div>
                   <p className="font-heading text-2xl font-bold text-foreground mb-1">{stats.reviews.toString()}</p>
-                  <p className="text-sm text-muted-foreground">Reviews</p>
+                  <p className="text-sm text-muted-foreground">Reviews {stats.reviews > 0 && <span className="text-primary">(Click to view)</span>}</p>
                 </div>
               </div>
 
@@ -1084,44 +1250,123 @@ const AccountSettings = () => {
 
                   <div>
                     <label className="block text-sm font-medium text-foreground mb-2">Phone</label>
-                    <input
-                      type="tel"
-                      value={profile.phone}
-                      onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
+                    <div className="flex gap-2">
+                      <select
+                        value={profile.phoneCountryCode}
+                        onChange={(e) => setProfile({ ...profile, phoneCountryCode: e.target.value })}
+                        disabled={!isEditing}
+                        className={`w-32 p-3 border border-border rounded-xl bg-background text-foreground ${!isEditing ? 'opacity-60' : ''}`}
+                      >
+                        <option value="+1">+1 (US/CA)</option>
+                        <option value="+44">+44 (UK)</option>
+                        <option value="+63">+63 (PH)</option>
+                        <option value="+61">+61 (AU)</option>
+                        <option value="+86">+86 (CN)</option>
+                        <option value="+81">+81 (JP)</option>
+                        <option value="+82">+82 (KR)</option>
+                        <option value="+65">+65 (SG)</option>
+                        <option value="+60">+60 (MY)</option>
+                        <option value="+66">+66 (TH)</option>
+                        <option value="+62">+62 (ID)</option>
+                        <option value="+84">+84 (VN)</option>
+                        <option value="+33">+33 (FR)</option>
+                        <option value="+49">+49 (DE)</option>
+                        <option value="+39">+39 (IT)</option>
+                        <option value="+34">+34 (ES)</option>
+                        <option value="+31">+31 (NL)</option>
+                        <option value="+32">+32 (BE)</option>
+                        <option value="+41">+41 (CH)</option>
+                        <option value="+43">+43 (AT)</option>
+                        <option value="+46">+46 (SE)</option>
+                        <option value="+47">+47 (NO)</option>
+                        <option value="+45">+45 (DK)</option>
+                        <option value="+358">+358 (FI)</option>
+                        <option value="+351">+351 (PT)</option>
+                        <option value="+30">+30 (GR)</option>
+                        <option value="+48">+48 (PL)</option>
+                        <option value="+7">+7 (RU)</option>
+                        <option value="+91">+91 (IN)</option>
+                        <option value="+971">+971 (AE)</option>
+                        <option value="+966">+966 (SA)</option>
+                        <option value="+20">+20 (EG)</option>
+                        <option value="+27">+27 (ZA)</option>
+                        <option value="+234">+234 (NG)</option>
+                        <option value="+55">+55 (BR)</option>
+                        <option value="+52">+52 (MX)</option>
+                        <option value="+54">+54 (AR)</option>
+                        <option value="+56">+56 (CL)</option>
+                        <option value="+57">+57 (CO)</option>
+                        <option value="+51">+51 (PE)</option>
+                        <option value="+58">+58 (VE)</option>
+                        <option value="+64">+64 (NZ)</option>
+                      </select>
+                      <input
+                        type="tel"
+                        value={profile.phone}
+                        onChange={(e) => {
+                          // Allow only digits, spaces, hyphens, and parentheses
+                          const value = e.target.value.replace(/[^\d\s\-\(\)]/g, '');
+                          setProfile({ ...profile, phone: value });
+                        }}
+                        disabled={!isEditing}
+                        className={`flex-1 p-3 border border-border rounded-xl bg-background text-foreground ${!isEditing ? 'opacity-60' : ''}`}
+                        placeholder="Enter phone number"
+                      />
+                    </div>
+                    {profile.phoneCountryCode && profile.phone && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Full number: {profile.phoneCountryCode}{profile.phone}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-2">Gender</label>
+                    <select
+                      value={profile.gender}
+                      onChange={(e) => setProfile({ ...profile, gender: e.target.value })}
                       disabled={!isEditing}
                       className={`w-full p-3 border border-border rounded-xl bg-background text-foreground ${!isEditing ? 'opacity-60' : ''}`}
-                      placeholder="Enter phone number"
+                    >
+                      <option value="">Select gender</option>
+                      <option value="male">Male</option>
+                      <option value="female">Female</option>
+                      <option value="other">Other</option>
+                      <option value="prefer-not-to-say">Prefer not to say</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-2">Birthday</label>
+                    <input
+                      type="date"
+                      value={profile.birthday}
+                      onChange={(e) => setProfile({ ...profile, birthday: e.target.value })}
+                      disabled={!isEditing}
+                      max={new Date().toISOString().split('T')[0]}
+                      className={`w-full p-3 border border-border rounded-xl bg-background text-foreground ${!isEditing ? 'opacity-60' : ''}`}
                     />
                   </div>
                 </div>
 
                 <div className="space-y-4">
-                  {isHost ? (
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-2">
-                        Address
-                      </label>
-                      <textarea
-                        value={profile.residentialAddress}
-                        disabled={true}
-                        rows={3}
-                        className="w-full p-3 border border-border rounded-xl bg-muted text-foreground resize-none opacity-60 cursor-not-allowed"
-                        placeholder="Address from your listings"
-                      />
-                    </div>
-                  ) : (
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-2">Location</label>
-                      <input
-                        type="text"
-                        value={profile.location}
-                        onChange={(e) => setProfile({ ...profile, location: e.target.value })}
-                        disabled={!isEditing}
-                        className={`w-full p-3 border border-border rounded-xl bg-background text-foreground ${!isEditing ? 'opacity-60' : ''}`}
-                        placeholder="Enter your location"
-                      />
-                    </div>
-                  )}
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-2">Address</label>
+                    <input
+                      type="text"
+                      value={profile.residentialAddress || profile.location || ''}
+                      onChange={(e) => setProfile({ ...profile, location: e.target.value })}
+                      disabled={!isEditing || !!profile.residentialAddress}
+                      className={`w-full p-3 border border-border rounded-xl bg-background text-foreground ${!isEditing || profile.residentialAddress ? 'opacity-60' : ''}`}
+                      placeholder={profile.residentialAddress ? "Address from your listings" : "Enter your address"}
+                      title={profile.residentialAddress ? "This address is automatically populated from your listings" : ""}
+                    />
+                    {profile.residentialAddress && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Address automatically loaded from your listings
+                      </p>
+                    )}
+                  </div>
 
                   <div>
                     <label className="block text-sm font-medium text-foreground mb-2">Bio</label>
@@ -1133,6 +1378,140 @@ const AccountSettings = () => {
                       className={`w-full p-3 border border-border rounded-xl bg-background text-foreground resize-none ${!isEditing ? 'opacity-60' : ''}`}
                       placeholder="Tell us about yourself..."
                     />
+                  </div>
+
+                  {/* PayPal Payment Information */}
+                  <div className="mt-6 pt-6 border-t border-border">
+                    <div className="flex items-center gap-2 mb-4">
+                      <CreditCard className="w-5 h-5 text-primary" />
+                      <label className="text-base font-semibold text-foreground">Payment Information</label>
+                    </div>
+                    
+                    {profile.paypalEmail || profile.paymentMethod ? (
+                      <div className="space-y-3">
+                        {/* PayPal Email Card */}
+                        {profile.paypalEmail && (
+                          <div className="relative p-4 bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-950/30 dark:to-blue-900/20 rounded-xl border border-blue-200/50 dark:border-blue-800/50">
+                            <div className="flex items-start justify-between">
+                              <div className="flex items-start gap-3 flex-1">
+                                <div className="p-2 bg-blue-500/10 rounded-lg">
+                                  <Mail className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-xs font-medium text-muted-foreground mb-1">PayPal Email</p>
+                                  <p className="text-sm font-medium text-foreground break-all">{profile.paypalEmail}</p>
+                                </div>
+                              </div>
+                              {profile.paypalStatus === 'connected' && (
+                                <div className="flex items-center gap-1.5 px-2.5 py-1 bg-green-500/20 dark:bg-green-500/30 rounded-full">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-green-600 dark:text-green-400" />
+                                  <span className="text-xs font-medium text-green-700 dark:text-green-300">Connected</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Payment Details Grid */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {profile.paymentMethod && (
+                            <div className="p-4 bg-muted/50 rounded-xl border border-border">
+                              <div className="flex items-center gap-2 mb-2">
+                                <CreditCard className="w-4 h-4 text-muted-foreground" />
+                                <p className="text-xs font-medium text-muted-foreground">Payment Method</p>
+                              </div>
+                              <p className="text-sm font-semibold text-foreground capitalize">{profile.paymentMethod}</p>
+                            </div>
+                          )}
+                          
+                          {profile.paymentType && (
+                            <div className="p-4 bg-muted/50 rounded-xl border border-border">
+                              <div className="flex items-center gap-2 mb-2">
+                                <Calendar className="w-4 h-4 text-muted-foreground" />
+                                <p className="text-xs font-medium text-muted-foreground">Payment Plan</p>
+                              </div>
+                              <p className="text-sm font-semibold text-foreground capitalize">{profile.paymentType}</p>
+                            </div>
+                          )}
+                          
+                          {profile.paymentStatus && (
+                            <div className="p-4 bg-muted/50 rounded-xl border border-border">
+                              <div className="flex items-center gap-2 mb-2">
+                                <Shield className="w-4 h-4 text-muted-foreground" />
+                                <p className="text-xs font-medium text-muted-foreground">Payment Status</p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className={`text-sm font-semibold capitalize ${
+                                  profile.paymentStatus === 'active' 
+                                    ? 'text-green-600 dark:text-green-400' 
+                                    : 'text-muted-foreground'
+                                }`}>
+                                  {profile.paymentStatus}
+                                </span>
+                                {profile.paymentStatus === 'active' && (
+                                  <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400" />
+                                )}
+                              </div>
+                            </div>
+                          )}
+                          
+                          {profile.paypalConnectedAt && (
+                            <div className="p-4 bg-muted/50 rounded-xl border border-border">
+                              <div className="flex items-center gap-2 mb-2">
+                                <Clock className="w-4 h-4 text-muted-foreground" />
+                                <p className="text-xs font-medium text-muted-foreground">Connected Date</p>
+                              </div>
+                              <p className="text-sm font-semibold text-foreground">
+                                {profile.paypalConnectedAt.toDate ? 
+                                  format(profile.paypalConnectedAt.toDate(), 'MMM dd, yyyy') : 
+                                  format(new Date(profile.paypalConnectedAt), 'MMM dd, yyyy')
+                                }
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                        
+                        {/* Last Payment Email */}
+                        {profile.lastPayPalPayerEmail && profile.lastPayPalPayerEmail !== profile.paypalEmail && (
+                          <div className="p-4 bg-muted/50 rounded-xl border border-border">
+                            <div className="flex items-center gap-2 mb-2">
+                              <Mail className="w-4 h-4 text-muted-foreground" />
+                              <p className="text-xs font-medium text-muted-foreground">Last Payment Email</p>
+                            </div>
+                            <p className="text-sm font-medium text-foreground break-all">{profile.lastPayPalPayerEmail}</p>
+                          </div>
+                        )}
+                        
+                        {/* Transaction ID */}
+                        {profile.lastPayPalTransactionId && (
+                          <div className="p-4 bg-muted/50 rounded-xl border border-border">
+                            <div className="flex items-center gap-2 mb-2">
+                              <Ticket className="w-4 h-4 text-muted-foreground" />
+                              <p className="text-xs font-medium text-muted-foreground">Last Transaction ID</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <p className="text-xs font-mono text-foreground break-all">{profile.lastPayPalTransactionId}</p>
+                              <button
+                                onClick={() => {
+                                  navigator.clipboard.writeText(profile.lastPayPalTransactionId);
+                                  toast.success('Transaction ID copied to clipboard');
+                                }}
+                                className="p-1.5 hover:bg-muted rounded-lg transition-colors"
+                                title="Copy transaction ID"
+                              >
+                                <Copy className="w-3.5 h-3.5 text-muted-foreground" />
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="p-6 bg-muted/30 rounded-xl border border-dashed border-border text-center">
+                        <CreditCard className="w-8 h-8 text-muted-foreground mx-auto mb-2 opacity-50" />
+                        <p className="text-sm text-muted-foreground">No payment information available</p>
+                        <p className="text-xs text-muted-foreground mt-1">Connect your PayPal account to see payment details</p>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1628,12 +2007,19 @@ const AccountSettings = () => {
                               {booking.status === 'completed' && (
                                 <button 
                                   className="btn-outline text-xs px-3 py-1.5"
-                                  onClick={(e) => {
+                                  onClick={async (e) => {
                                     e.stopPropagation();
-                                    // TODO: Implement review functionality
+                                    // Check if review already exists
+                                    const existingReview = await getReviewByBookingId(booking.id);
+                                    if (existingReview) {
+                                      // Already reviewed
+                                      return;
+                                    }
+                                    setSelectedBookingForReview(booking);
+                                    setShowReviewModal(true);
                                   }}
                                 >
-                                  Review
+                                  {booking.reviewed ? 'Reviewed' : 'Review'}
                                 </button>
                               )}
                             </div>
@@ -2072,10 +2458,7 @@ const AccountSettings = () => {
                           <Edit className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => {
-                            // TODO: Implement delete
-                            toast.info('Delete functionality coming soon');
-                          }}
+                          onClick={() => handleDeleteCoupon(coupon.id)}
                           className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                           title="Delete"
                         >
@@ -2143,6 +2526,176 @@ const AccountSettings = () => {
 
       <Footer />
       {showLoginModal && <LogIn isOpen={showLoginModal} onClose={() => setShowLoginModal(false)} />}
+      {showReviewModal && selectedBookingForReview && (
+        <ReviewModal
+          isOpen={showReviewModal}
+          onClose={() => {
+            setShowReviewModal(false);
+            setSelectedBookingForReview(null);
+          }}
+          listingId={selectedBookingForReview.listingId}
+          listingTitle={selectedBookingForReview.listingTitle}
+          bookingId={selectedBookingForReview.id}
+          onSubmit={async (reviewData) => {
+            await createReview(reviewData);
+            // Reload bookings to update reviewed status
+            const updatedBookings = bookings.map(b => 
+              b.id === selectedBookingForReview.id ? { ...b, reviewed: true } : b
+            );
+            setBookings(updatedBookings);
+            // Reload stats to update review count
+            if (user) {
+              await loadStats(user.uid);
+            }
+          }}
+        />
+      )}
+      {/* Coupon Modal */}
+      {showCouponModal && (
+        <div
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+          onClick={() => {
+            setShowCouponModal(false);
+            setEditingCoupon(null);
+          }}
+        >
+          <CouponModal
+            isOpen={showCouponModal}
+            onClose={() => {
+              setShowCouponModal(false);
+              setEditingCoupon(null);
+            }}
+            coupon={editingCoupon}
+            onSave={async () => {
+              await loadCoupons();
+              setShowCouponModal(false);
+              setEditingCoupon(null);
+            }}
+          />
+        </div>
+      )}
+      {/* User Reviews Modal */}
+      {showUserReviewsModal && (
+        <div
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+          onClick={() => setShowUserReviewsModal(false)}
+        >
+          <div
+            className="bg-white border border-border rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b border-border sticky top-0 bg-white z-10">
+              <div>
+                <h2 className="text-2xl font-heading font-bold text-foreground">My Reviews</h2>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {userReviews.length} {userReviews.length === 1 ? 'review' : 'reviews'} across all listings
+                </p>
+              </div>
+              <button
+                onClick={() => setShowUserReviewsModal(false)}
+                className="p-2 hover:bg-muted rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5 text-foreground" />
+              </button>
+            </div>
+
+            {/* Reviews List */}
+            <div className="p-6">
+              {userReviewsLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                  <span className="ml-3 text-muted-foreground">Loading reviews...</span>
+                </div>
+              ) : userReviews.length > 0 ? (
+                <div className="space-y-6">
+                  {userReviews.map((review) => (
+                    <div key={review.id} className="border border-border rounded-xl p-6 hover:shadow-md transition-shadow">
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="flex items-start gap-4 flex-1">
+                          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center text-white font-semibold flex-shrink-0">
+                            {review.reviewerImage ? (
+                              <img
+                                src={review.reviewerImage}
+                                alt={review.reviewerName}
+                                className="w-12 h-12 rounded-full object-cover"
+                              />
+                            ) : (
+                              <span>{review.reviewerName?.[0]?.toUpperCase() || 'U'}</span>
+                            )}
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-2">
+                              <h3 className="font-heading text-lg font-semibold text-foreground">
+                                {review.listingTitle || 'Unknown Listing'}
+                              </h3>
+                              <span className="px-2 py-1 text-xs font-medium rounded-full bg-primary/10 text-primary">
+                                {review.listingCategory || 'accommodation'}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 mb-2">
+                              <div className="flex items-center gap-1">
+                                {[...Array(5)].map((_, i) => (
+                                  <Star
+                                    key={i}
+                                    className={`w-4 h-4 ${
+                                      i < review.rating
+                                        ? 'fill-yellow-400 text-yellow-400'
+                                        : 'text-gray-300'
+                                    }`}
+                                  />
+                                ))}
+                              </div>
+                              <span className="text-sm text-muted-foreground">
+                                {review.createdAt ? format(review.createdAt, 'MMM dd, yyyy') : 'Recently'}
+                              </span>
+                            </div>
+                            <p className="text-foreground leading-relaxed mt-3">
+                              {review.comment}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mt-4 pt-4 border-t border-border">
+                        <button
+                          onClick={() => {
+                            const categoryPath = review.listingCategory === 'accommodation' ? 'accommodations' :
+                                                 review.listingCategory === 'experience' ? 'experiences' :
+                                                 review.listingCategory === 'service' ? 'services' : 'accommodations';
+                            navigate(`/${categoryPath}/${review.listingId}`);
+                            setShowUserReviewsModal(false);
+                          }}
+                          className="text-sm text-primary hover:text-primary/80 flex items-center gap-1 transition-colors"
+                        >
+                          <ExternalLink className="w-4 h-4" />
+                          View Listing
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-20">
+                  <Star className="w-16 h-16 text-muted-foreground mx-auto mb-4 opacity-50" />
+                  <h3 className="text-xl font-semibold text-foreground mb-2">No reviews yet</h3>
+                  <p className="text-muted-foreground mb-6">
+                    You haven't reviewed any listings yet. Reviews help others make better decisions!
+                  </p>
+                  <button
+                    onClick={() => {
+                      setShowUserReviewsModal(false);
+                      setActiveTab('bookings');
+                    }}
+                    className="btn-primary"
+                  >
+                    Go to Bookings
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,5 +1,5 @@
 import { db, auth } from '@/lib/firebase';
-import { collection, addDoc, query, where, getDocs, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, query, where, getDocs, serverTimestamp, orderBy } from 'firebase/firestore';
 
 /**
  * Create a new booking/reservation
@@ -66,7 +66,11 @@ export const createBooking = async (bookingData) => {
     status: 'pending', // pending, confirmed, cancelled, completed
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
-    category: listingData.category || 'accommodation'
+    category: listingData.category || 'accommodation',
+    // Coupon information (if applied)
+    couponCode: bookingData.couponCode || null,
+    couponDiscount: bookingData.couponDiscount || 0,
+    couponId: bookingData.couponId || null
   };
 
   const bookingsCollection = collection(db, 'bookings');
@@ -90,14 +94,14 @@ export const checkDateConflict = async (listingId, checkIn, checkOut) => {
     // Try query with status filter first
     let querySnapshot;
     try {
-      const q = query(
-        bookingsCollection,
-        where('listingId', '==', listingId),
-        where('status', 'in', ['pending', 'confirmed'])
-      );
-      querySnapshot = await getDocs(q);
-    } catch (indexError) {
-      console.warn('⚠️ Index error for date conflict check, trying without status filter:', indexError.message);
+        const q = query(
+          bookingsCollection,
+          where('listingId', '==', listingId),
+          where('status', '==', 'confirmed')
+        );
+        querySnapshot = await getDocs(q);
+      } catch (indexError) {
+        console.warn('⚠️ Index error for date conflict check, trying without status filter:', indexError.message);
       // Fallback: Get all bookings for this listing and filter in JavaScript
       try {
         const q = query(
@@ -111,9 +115,15 @@ export const checkDateConflict = async (listingId, checkIn, checkOut) => {
       }
     }
     
-    // Check each existing booking for overlap
+    // Check each existing booking for overlap (only confirmed bookings)
     for (const docSnap of querySnapshot.docs) {
       const booking = docSnap.data();
+      
+      // Only check confirmed bookings
+      if (booking.status !== 'confirmed') {
+        continue;
+      }
+      
       const existingCheckIn = booking.checkInDate?.toDate ? booking.checkInDate.toDate() : new Date(booking.checkInDate);
       const existingCheckOut = booking.checkOutDate?.toDate ? booking.checkOutDate.toDate() : new Date(booking.checkOutDate);
 
@@ -146,7 +156,7 @@ export const getListingBookings = async (listingId) => {
     const q = query(
       bookingsCollection,
       where('listingId', '==', listingId),
-      where('status', 'in', ['pending', 'confirmed'])
+      where('status', '==', 'confirmed')
     );
 
     const querySnapshot = await getDocs(q);
@@ -174,13 +184,32 @@ export const getListingBookings = async (listingId) => {
 export const getGuestBookings = async (guestId) => {
   try {
     const bookingsCollection = collection(db, 'bookings');
-    const q = query(
-      bookingsCollection,
-      where('guestId', '==', guestId),
-      orderBy('createdAt', 'desc')
-    );
+    
+    // Try with orderBy first (requires composite index)
+    let querySnapshot;
+    try {
+      const q = query(
+        bookingsCollection,
+        where('guestId', '==', guestId),
+        orderBy('createdAt', 'desc')
+      );
+      querySnapshot = await getDocs(q);
+    } catch (indexError) {
+      // If index doesn't exist, fall back to query without orderBy
+      console.warn('⚠️ Composite index not found for bookings query, falling back to query without orderBy:', indexError.message);
+      
+      // Check if error is about missing index
+      if (indexError.code === 'failed-precondition' || indexError.message.includes('index')) {
+        const q = query(
+          bookingsCollection,
+          where('guestId', '==', guestId)
+        );
+        querySnapshot = await getDocs(q);
+      } else {
+        throw indexError; // Re-throw if it's a different error
+      }
+    }
 
-    const querySnapshot = await getDocs(q);
     const bookings = [];
 
     querySnapshot.forEach((doc) => {
@@ -198,7 +227,7 @@ export const getGuestBookings = async (guestId) => {
       });
     });
 
-    // Sort manually if orderBy failed
+    // Always sort manually to ensure correct order (especially if orderBy wasn't used)
     bookings.sort((a, b) => {
       const aDate = a.createdAt || new Date(0);
       const bDate = b.createdAt || new Date(0);
@@ -207,39 +236,9 @@ export const getGuestBookings = async (guestId) => {
 
     return bookings;
   } catch (error) {
-    console.error('Error getting guest bookings:', error);
-    // If orderBy fails, try without it
-    try {
-      const bookingsCollection = collection(db, 'bookings');
-      const q = query(
-        bookingsCollection,
-        where('guestId', '==', guestId)
-      );
-      const querySnapshot = await getDocs(q);
-      const bookings = [];
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        const checkIn = data.checkInDate?.toDate ? data.checkInDate.toDate() : new Date(data.checkInDate);
-        const checkOut = data.checkOutDate?.toDate ? data.checkOutDate.toDate() : new Date(data.checkOutDate);
-        const createdAt = data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt);
-        bookings.push({
-          id: doc.id,
-          ...data,
-          checkInDate: checkIn,
-          checkOutDate: checkOut,
-          createdAt: createdAt
-        });
-      });
-      bookings.sort((a, b) => {
-        const aDate = a.createdAt || new Date(0);
-        const bDate = b.createdAt || new Date(0);
-        return bDate - aDate;
-      });
-      return bookings;
-    } catch (error2) {
-      console.error('Error getting guest bookings (fallback):', error2);
-      return [];
-    }
+    console.error('❌ Error getting guest bookings:', error);
+    // Return empty array instead of throwing to prevent UI crashes
+    return [];
   }
 };
 
@@ -252,13 +251,13 @@ export const getUnavailableDates = async (listingId) => {
   try {
     const bookingsCollection = collection(db, 'bookings');
     
-    // Try query with status filter first
+    // Try query with status filter first (only confirmed bookings)
     let querySnapshot;
     try {
       const q = query(
         bookingsCollection,
         where('listingId', '==', listingId),
-        where('status', 'in', ['pending', 'confirmed'])
+        where('status', '==', 'confirmed')
       );
       querySnapshot = await getDocs(q);
     } catch (indexError) {
@@ -283,8 +282,8 @@ export const getUnavailableDates = async (listingId) => {
     querySnapshot.forEach((doc) => {
       const booking = doc.data();
       
-      // Only include pending and confirmed bookings
-      if (booking.status !== 'pending' && booking.status !== 'confirmed') {
+      // Only include confirmed bookings
+      if (booking.status !== 'confirmed') {
         console.log(`⏭️ Skipping booking ${doc.id} with status: ${booking.status}`);
         return;
       }
@@ -301,6 +300,7 @@ export const getUnavailableDates = async (listingId) => {
       console.log(`📅 Booking dates - Check-in: ${checkIn.toISOString().split('T')[0]}, Check-out: ${checkOut.toISOString().split('T')[0]}`);
 
       // Add all dates between check-in (inclusive) and check-out (exclusive) to unavailable dates
+      // Use local date components to avoid timezone conversion issues
       const currentDate = new Date(checkIn);
       while (currentDate < checkOut) {
         const dateCopy = new Date(currentDate);
@@ -309,30 +309,45 @@ export const getUnavailableDates = async (listingId) => {
         currentDate.setDate(currentDate.getDate() + 1);
       }
       
-      console.log(`📅 Added ${checkOut.getDate() - checkIn.getDate()} dates from this booking`);
+      console.log(`📅 Added dates from ${checkIn.toLocaleDateString()} to ${checkOut.toLocaleDateString()} (exclusive)`);
     });
 
     // Remove duplicates (in case of overlapping bookings)
-    // Ensure all dates are proper Date objects
+    // Use local date components to avoid timezone issues (match host calendar approach)
     const uniqueDateStrings = Array.from(new Set(unavailableDates.map(d => {
+      let dateObj;
       if (d instanceof Date) {
-        return d.toISOString().split('T')[0];
+        dateObj = new Date(d);
+      } else {
+        dateObj = new Date(d);
       }
-      // Handle if it's already a string or needs conversion
-      const dateObj = new Date(d);
-      return dateObj.toISOString().split('T')[0];
+      // Use local date components instead of toISOString() to avoid timezone shifts
+      dateObj.setHours(0, 0, 0, 0);
+      const year = dateObj.getFullYear();
+      const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const day = String(dateObj.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
     })));
     
-    // Convert back to Date objects, ensuring they're all at midnight
+    // Convert back to Date objects using local timezone, ensuring they're all at midnight
     const uniqueDates = uniqueDateStrings.map(dateStr => {
-      const date = new Date(dateStr + 'T00:00:00');
+      // Parse as local date (YYYY-MM-DD format)
+      const [year, month, day] = dateStr.split('-').map(Number);
+      const date = new Date(year, month - 1, day, 0, 0, 0, 0);
       date.setHours(0, 0, 0, 0);
       return date;
     });
     
     console.log(`📅 Found ${unavailableDates.length} total unavailable dates (${uniqueDates.length} unique) for listing ${listingId}`);
     if (uniqueDates.length > 0) {
-      console.log(`📅 Unavailable date strings:`, uniqueDates.map(d => d.toISOString().split('T')[0]));
+      // Use local date strings for consistency
+      const dateStrings = uniqueDates.map(d => {
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      });
+      console.log(`📅 Unavailable date strings (local):`, dateStrings);
     } else {
       console.log('⚠️ No unavailable dates to return');
     }

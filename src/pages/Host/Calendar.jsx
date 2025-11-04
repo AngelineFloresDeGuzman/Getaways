@@ -4,7 +4,7 @@ import Footer from '@/components/Footer';
 import { ChevronDown, ChevronLeft, ChevronRight, Infinity, Grid, Plus } from 'lucide-react';
 import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
+import { collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   DropdownMenu,
@@ -257,114 +257,262 @@ const CalendarPage = () => {
     calendarDays.push(null);
   }
 
-  const loadBookings = useCallback(async () => {
-    try {
-      if (!auth.currentUser) {
-        setLoading(false);
-        return;
-      }
+  // Process bookings data and update state
+  const processBookingsData = useCallback((bookingsData) => {
+    // Only include confirmed bookings (same as guest calendar)
+    // This ensures all calendars match based on confirmed status bookings from Firebase
+    const allBookings = bookingsData.filter(
+      booking => booking.status === 'confirmed'
+    );
 
-      console.log('📅 Calendar: Loading bookings for host...');
+    setBookings(allBookings);
 
-      const bookingsCollection = collection(db, 'bookings');
+    // Generate set of all booked dates from ALL listings
+    const datesSet = new Set();
+    allBookings.forEach(booking => {
+      // Convert Firestore timestamps to Date objects
+      const checkIn = booking.checkInDate?.toDate ? booking.checkInDate.toDate() : new Date(booking.checkInDate);
+      const checkOut = booking.checkOutDate?.toDate ? booking.checkOutDate.toDate() : new Date(booking.checkOutDate);
       
-      // Query bookings where ownerId matches current user
-      let querySnapshot;
+      // Normalize dates to midnight LOCAL TIME (not UTC) for accurate comparison
+      checkIn.setHours(0, 0, 0, 0);
+      checkOut.setHours(0, 0, 0, 0);
+
+      // Add all dates between check-in (inclusive) and check-out (exclusive)
+      // Use local date string format (YYYY-MM-DD) to avoid timezone issues
+      const currentDate = new Date(checkIn);
+      while (currentDate < checkOut) {
+        // Use local date components to avoid timezone conversion issues
+        const year = currentDate.getFullYear();
+        const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+        const day = String(currentDate.getDate()).padStart(2, '0');
+        const dateKey = `${year}-${month}-${day}`;
+        datesSet.add(dateKey);
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+    });
+
+    setBookedDates(datesSet);
+    setLoading(false);
+
+    console.log('✅ Calendar: Updated bookings -', allBookings.length, 'bookings,', datesSet.size, 'booked dates');
+  }, []);
+
+  // Load bookings with real-time updates
+  const loadBookings = useCallback(() => {
+    if (!auth.currentUser) {
+      setLoading(false);
+      return () => {}; // Return empty cleanup function
+    }
+
+    console.log('📅 Calendar: Setting up real-time listener for bookings from all listings...');
+
+    const bookingsCollection = collection(db, 'bookings');
+    const listingsCollection = collection(db, 'listings');
+    
+    const unsubscribeRef = { current: null };
+
+    // First, get all listings owned by this host, then set up bookings listener
+    const setupBookingsListener = async () => {
       try {
-        const q = query(
-          bookingsCollection,
-          where('ownerId', '==', auth.currentUser.uid),
-          orderBy('createdAt', 'desc')
+        // Get all host's listings
+        const listingsQuery = query(
+          listingsCollection,
+          where('ownerId', '==', auth.currentUser.uid)
         );
-        querySnapshot = await getDocs(q);
-      } catch (indexError) {
-        console.warn('⚠️ Index error for bookings, trying without orderBy:', indexError.message);
+        
+        let listingsSnapshot;
         try {
-          // Fallback: query without orderBy
-        const q = query(
+          listingsSnapshot = await getDocs(listingsQuery);
+        } catch (listingsError) {
+          console.error('❌ Error getting listings:', listingsError);
+          listingsSnapshot = { docs: [] };
+        }
+
+        const hostListingIds = listingsSnapshot.docs.map(doc => doc.id);
+        console.log('📅 Calendar: Found', hostListingIds.length, 'listings for host:', hostListingIds);
+
+        // Query bookings by ownerId (this should get all bookings for host's listings)
+        // Note: We're NOT using orderBy to avoid index requirements
+        const ownerIdQuery = query(
           bookingsCollection,
           where('ownerId', '==', auth.currentUser.uid)
         );
-        querySnapshot = await getDocs(q);
-        } catch (error2) {
-          console.error('❌ Error loading bookings:', error2);
-          setBookings([]);
-          setBookedDates(new Set());
-          setLoading(false);
-          return;
-        }
-      }
 
-      const bookingsData = querySnapshot.docs.map(doc => {
-        const data = doc.data();
-        const checkIn = data.checkInDate?.toDate ? data.checkInDate.toDate() : new Date(data.checkInDate);
-        const checkOut = data.checkOutDate?.toDate ? data.checkOutDate.toDate() : new Date(data.checkOutDate);
+        // Process booking data helper
+        const processBookingSnapshot = (querySnapshot, listingIds) => {
+          console.log('📅 Calendar: Received', querySnapshot.docs.length, 'bookings from snapshot');
+          
+          const bookingsData = querySnapshot.docs.map(doc => {
+            const data = doc.data();
+            const checkIn = data.checkInDate?.toDate ? data.checkInDate.toDate() : new Date(data.checkInDate);
+            const checkOut = data.checkOutDate?.toDate ? data.checkOutDate.toDate() : new Date(data.checkOutDate);
 
-        return {
-          id: doc.id,
-          ...data,
-          checkInDate: checkIn,
-          checkOutDate: checkOut,
+            return {
+              id: doc.id,
+              ...data,
+              checkInDate: checkIn,
+              checkOutDate: checkOut,
+            };
+          });
+
+          // Filter to only include bookings for host's listings (double-check using closure)
+          const filteredBookings = bookingsData.filter(booking => {
+            // Booking should have ownerId matching host OR listingId matching host's listings
+            const matchesOwnerId = booking.ownerId === auth.currentUser.uid;
+            const matchesListing = listingIds.includes(booking.listingId);
+            const shouldInclude = matchesOwnerId || matchesListing;
+            
+            if (!shouldInclude) {
+              console.warn('⚠️ Calendar: Booking filtered out:', {
+                bookingId: booking.id,
+                bookingOwnerId: booking.ownerId,
+                hostId: auth.currentUser.uid,
+                bookingListingId: booking.listingId,
+                hostListingIds: listingIds
+              });
+            }
+            
+            return shouldInclude;
+          });
+
+          console.log('📅 Calendar: Filtered to', filteredBookings.length, 'bookings for host\'s listings');
+          if (filteredBookings.length > 0) {
+            console.log('📅 Calendar: Bookings details:', filteredBookings.map(b => ({
+              id: b.id,
+              listingId: b.listingId,
+              ownerId: b.ownerId,
+              status: b.status,
+              checkIn: b.checkInDate?.toISOString?.() || b.checkInDate,
+              checkOut: b.checkOutDate?.toISOString?.() || b.checkOutDate
+            })));
+          } else {
+            console.warn('⚠️ Calendar: No bookings found! Check if bookings have correct ownerId or listingId');
+            console.log('📅 Calendar: Host ID:', auth.currentUser.uid);
+            console.log('📅 Calendar: Host listing IDs:', listingIds);
+            console.log('📅 Calendar: All bookings received:', bookingsData.map(b => ({
+              id: b.id,
+              listingId: b.listingId,
+              ownerId: b.ownerId,
+              status: b.status
+            })));
+          }
+
+          // Sort by createdAt descending in JavaScript
+          filteredBookings.sort((a, b) => {
+            const aDate = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt || 0);
+            const bDate = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt || 0);
+            return bDate - aDate;
+          });
+
+          processBookingsData(filteredBookings);
         };
-      });
 
-      // Filter to only include pending and confirmed bookings
-      const activeBookings = bookingsData.filter(
-        booking => booking.status === 'pending' || booking.status === 'confirmed'
-      );
-
-      setBookings(activeBookings);
-
-      // Generate set of all booked dates
-      const datesSet = new Set();
-      activeBookings.forEach(booking => {
-        const checkIn = new Date(booking.checkInDate);
-        const checkOut = new Date(booking.checkOutDate);
-        
-        // Normalize dates to midnight for accurate comparison
-        checkIn.setHours(0, 0, 0, 0);
-        checkOut.setHours(0, 0, 0, 0);
-
-        // Add all dates between check-in (inclusive) and check-out (exclusive)
-        const currentDate = new Date(checkIn);
-        while (currentDate < checkOut) {
-          const dateKey = currentDate.toISOString().split('T')[0];
-          datesSet.add(dateKey);
-          currentDate.setDate(currentDate.getDate() + 1);
+        // Use onSnapshot for real-time updates
+        // Check if onSnapshot is available
+        if (typeof onSnapshot === 'undefined') {
+          console.error('❌ onSnapshot is not available. Falling back to getDocs with polling...');
+          // Fallback: use getDocs with polling
+          const pollBookings = async () => {
+            try {
+              const snapshot = await getDocs(ownerIdQuery);
+              processBookingSnapshot(snapshot, hostListingIds);
+            } catch (err) {
+              console.error('❌ Error in fallback getDocs:', err);
+              setBookings([]);
+              setBookedDates(new Set());
+              setLoading(false);
+            }
+          };
+          // Initial load
+          pollBookings();
+          // Poll every 5 seconds
+          const pollInterval = setInterval(pollBookings, 5000);
+          unsubscribeRef.current = () => clearInterval(pollInterval);
+        } else {
+          try {
+            unsubscribeRef.current = onSnapshot(ownerIdQuery, 
+              (querySnapshot) => {
+                processBookingSnapshot(querySnapshot, hostListingIds);
+              },
+              (error) => {
+                console.error('❌ Error in bookings snapshot:', error);
+                // If it's an index error, that's okay - we'll just work without it
+                if (error.code === 'failed-precondition' || error.message?.includes('index')) {
+                  console.warn('⚠️ Index error (expected), continuing without index...');
+                  // Still try to process what we have
+                  setBookings([]);
+                  setBookedDates(new Set());
+                  setLoading(false);
+                } else {
+                  setBookings([]);
+                  setBookedDates(new Set());
+                  setLoading(false);
+                }
+              }
+            );
+          } catch (snapshotError) {
+            console.error('❌ Error setting up onSnapshot:', snapshotError);
+            // Fallback: use getDocs
+            getDocs(ownerIdQuery).then(snapshot => {
+              processBookingSnapshot(snapshot, hostListingIds);
+            }).catch(err => {
+              console.error('❌ Error in fallback getDocs:', err);
+              setBookings([]);
+              setBookedDates(new Set());
+              setLoading(false);
+            });
+          }
         }
-      });
+      } catch (listingsError) {
+        console.error('❌ Error setting up bookings listener:', listingsError);
+        setLoading(false);
+      }
+    };
 
-      setBookedDates(datesSet);
-      setLoading(false);
+    // Set up listener
+    setupBookingsListener();
 
-      console.log('✅ Calendar: Loaded', activeBookings.length, 'bookings,', datesSet.size, 'booked dates');
-    } catch (error) {
-      console.error('❌ Error loading bookings:', error);
-      setBookings([]);
-      setBookedDates(new Set());
-      setLoading(false);
-    }
-  }, []);
+    // Return cleanup function
+    return () => {
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current();
+        unsubscribeRef.current = null;
+      }
+    };
+  }, [processBookingsData]);
 
   // Load bookings when user is available
   useEffect(() => {
+    let unsubscribeBookings = null;
+
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
-        loadBookings();
+        unsubscribeBookings = loadBookings();
       } else {
         setBookings([]);
         setBookedDates(new Set());
         setLoading(false);
       }
     });
-    return () => unsubscribe();
+
+    return () => {
+      unsubscribe();
+      if (unsubscribeBookings) {
+        unsubscribeBookings();
+      }
+    };
   }, [loadBookings]);
 
   // Helper function to check if a date is booked
   const isBooked = (date) => {
     if (!date) return false;
-    const dateKey = date.toISOString().split('T')[0];
+    // Use local date components to match how we store dates (avoid timezone issues)
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const dateKey = `${year}-${month}-${day}`;
     return bookedDates.has(dateKey);
   };
 
@@ -387,11 +535,32 @@ const CalendarPage = () => {
   // Get bookings for a specific date
   const getBookingsForDate = (date) => {
     if (!date) return [];
-    const dateKey = date.toISOString().split('T')[0];
+    // Use local date components to match how we store dates (avoid timezone issues)
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const dateKey = `${year}-${month}-${day}`;
+    
     return bookings.filter(booking => {
-      const checkIn = booking.checkInDate.toISOString().split('T')[0];
-      const checkOut = booking.checkOutDate.toISOString().split('T')[0];
-      return dateKey >= checkIn && dateKey < checkOut;
+      const checkIn = booking.checkInDate?.toDate ? booking.checkInDate.toDate() : new Date(booking.checkInDate);
+      const checkOut = booking.checkOutDate?.toDate ? booking.checkOutDate.toDate() : new Date(booking.checkOutDate);
+      
+      // Normalize to midnight local time
+      checkIn.setHours(0, 0, 0, 0);
+      checkOut.setHours(0, 0, 0, 0);
+      
+      // Convert to local date strings
+      const checkInYear = checkIn.getFullYear();
+      const checkInMonth = String(checkIn.getMonth() + 1).padStart(2, '0');
+      const checkInDay = String(checkIn.getDate()).padStart(2, '0');
+      const checkInKey = `${checkInYear}-${checkInMonth}-${checkInDay}`;
+      
+      const checkOutYear = checkOut.getFullYear();
+      const checkOutMonth = String(checkOut.getMonth() + 1).padStart(2, '0');
+      const checkOutDay = String(checkOut.getDate()).padStart(2, '0');
+      const checkOutKey = `${checkOutYear}-${checkOutMonth}-${checkOutDay}`;
+      
+      return dateKey >= checkInKey && dateKey < checkOutKey;
     });
   };
 

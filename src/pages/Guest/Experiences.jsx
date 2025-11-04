@@ -3,6 +3,7 @@ import { experiences } from './sharedData';
 import { useNavigate, useSearchParams } from "react-router-dom";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
+import SearchBar from "@/components/SearchBar";
 import { Mountain, Clock, MapPin, Star, Share2, Users, X } from "lucide-react";
 import FavoriteButton from "@/components/FavoriteButton";
 import { auth } from "@/lib/firebase";
@@ -21,6 +22,7 @@ const Experiences = () => {
   const [selectedCategory, setSelectedCategory] = useState("All Experiences");
   const [filters, setFilters] = useState({
     location: searchParams.get('location') || '',
+    when: searchParams.get('when') || '',
     guests: searchParams.get('guests') || ''
   });
   const navigate = useNavigate();
@@ -78,6 +80,7 @@ const Experiences = () => {
   useEffect(() => {
     setFilters({
       location: searchParams.get('location') || '',
+      when: searchParams.get('when') || '',
       guests: searchParams.get('guests') || ''
     });
   }, [searchParams]);
@@ -117,8 +120,7 @@ const Experiences = () => {
       {/* Header */}
       <section className="pt-36 pb-12 px-6 bg-gradient-to-br from-muted/20 to-primary/10">
         <div className="max-w-7xl mx-auto">
-          <div className="flex items-center gap-3 mb-4 animate-fade-in">
-            <Mountain className="w-8 h-8 text-primary" />
+          <div className="mb-4 animate-fade-in">
             <h1 className="font-heading text-4xl md:text-6xl font-bold text-foreground">
               Unique Experiences
             </h1>
@@ -129,25 +131,13 @@ const Experiences = () => {
         </div>
       </section>
 
-      {/* Categories Filter */}
+      {/* Search Bar */}
       <section className="py-8 px-6 border-b border-border">
         <div className="max-w-7xl mx-auto">
-          <div className="flex items-center gap-4 overflow-x-auto pb-2">
-            {categories.map((category, index) => (
-              <button
-                key={category}
-                onClick={() => setSelectedCategory(category)}
-                className={`flex-shrink-0 px-6 py-3 rounded-full font-medium transition-all ${selectedCategory === category
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground"
-                  }`}
-              >
-                {category}
-              </button>
-            ))}
-          </div>
+          <SearchBar category="experience" />
         </div>
       </section>
+
 
       {/* Experience Cards */}
       <section className="py-12 px-6">

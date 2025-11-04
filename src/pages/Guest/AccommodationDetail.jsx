@@ -15,7 +15,9 @@ import { faFacebookF, faInstagram, faFacebookMessenger, faXTwitter } from "@fort
 import { Calendar } from '@/components/ui/calendar';
 import { format } from 'date-fns';
 import { createBooking, getUnavailableDates, calculateTotalPrice, checkDateConflict } from '@/pages/Guest/services/bookingService';
+import { validateCoupon } from '@/pages/Host/services/couponService';
 import { startConversation, getHostIdFromListing } from '@/pages/Guest/services/messagingService';
+import { getListingReviews } from '@/pages/Guest/services/reviewService';
 import { toast } from '@/components/ui/sonner';
 import { MapContainer, TileLayer, Marker } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -45,6 +47,8 @@ const AccommodationDetail = () => {
   const [accommodation, setAccommodation] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [reviews, setReviews] = useState([]);
+  const [reviewsLoading, setReviewsLoading] = useState(false);
   const [selectedImage, setSelectedImage] = useState(null);
   const [checkInDate, setCheckInDate] = useState(null);
   const [checkOutDate, setCheckOutDate] = useState(null);
@@ -53,6 +57,10 @@ const AccommodationDetail = () => {
   const [defaultMonth, setDefaultMonth] = useState(new Date());
   const [unavailableDates, setUnavailableDates] = useState([]);
   const [totalPrice, setTotalPrice] = useState(0);
+  const [couponCode, setCouponCode] = useState('');
+  const [couponError, setCouponError] = useState('');
+  const [couponApplied, setCouponApplied] = useState(null);
+  const [validatingCoupon, setValidatingCoupon] = useState(false);
 
   // Debug: Track when unavailableDates state changes
   useEffect(() => {
@@ -103,11 +111,11 @@ const AccommodationDetail = () => {
     let fallbackInterval;
     
     try {
-      // Try with status filter first (requires composite index)
+      // Try with status filter first (requires composite index) - only confirmed bookings
       const bookingsQuery = query(
         collection(db, 'bookings'),
         where('listingId', '==', id),
-        where('status', 'in', ['pending', 'confirmed'])
+        where('status', '==', 'confirmed')
       );
 
       unsubscribe = onSnapshot(
@@ -183,8 +191,8 @@ const AccommodationDetail = () => {
     };
   }, [id]);
 
-  // Calculate total price when dates or guests change
-  useEffect(() => {
+  // Recalculate price without coupon
+  const recalculatePrice = () => {
     if (checkInDate && checkOutDate && accommodation) {
       // Get pricing from accommodation data - it might be nested or at top level
       const pricing = {
@@ -197,6 +205,69 @@ const AccommodationDetail = () => {
       setTotalPrice(calculatedPrice);
     } else {
       setTotalPrice(0);
+    }
+  };
+
+  // Validate and apply coupon
+  const handleApplyCoupon = async () => {
+    if (!couponCode.trim()) {
+      setCouponError('');
+      setCouponApplied(null);
+      recalculatePrice();
+      return;
+    }
+
+    if (!checkInDate || !checkOutDate || !accommodation) {
+      setCouponError('Please select dates first');
+      return;
+    }
+
+    try {
+      setValidatingCoupon(true);
+      setCouponError('');
+      
+      // Calculate base price before coupon
+      const pricing = {
+        weekdayPrice: accommodation.price || accommodation.pricing?.weekdayPrice || 0,
+        weekendPrice: accommodation.weekendPrice || accommodation.pricing?.weekendPrice || accommodation.price || 0,
+        basePrice: accommodation.price || accommodation.pricing?.basePrice || 0,
+        discounts: accommodation.pricing?.discounts || accommodation.discounts || {}
+      };
+      const basePrice = calculateTotalPrice(pricing, checkInDate, checkOutDate, guests);
+      
+      const result = await validateCoupon(couponCode.trim(), accommodation.id, basePrice);
+      
+      if (result.valid) {
+        setCouponApplied({ ...result.coupon, couponId: result.couponId });
+        setCouponError('');
+        // Recalculate price with coupon
+        const discountAmount = result.coupon.discountAmount;
+        const newTotal = Math.max(0, basePrice - discountAmount);
+        setTotalPrice(Math.round(newTotal));
+        toast.success(`Coupon "${result.coupon.code}" applied successfully!`);
+      } else {
+        setCouponApplied(null);
+        setCouponError(result.error || 'Invalid coupon code');
+        recalculatePrice();
+      }
+    } catch (error) {
+      console.error('Error validating coupon:', error);
+      setCouponError('Failed to validate coupon. Please try again.');
+      setCouponApplied(null);
+      recalculatePrice();
+    } finally {
+      setValidatingCoupon(false);
+    }
+  };
+
+  // Calculate total price when dates or guests change
+  useEffect(() => {
+    recalculatePrice();
+    // Clear coupon when dates/guests change
+    if (couponCode) {
+      setCouponCode('');
+      setCouponApplied(null);
+      setCouponError('');
     }
   }, [checkInDate, checkOutDate, guests, accommodation]);
 
@@ -359,6 +430,27 @@ const AccommodationDetail = () => {
         
         console.log('✅ AccommodationDetail: Loaded accommodation:', accommodationData.title);
         setAccommodation(accommodationData);
+        
+        // Load reviews for this listing
+        try {
+          setReviewsLoading(true);
+          const listingReviews = await getListingReviews(docSnap.id);
+          setReviews(listingReviews);
+          // Update accommodation rating and review count from actual reviews
+          if (listingReviews.length > 0) {
+            const totalRating = listingReviews.reduce((sum, r) => sum + r.rating, 0);
+            const avgRating = totalRating / listingReviews.length;
+            setAccommodation(prev => ({
+              ...prev,
+              rating: Math.round(avgRating * 10) / 10,
+              reviews: listingReviews.length
+            }));
+          }
+        } catch (error) {
+          console.error('Error loading reviews:', error);
+        } finally {
+          setReviewsLoading(false);
+        }
         
         // Fetch host profile information
         if (accommodationData.ownerId) {
@@ -558,7 +650,10 @@ const AccommodationDetail = () => {
         checkOutDate: checkOutDate,
         guests: guests,
         totalPrice: totalPrice,
-        nightlyPrice: nightlyPrice
+        nightlyPrice: nightlyPrice,
+        couponCode: couponApplied?.code || null,
+        couponDiscount: couponApplied?.discountAmount || 0,
+        couponId: couponApplied?.couponId || null
       }
     });
   };
@@ -632,8 +727,6 @@ const AccommodationDetail = () => {
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
-
-  const reviews = accommodation.reviewsList || [];
 
   return (
     <div className="min-h-screen bg-background">
@@ -1063,29 +1156,54 @@ const AccommodationDetail = () => {
               </div>
 
               <div className="space-y-6">
-                {reviews.length > 0 ? reviews.map((review) => (
+                {reviewsLoading ? (
+                  <div className="text-center py-8">
+                    <p className="text-muted-foreground">Loading reviews...</p>
+                  </div>
+                ) : reviews.length > 0 ? reviews.map((review) => (
                   <div key={review.id} className="space-y-3">
                     <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center text-white font-semibold">
+                        {review.reviewerImage ? (
                       <img
-                        src={review.avatar}
-                        alt={review.author}
+                            src={review.reviewerImage}
+                            alt={review.reviewerName}
                         className="w-10 h-10 rounded-full object-cover"
                       />
-                      <div>
-                        <p className="font-medium text-foreground">{review.author}</p>
-                        <p className="text-sm text-muted-foreground">{review.date}</p>
+                        ) : (
+                          <span>{review.reviewerName?.[0]?.toUpperCase() || 'U'}</span>
+                        )}
                       </div>
-                      <div className="flex items-center gap-1 ml-auto">
-                        {[...Array(review.rating)].map((_, i) => (
-                          <Star key={i} className="w-4 h-4 fill-yellow-400 text-yellow-400" />
+                      <div className="flex-1">
+                        <p className="font-medium text-foreground">{review.reviewerName || 'Anonymous'}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {review.createdAt ? format(review.createdAt, 'MMM dd, yyyy') : 'Recently'}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        {[...Array(5)].map((_, i) => (
+                          <Star 
+                            key={i} 
+                            className={`w-4 h-4 ${
+                              i < review.rating 
+                                ? 'fill-yellow-400 text-yellow-400' 
+                                : 'text-gray-300'
+                            }`} 
+                          />
                         ))}
                       </div>
                     </div>
-                    <p className="text-muted-foreground leading-relaxed pl-13">
+                    <p className="text-foreground leading-relaxed pl-13">
                       {review.comment}
                     </p>
                   </div>
-                )) : <p className="text-muted-foreground">No reviews yet.</p>}
+                )) : (
+                  <div className="text-center py-8">
+                    <Star className="w-12 h-12 text-muted-foreground mx-auto mb-3 opacity-50" />
+                    <p className="text-muted-foreground">No reviews yet.</p>
+                    <p className="text-sm text-muted-foreground mt-1">Be the first to review this accommodation!</p>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1321,6 +1439,65 @@ const AccommodationDetail = () => {
                       ))}
                     </select>
                   </div>
+                </div>
+
+                {/* Coupon Code Input */}
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-foreground mb-2">
+                    Have a coupon code?
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={couponCode}
+                      onChange={(e) => {
+                        setCouponCode(e.target.value.toUpperCase());
+                        setCouponError('');
+                        if (!e.target.value.trim()) {
+                          setCouponApplied(null);
+                          recalculatePrice();
+                        }
+                      }}
+                      onKeyPress={(e) => {
+                        if (e.key === 'Enter') {
+                          handleApplyCoupon();
+                        }
+                      }}
+                      placeholder="Enter coupon code"
+                      className="flex-1 px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                    />
+                    <button
+                      onClick={handleApplyCoupon}
+                      disabled={validatingCoupon || !couponCode.trim()}
+                      className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {validatingCoupon ? '...' : 'Apply'}
+                    </button>
+                  </div>
+                  {couponError && (
+                    <p className="text-sm text-red-600 mt-1">{couponError}</p>
+                  )}
+                  {couponApplied && (
+                    <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded-lg">
+                      <p className="text-sm text-green-700">
+                        ✓ Coupon "{couponApplied.code}" applied! 
+                        {couponApplied.discountType === 'percentage' 
+                          ? ` ${couponApplied.discountValue}% off` 
+                          : ` ₱${couponApplied.discountValue.toLocaleString()} off`}
+                      </p>
+                      <button
+                        onClick={() => {
+                          setCouponCode('');
+                          setCouponApplied(null);
+                          setCouponError('');
+                          recalculatePrice();
+                        }}
+                        className="text-xs text-green-700 hover:underline mt-1"
+                      >
+                        Remove coupon
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <button

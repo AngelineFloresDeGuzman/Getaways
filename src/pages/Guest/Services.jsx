@@ -3,6 +3,7 @@ import { services } from './sharedData';
 import { useNavigate, useSearchParams } from "react-router-dom";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
+import SearchBar from "@/components/SearchBar";
 import { Sparkles, Clock, MapPin, Star, Heart, Share2, X } from "lucide-react";
 import { auth } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
@@ -24,7 +25,8 @@ const Services = () => {
   const [favoriteItems, setFavoriteItems] = useState([]);
   const [filters, setFilters] = useState({
     location: searchParams.get('location') || '',
-    guests: searchParams.get('guests') || ''
+    when: searchParams.get('when') || '',
+    serviceType: searchParams.get('serviceType') || ''
   });
 
   useEffect(() => {
@@ -39,7 +41,8 @@ const Services = () => {
   useEffect(() => {
     setFilters({
       location: searchParams.get('location') || '',
-      guests: searchParams.get('guests') || ''
+      when: searchParams.get('when') || '',
+      serviceType: searchParams.get('serviceType') || ''
     });
   }, [searchParams]);
 
@@ -57,8 +60,13 @@ const Services = () => {
   const [selectedCategory, setSelectedCategory] = useState("All Services");
 
   const filteredServices = services.filter(service => {
-    // Filter by category
+    // Filter by category (from selectedCategory button)
     if (selectedCategory !== "All Services" && service.category !== selectedCategory) {
+      return false;
+    }
+    
+    // Filter by serviceType (from search bar)
+    if (filters.serviceType && service.category !== filters.serviceType) {
       return false;
     }
     
@@ -138,8 +146,7 @@ const Services = () => {
 
       <section className="pt-36 pb-12 px-6 bg-gradient-to-br from-secondary/20 to-accent/20">
         <div className="max-w-7xl mx-auto">
-          <div className="flex items-center gap-3 mb-4 animate-fade-in">
-            <Sparkles className="w-8 h-8 text-accent" />
+          <div className="mb-4 animate-fade-in">
             <h1 className="font-heading text-4xl md:text-6xl font-bold text-foreground">
               Premium Services
             </h1>
@@ -150,24 +157,13 @@ const Services = () => {
         </div>
       </section>
 
+      {/* Search Bar */}
       <section className="py-8 px-6 border-b border-border">
         <div className="max-w-7xl mx-auto">
-          <div className="flex items-center gap-4 overflow-x-auto pb-2">
-            {categories.map((category, index) => (
-              <button
-                key={category}
-                onClick={() => setSelectedCategory(category)}
-                className={`flex-shrink-0 px-6 py-3 rounded-full font-medium transition-all ${selectedCategory === category
-                  ? "bg-accent text-accent-foreground"
-                  : "bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground"
-                  }`}
-              >
-                {category}
-              </button>
-            ))}
-          </div>
+          <SearchBar category="service" />
         </div>
       </section>
+
 
       <section className="py-12 px-6">
         <div className="max-w-7xl mx-auto">

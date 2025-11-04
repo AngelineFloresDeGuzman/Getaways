@@ -4,6 +4,7 @@ import Navigation from '@/components/Navigation';
 import Footer from '@/components/Footer';
 import { Search, MapPin, Calendar, Users, Filter, Share2, Star, X } from 'lucide-react';
 import FavoriteButton from '@/components/FavoriteButton';
+import SearchBar from '@/components/SearchBar';
 import LogIn from "@/pages/Auth/LogIn";
 import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -265,12 +266,19 @@ const Accommodations = () => {
             });
         }
 
-        // Filter by guest capacity
-        if (filters.guests) {
-            const guestCount = parseInt(filters.guests, 10);
+        // Filter by guest capacity (check total guests from adults, children, infants)
+        const totalGuests = (parseInt(filters.adults || '1', 10) || 1) + 
+                           (parseInt(filters.children || '0', 10) || 0) + 
+                           (parseInt(filters.infants || '0', 10) || 0);
+        
+        // Also check if guests param exists (for backward compatibility)
+        const guestParam = parseInt(filters.guests || '0', 10);
+        const finalGuestCount = guestParam > 0 ? guestParam : totalGuests;
+        
+        if (finalGuestCount > 0) {
             filtered = filtered.filter(acc => {
                 const maxGuests = acc.maxGuests || acc.propertyBasics?.guestCapacity || 0;
-                return maxGuests >= guestCount;
+                return maxGuests >= finalGuestCount;
             });
         }
 
@@ -368,49 +376,8 @@ const Accommodations = () => {
 
             {/* Filters */}
             <section className="py-8 px-6 border-b border-border">
-                <div className="max-w-7xl mx-auto flex flex-col lg:flex-row gap-4 items-center justify-between">
-                    <div className="flex-1 grid grid-cols-1 md:grid-cols-4 gap-2 bg-white rounded-2xl shadow-medium p-2 max-w-4xl">
-                        {/* Location */}
-                        <div className="flex items-center gap-3 p-4 rounded-xl hover:bg-muted/50 transition-colors cursor-pointer">
-                            <MapPin className="w-5 h-5 text-muted-foreground" />
-                            <div>
-                                <p className="font-medium text-sm text-foreground">Where</p>
-                                <p className="text-muted-foreground text-sm">{filters.location || 'Search destinations'}</p>
-                            </div>
-                        </div>
-                        {/* Check-in */}
-                        <div className="flex items-center gap-3 p-4 rounded-xl hover:bg-muted/50 transition-colors cursor-pointer border-l border-border">
-                            <Calendar className="w-5 h-5 text-muted-foreground" />
-                            <div>
-                                <p className="font-medium text-sm text-foreground">Check-in</p>
-                                <p className="text-muted-foreground text-sm">{filters.checkIn ? new Date(filters.checkIn).toLocaleDateString() : 'Add dates'}</p>
-                            </div>
-                        </div>
-                        {/* Check-out */}
-                        <div className="flex items-center gap-3 p-4 rounded-xl hover:bg-muted/50 transition-colors cursor-pointer border-l border-border">
-                            <Calendar className="w-5 h-5 text-muted-foreground" />
-                            <div>
-                                <p className="font-medium text-sm text-foreground">Check-out</p>
-                                <p className="text-muted-foreground text-sm">{filters.checkOut ? new Date(filters.checkOut).toLocaleDateString() : 'Add dates'}</p>
-                            </div>
-                        </div>
-                        {/* Guests + Search */}
-                        <div className="flex items-center justify-between p-4">
-                            <div className="flex items-center gap-3">
-                                <Users className="w-5 h-5 text-muted-foreground" />
-                                <div>
-                                    <p className="font-medium text-sm text-foreground">Guests</p>
-                                    <p className="text-muted-foreground text-sm">{filters.guests ? `${filters.guests} guests` : 'Add guests'}</p>
-                                </div>
-                            </div>
-                            <button className="btn-primary p-3 rounded-full">
-                                <Search className="w-5 h-5" />
-                            </button>
-                        </div>
-                    </div>
-                    <button className="btn-outline flex items-center gap-2 cursor-pointer">
-                        <Filter className="w-5 h-5" /> Filters
-                    </button>
+                <div className="max-w-7xl mx-auto">
+                    <SearchBar category="accommodation" />
                 </div>
             </section>
 
