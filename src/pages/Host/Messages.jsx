@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Navigation from '@/components/Navigation';
 import Footer from '@/components/Footer';
-import { auth, db, storage } from '@/lib/firebase';
+import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import {
   collection,
@@ -18,8 +18,8 @@ import {
   onSnapshot,
   Timestamp
 } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { MessageSquare, Send, Search, User, Home as HomeIcon, Calendar, Paperclip, X } from 'lucide-react';
+// File upload functionality removed - Storage not used
+import { MessageSquare, Send, Search, User, Home as HomeIcon, Calendar, X } from 'lucide-react';
 import { toast } from '@/components/ui/sonner';
 
 const HostMessages = () => {
@@ -381,71 +381,8 @@ const HostMessages = () => {
   };
 
   const uploadFile = async (file) => {
-    // Validate that we have a selected conversation
-    if (!selectedConversation || !selectedConversation.id) {
-      throw new Error('No conversation selected. Please select a conversation first.');
-    }
-
-    try {
-      const fileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
-      const filePath = `messages/${selectedConversation.id}/${fileName}`;
-      const fileRef = ref(storage, filePath);
-      
-      console.log('📤 Starting file upload:', {
-        fileName: file.name,
-        fileSize: file.size,
-        fileType: file.type,
-        conversationId: selectedConversation.id,
-        filePath: filePath
-      });
-
-      const metadata = {
-        contentType: file.type,
-        cacheControl: 'public, max-age=31536000',
-      };
-      
-      // Add timeout to prevent hanging
-      const uploadPromise = uploadBytes(fileRef, file, metadata);
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Upload timeout - please check Firebase Storage rules')), 30000)
-      );
-      
-      await Promise.race([uploadPromise, timeoutPromise]);
-      console.log('✅ File uploaded successfully, getting download URL...');
-      const downloadURL = await getDownloadURL(fileRef);
-      console.log('✅ Download URL obtained:', downloadURL.substring(0, 50) + '...');
-      return { url: downloadURL, fileName: file.name, fileType: file.type };
-    } catch (error) {
-      console.error('Error uploading file:', error);
-      
-      // Check for CORS/network errors
-      const errorMessage = error.message || '';
-      const errorCode = error.code || '';
-      const errorString = JSON.stringify(error);
-      
-      // CORS errors typically show up as network failures or contain CORS in message
-      if (errorMessage.includes('CORS') || 
-          errorMessage.includes('ERR_FAILED') ||
-          errorMessage.includes('blocked') ||
-          errorCode === 'storage/unauthorized' || 
-          errorCode === 'storage/unknown' ||
-          errorCode === 'storage/quota-exceeded' ||
-          errorString.includes('CORS')) {
-        const corsError = new Error('Firebase Storage Rules Error: Please configure Firebase Storage rules in Firebase Console to allow authenticated uploads. Go to Storage → Rules and add: allow read, write: if request.auth != null;');
-        corsError.code = error.code || 'storage/cors-error';
-        corsError.originalError = error;
-        throw corsError;
-      }
-      
-      // Network errors
-      if (errorMessage.includes('network') || errorMessage.includes('Failed to fetch')) {
-        const networkError = new Error('Network error: Please check your internet connection and try again.');
-        networkError.code = 'network-error';
-        throw networkError;
-      }
-      
-      throw error;
-    }
+    // File uploads disabled - Storage not used
+    throw new Error('File uploads are not available. Storage is not enabled in this project.');
   };
 
   const sendMessage = async () => {
@@ -460,63 +397,22 @@ const HostMessages = () => {
       return;
     }
 
-    if (!newMessage.trim() && !selectedFile) {
-      toast.error('Please enter a message or select a file');
+    if (!newMessage.trim()) {
+      toast.error('Please enter a message');
       return;
     }
 
-    // Validate file before proceeding
+    // File uploads disabled - Storage not used
     if (selectedFile) {
-      if (selectedFile.size > 10 * 1024 * 1024) {
-        toast.error('File size must be less than 10MB');
-        return;
-      }
-      if (!selectedFile.type) {
-        toast.error('Invalid file type');
-        return;
-      }
+      toast.error('File uploads are not available. Please send text messages only.');
+      setSelectedFile(null);
+      setFilePreview(null);
+      return;
     }
 
     try {
-      setUploadingFile(true);
+      setUploadingFile(false);
       let fileData = null;
-
-      // Upload file if one is selected
-      if (selectedFile) {
-        try {
-          console.log('📤 Attempting to upload file:', selectedFile.name, 'Type:', selectedFile.type, 'Size:', selectedFile.size);
-          fileData = await uploadFile(selectedFile);
-          console.log('✅ File upload successful:', fileData);
-        } catch (error) {
-          console.error('❌ File upload error:', error);
-          console.error('❌ Error details:', {
-            code: error.code,
-            message: error.message,
-            stack: error.stack
-          });
-          
-          // Check if it's a CORS/permission error
-          const errorMessage = error.message || '';
-          if (error.code === 'storage/unauthorized' || 
-              error.code === 'storage/cors-error' ||
-              error.code === 'storage/unknown' ||
-              errorMessage.includes('CORS') || 
-              errorMessage.includes('Storage Rules') ||
-              errorMessage.includes('blocked') ||
-              errorMessage.includes('permission') ||
-              errorMessage.includes('ERR_FAILED')) {
-            toast.error('File upload failed: Please check Firebase Storage rules. Go to Firebase Console → Storage → Rules and ensure authenticated users can write to the messages folder.');
-          } else if (errorMessage.includes('timeout')) {
-            toast.error('Upload timeout: The file may be too large or there\'s a network issue. Please try again.');
-          } else if (errorMessage.includes('No conversation selected')) {
-            toast.error('Please select a conversation first');
-          } else {
-            toast.error('Failed to upload file: ' + (errorMessage || 'Unknown error. Please check console for details.'));
-          }
-          setUploadingFile(false);
-          return;
-        }
-      }
 
       const messagesRef = collection(db, 'conversations', selectedConversation.id, 'messages');
       const messageData = {
@@ -942,40 +838,8 @@ const HostMessages = () => {
                           </button>
                         </div>
                       )}
-                      {selectedFile && !filePreview && (
-                        <div className="mb-2 flex items-center gap-2 p-2 bg-gray-100 rounded-lg">
-                          <Paperclip className="w-4 h-4 text-gray-600" />
-                          <span className="text-sm text-gray-700 flex-1 truncate">{selectedFile.name}</span>
-                          <button
-                            onClick={removeSelectedFile}
-                            className="text-gray-500 hover:text-red-500"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        </div>
-                      )}
+                      {/* File upload disabled - Storage not used */}
                       <div className="flex gap-2">
-                        <input
-                          type="file"
-                          ref={fileInputRef}
-                          onChange={handleFileSelect}
-                          accept="image/*,.pdf,.doc,.docx,.txt"
-                          className="hidden"
-                        />
-                        <button
-                          onClick={() => {
-                            if (!selectedConversation) {
-                              toast.error('Please select a conversation first');
-                              return;
-                            }
-                            fileInputRef.current?.click();
-                          }}
-                          disabled={!selectedConversation || uploadingFile}
-                          className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                          title={!selectedConversation ? "Select a conversation first" : "Attach file"}
-                        >
-                          <Paperclip className="w-4 h-4" />
-                        </button>
                         <input
                           type="text"
                           value={newMessage}
