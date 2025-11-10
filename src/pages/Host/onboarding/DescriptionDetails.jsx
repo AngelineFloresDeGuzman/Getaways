@@ -47,11 +47,7 @@ const DescriptionDetails = () => {
 
   // Custom Save & Exit handler
   const handleSaveAndExitClick = async () => {
-    console.log('DescriptionDetails Save & Exit clicked');
-    console.log('Current description:', description);
-    
     if (!auth.currentUser) {
-      console.error('DescriptionDetails: No authenticated user');
       alert('Please log in to save your progress');
       return;
     }
@@ -59,9 +55,12 @@ const DescriptionDetails = () => {
     setIsSaving(true);
     
     try {
+      console.log('📍 DescriptionDetails: Save & Exit clicked');
+      console.log('Current description:', description);
+      
       // Set current step before saving so "Continue Editing" returns to this page
       if (actions.setCurrentStep) {
-        console.log('DescriptionDetails: Setting currentStep to descriptiondetails');
+        console.log('📍 DescriptionDetails: Setting currentStep to descriptiondetails');
         actions.setCurrentStep('descriptiondetails');
       }
       
@@ -69,20 +68,25 @@ const DescriptionDetails = () => {
       updateDescriptionContext(description);
       
       // Save description to Firebase under data.description
+      // Ensure description is not empty (use default if empty)
+      const descriptionToSave = description.trim() || "You'll have a great time at this comfortable place to stay.";
+      console.log('📍 DescriptionDetails: Description to save (length):', descriptionToSave.length);
+      
       let draftIdToUse;
       try {
-        draftIdToUse = await ensureDraftAndSave(description, '/pages/descriptiondetails');
-        console.log('📍 DescriptionDetails: ✅ Saved description to Firebase on Save & Exit');
+        draftIdToUse = await ensureDraftAndSave(descriptionToSave, '/pages/descriptiondetails');
+        console.log('📍 DescriptionDetails: ✅ Saved description to Firebase on Save & Exit, draftId:', draftIdToUse);
       } catch (saveError) {
         console.error('📍 DescriptionDetails: Error saving to Firebase on Save & Exit:', saveError);
-        // Continue with save & exit even if Firebase save fails
+        alert('Error saving progress: ' + saveError.message);
+        return;
       }
       
       // Update sessionStorage before Save & Exit navigation
       updateSessionStorageBeforeNav('descriptiondetails');
       
-      // Navigate to dashboard
-      navigate('/host/hostdashboard', { 
+      // Navigate to listings tab
+      navigate('/host/listings', { 
         state: { 
           message: 'Draft saved successfully!',
           draftSaved: true 
@@ -262,16 +266,90 @@ const DescriptionDetails = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]); // Run when route changes
 
-  // Initialize from context if available (after draft loading or direct navigation)
+  // Load description from Firebase when draftId is available
   useEffect(() => {
-    if (state.description && (hasInitialized.current || !location.state?.draftId)) {
-      console.log('DescriptionDetails - Initializing from context:', state.description);
+    const loadDescriptionFromFirebase = async () => {
+      let draftIdToUse = state?.draftId || location.state?.draftId;
+      
+      // If no draftId yet, try to get it from user's drafts
+      if (!draftIdToUse && state.user?.uid) {
+        try {
+          const { getUserDrafts } = await import('@/pages/Host/services/draftService');
+          const drafts = await getUserDrafts();
+          if (drafts.length > 0) {
+            draftIdToUse = drafts[0].id;
+            console.log('📍 DescriptionDetails: Found draftId from getUserDrafts:', draftIdToUse);
+            if (!state.draftId && actions.setDraftId) {
+              actions.setDraftId(draftIdToUse);
+            }
+          }
+        } catch (error) {
+          console.error('📍 DescriptionDetails: Error getting user drafts:', error);
+        }
+      }
+      
+      // Load description from Firebase if we have a draftId
+      if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
+        try {
+          console.log('📍 DescriptionDetails: Loading description from Firebase with draftId:', draftIdToUse);
+          const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
+          const docSnap = await getDoc(draftRef);
+          
+          if (docSnap.exists()) {
+            const draftData = docSnap.data();
+            console.log('📍 DescriptionDetails: Draft data exists');
+            console.log('📍 DescriptionDetails: draftData.data:', draftData.data);
+            console.log('📍 DescriptionDetails: draftData.data?.description:', draftData.data?.description);
+            
+            // Check nested data.description first (where we save it), then top-level, then context
+            const savedDescription = draftData.data?.description || draftData.description || state.description;
+            
+            if (savedDescription && savedDescription.trim()) {
+              console.log('📍 DescriptionDetails: ✅ Found saved description, length:', savedDescription.length);
+              setDescription(savedDescription);
+              
+              // Also update context if it's not set there yet or is different
+              if (!state.description || state.description !== savedDescription) {
+                console.log('📍 DescriptionDetails: Updating context with saved description');
+                updateDescriptionContext(savedDescription);
+              }
+              
+              if (!hasInitialized.current) {
+                hasInitialized.current = true;
+              }
+              return; // Exit early if we found it in Firebase
+            } else {
+              console.log('📍 DescriptionDetails: ⚠️ No description found in Firebase draft');
+            }
+          } else {
+            console.log('📍 DescriptionDetails: ⚠️ Draft document does not exist for draftId:', draftIdToUse);
+          }
+        } catch (error) {
+          console.error('📍 DescriptionDetails: ❌ Error loading description from Firebase:', error);
+        }
+      }
+      
+      // Fallback: check context state if Firebase didn't have it
+      if (state.description && state.description.trim() && !hasInitialized.current) {
+        console.log('📍 DescriptionDetails: Using description from context (fallback):', state.description);
       setDescription(state.description);
-      if (!hasInitialized.current) {
         hasInitialized.current = true;
       }
+    };
+    
+    loadDescriptionFromFirebase();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state?.draftId, location.state?.draftId, state.user?.uid, location.pathname]);
+  
+  // Also watch for description changes in context (as a fallback)
+  useEffect(() => {
+    if (state.description && state.description.trim() && !hasInitialized.current) {
+      console.log('📍 DescriptionDetails: Description changed in context, updating:', state.description);
+      setDescription(state.description);
+      hasInitialized.current = true;
     }
-  }, [state.description, hasInitialized.current, location.state?.draftId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.description]);
 
   // Real-time context updates
   const updateDescriptionContext = (desc) => {
@@ -338,13 +416,48 @@ const DescriptionDetails = () => {
           // Update existing document - save description under data.description and currentStep
           // Also remove old top-level description field if it exists
           const nextStep = targetRoute === '/pages/finishsetup' ? 'finishsetup' : 'descriptiondetails';
-          await updateDoc(draftRef, {
-            'data.description': descriptionData.trim(),
-            description: deleteField(), // Remove old top-level description field
+          const trimmedDescription = descriptionData.trim() || "You'll have a great time at this comfortable place to stay.";
+          
+          console.log('📍 DescriptionDetails: Updating existing draft with description (length):', trimmedDescription.length);
+          console.log('📍 DescriptionDetails: Draft ID:', draftIdToUse);
+          console.log('📍 DescriptionDetails: Description preview:', trimmedDescription.substring(0, 50) + '...');
+          
+          // Get current data to check if old description field exists
+          const currentData = docSnap.data();
+          const updateData = {
+            'data.description': trimmedDescription,
             currentStep: nextStep,
             lastModified: new Date()
+          };
+          
+          // Remove old top-level description field if it exists
+          if (currentData.description !== undefined) {
+            updateData.description = deleteField();
+          }
+          
+          console.log('📍 DescriptionDetails: Update data:', {
+            'data.description': trimmedDescription.substring(0, 50) + '...',
+            currentStep: nextStep,
+            hasOldDescription: currentData.description !== undefined
           });
-          console.log('📍 DescriptionDetails: ✅ Saved description to data.description and currentStep to Firebase:', draftIdToUse, '- description length:', descriptionData.trim().length, ', currentStep:', nextStep);
+          
+          await updateDoc(draftRef, updateData);
+          
+          // Verify the save by reading back
+          const verifySnap = await getDoc(draftRef);
+          if (verifySnap.exists()) {
+            const savedData = verifySnap.data();
+            console.log('📍 DescriptionDetails: ✅ Verified save - data.description exists:', !!savedData.data?.description);
+            console.log('📍 DescriptionDetails: ✅ Verified save - description length:', savedData.data?.description?.length);
+            console.log('📍 DescriptionDetails: ✅ Verified save - currentStep:', savedData.currentStep);
+            
+            if (!savedData.data?.description) {
+              console.error('📍 DescriptionDetails: ❌ ERROR - description was not saved!');
+              throw new Error('Failed to save description - verification failed');
+            }
+          }
+          
+          console.log('📍 DescriptionDetails: ✅ Saved description to data.description and currentStep to Firebase:', draftIdToUse, '- description length:', trimmedDescription.length, ', currentStep:', nextStep);
         } else {
           // Document doesn't exist, create it
           console.log('📍 DescriptionDetails: Document not found, creating new one');
@@ -379,7 +492,7 @@ const DescriptionDetails = () => {
 
   return (
     <div className="min-h-screen bg-white">
-      <OnboardingHeader />
+      <OnboardingHeader customSaveAndExit={handleSaveAndExitClick} />
       <main className="pt-20 px-8 pb-32">
         <div className="space-y-4">
           <div className="px-4 py-6 sm:px-6 lg:px-8">

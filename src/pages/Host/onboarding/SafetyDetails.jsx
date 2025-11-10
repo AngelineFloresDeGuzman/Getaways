@@ -307,7 +307,7 @@ const SafetyDetails = () => {
       updateSessionStorageBeforeNav('safetydetails');
       
       // Navigate to dashboard
-      navigate('/host/hostdashboard', { 
+      navigate('/host/listings', { 
         state: { 
           message: 'Draft saved successfully!',
           draftSaved: true 
@@ -321,7 +321,7 @@ const SafetyDetails = () => {
 
   return (
     <div className="min-h-screen bg-white">
-      <OnboardingHeader showProgress={true} />
+      <OnboardingHeader showProgress={true} customSaveAndExit={handleSaveAndExitClick} />
 
       {/* Main Content */}
       <main className="pt-20 px-8 pb-32">

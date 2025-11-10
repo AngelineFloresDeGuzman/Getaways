@@ -50,7 +50,7 @@ export const useSaveAndExit = () => {
       localStorage.setItem(`getaways_draft_${currentUser.uid}`, JSON.stringify(currentPageData));
       
       // Navigate to dashboard with message
-      navigate('/host/hostdashboard', {
+      navigate('/host/listings', {
         state: {
           message: 'Progress saved! Continue editing from the drafts section.',
           draftSaved: true

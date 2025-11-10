@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
-import { db } from '@/lib/firebase';
+import { db, auth } from '@/lib/firebase';
 import { doc, updateDoc, getDoc } from 'firebase/firestore';
 import OnboardingHeader from './components/OnboardingHeader';
 import OnboardingFooter from './components/OnboardingFooter';
@@ -60,11 +60,15 @@ const PropertyBasics = () => {
   };
 
   // Helper function to ensure we have a valid draftId and save to Firebase
-  const ensureDraftAndSave = async (propertyBasicsData) => {
+  const ensureDraftAndSave = async (propertyBasicsData, targetStep = null) => {
     let draftIdToUse = state?.draftId || location.state?.draftId;
     
     // Build the propertyBasics data based on privacyType
     const propertyBasicsToSave = buildPropertyBasicsData(propertyBasicsData);
+    
+    // Determine currentStep - use targetStep if provided (for Save & Exit), otherwise determine next step
+    const currentPrivacyType = privacyType || state.privacyType || 'An entire place';
+    const currentStep = targetStep || (currentPrivacyType === 'A room' ? 'bathroomtypes' : 'makeitstandout');
     
     // If draftId is temp, reset it to find/create a real one
     if (draftIdToUse && draftIdToUse.startsWith('temp_')) {
@@ -88,12 +92,9 @@ const PropertyBasics = () => {
         } else {
           // No drafts exist, create a new one
           console.log('📍 PropertyBasics: No existing drafts, creating new draft');
-          // Determine next step based on privacyType
-          const currentPrivacyType = privacyType || state.privacyType || 'An entire place';
-          const nextStep = currentPrivacyType === 'A room' ? 'bathroomtypes' : 'makeitstandout';
           
           const newDraftData = {
-            currentStep: nextStep,
+            currentStep: currentStep,
             category: state.category || 'accommodation',
             data: {
               propertyBasics: propertyBasicsToSave
@@ -118,28 +119,21 @@ const PropertyBasics = () => {
         const docSnap = await getDoc(draftRef);
         
         if (docSnap.exists()) {
-          // Determine next step based on privacyType
-          const currentPrivacyType = privacyType || state.privacyType || 'An entire place';
-          const nextStep = currentPrivacyType === 'A room' ? 'bathroomtypes' : 'makeitstandout';
-          
-          // Update existing document - save as nested propertyBasics object (similar to locationData)
-          // Only save fields relevant to the current privacyType
+          // Update existing document - save as nested propertyBasics object
+          // Use targetStep if provided (for Save & Exit), otherwise use next step
           await updateDoc(draftRef, {
             'data.propertyBasics': propertyBasicsToSave,
-            currentStep: nextStep,
+            currentStep: currentStep,
             lastModified: new Date()
           });
-          console.log('📍 PropertyBasics: ✅ Saved propertyBasics to Firebase (privacyType:', privacyType || state.privacyType, '):', propertyBasicsToSave);
+          console.log('📍 PropertyBasics: ✅ Saved propertyBasics to Firebase (currentStep:', currentStep, ', privacyType:', privacyType || state.privacyType, '):', propertyBasicsToSave);
         } else {
           // Document doesn't exist, create it
           console.log('📍 PropertyBasics: Document not found, creating new one');
           const { saveDraft } = await import('@/pages/Host/services/draftService');
-          // Determine next step based on privacyType
-          const currentPrivacyType = privacyType || state.privacyType || 'An entire place';
-          const nextStep = currentPrivacyType === 'A room' ? 'bathroomtypes' : 'makeitstandout';
           
           const newDraftData = {
-            currentStep: nextStep,
+            currentStep: currentStep,
             category: state.category || 'accommodation',
             data: {
               propertyBasics: propertyBasicsToSave
@@ -381,19 +375,46 @@ const PropertyBasics = () => {
 
   // Save & Exit handler (manual save, no autosave)
   const handleSaveAndExitClick = async () => {
+    if (!auth.currentUser) {
+      alert('Please log in to save your progress');
+      return;
+    }
+    
     try {
-      console.log('PropertyBasics: Saving and exiting...');
+      console.log('📍 PropertyBasics: Save & Exit clicked');
       console.log('Current propertyBasics:', propertyBasics);
       
       // Update context with current values first
       updatePropertyBasics(propertyBasics);
       
-      // Use context's saveAndExit function
-      if (actions.saveAndExit) {
-        await actions.saveAndExit();
-      } else {
-        console.warn('PropertyBasics: saveAndExit action not available');
+      // Set current step before saving so "Continue Editing" returns to this page
+      if (actions.setCurrentStep) {
+        console.log('📍 PropertyBasics: Setting currentStep to propertybasics');
+        actions.setCurrentStep('propertybasics');
       }
+      
+      // Save propertyBasics to Firebase under data.propertyBasics
+      // Pass 'propertybasics' as targetStep so "Continue Editing" returns to this page
+      let draftIdToUse;
+      try {
+        draftIdToUse = await ensureDraftAndSave(propertyBasics, 'propertybasics');
+        console.log('📍 PropertyBasics: ✅ Saved propertyBasics to Firebase on Save & Exit');
+      } catch (saveError) {
+        console.error('📍 PropertyBasics: Error saving to Firebase on Save & Exit:', saveError);
+        alert('Error saving progress: ' + saveError.message);
+        return;
+      }
+      
+      // Update sessionStorage before Save & Exit navigation
+      updateSessionStorageBeforeNav('propertybasics');
+      
+      // Navigate to listings tab
+      navigate('/host/listings', { 
+        state: { 
+          message: 'Draft saved successfully!',
+          draftSaved: true 
+        }
+      });
     } catch (error) {
       console.error('Error saving and exiting:', error);
       alert('Error saving progress: ' + error.message);
@@ -440,7 +461,7 @@ const PropertyBasics = () => {
 
   return (
     <div className="min-h-screen bg-white">
-      <OnboardingHeader showProgress={true} />
+      <OnboardingHeader showProgress={true} customSaveAndExit={handleSaveAndExitClick} />
 
       {/* Main Content */}
       <main className="pt-20 px-8 pb-32">

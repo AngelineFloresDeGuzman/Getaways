@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
-import { db } from '@/lib/firebase';
+import { db, auth } from '@/lib/firebase';
 import { doc, getDoc, setDoc, updateDoc, deleteField } from 'firebase/firestore';
 import OnboardingHeader from './components/OnboardingHeader';
 import OnboardingFooter from './components/OnboardingFooter';
@@ -167,23 +167,79 @@ const PrivacyType = () => {
   };
 
   const handleSaveAndExit = async () => {
-    if (!draftRef) {
+    if (!auth.currentUser) {
+      alert('Please log in to save your progress');
       return;
     }
+    
     setIsLoading(true);
     try {
-      // Get existing data fields
-      const snap = await getDoc(draftRef);
-      const prevData = snap.exists() && snap.data().data ? snap.data().data : {};
+      // Update context with current privacyType
+      if (selectedOption) {
+        actions.updateState({ privacyType: selectedOption });
+      }
+      
+      // Ensure we have a draftId
+      let draftIdToUse = draftId || state?.draftId;
+      if (!draftIdToUse && state.user?.uid) {
+        try {
+          const { getUserDrafts, saveDraft } = await import('@/pages/Host/services/draftService');
+          const drafts = await getUserDrafts();
+          if (drafts.length > 0) {
+            draftIdToUse = drafts[0].id;
+          } else {
+            const newDraftData = {
+              currentStep: 'privacytype',
+              category: state.category || 'accommodation',
+              data: {
+                privacyType: selectedOption
+              }
+            };
+            draftIdToUse = await saveDraft(newDraftData, null);
+            if (actions.setDraftId) {
+              actions.setDraftId(draftIdToUse);
+            }
+          }
+        } catch (error) {
+          console.error('Error creating/finding draft:', error);
+        }
+      }
+      
+      if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
+        const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
+        const docSnap = await getDoc(draftRef);
+        
+        if (docSnap.exists()) {
       await updateDoc(draftRef, {
+            'data.privacyType': selectedOption,
+            privacyType: deleteField(), // Remove old top-level field if exists
+            currentStep: 'privacytype',
+            lastModified: new Date(),
+          });
+          console.log('📍 PrivacyType: ✅ Saved privacyType to Firebase on Save & Exit:', selectedOption);
+        } else {
+          // Create new draft
+          const { saveDraft } = await import('@/pages/Host/services/draftService');
+          const newDraftData = {
+            currentStep: 'privacytype',
+            category: state.category || 'accommodation',
         data: {
-          ...prevData,
-          privacyType: selectedOption,
-        },
-        lastModified: new Date(),
-        currentStep: 'location',
+              privacyType: selectedOption
+            }
+          };
+          draftIdToUse = await saveDraft(newDraftData, draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        }
+      }
+      
+      navigate('/host/listings', { 
+        state: { 
+          message: 'Draft saved successfully!',
+          draftSaved: true 
+        }
       });
-      navigate('/host/hostdashboard');
     } catch (error) {
       console.error('Error saving and exiting:', error);
       alert('Error saving progress: ' + error.message);
@@ -194,7 +250,7 @@ const PrivacyType = () => {
 
   return (
     <div className="h-screen bg-white overflow-hidden">
-      <OnboardingHeader showProgress={true} />
+      <OnboardingHeader showProgress={true} customSaveAndExit={handleSaveAndExit} />
 
       {/* Main Content */}
       <main className="h-[calc(100vh-136px)] pt-24 px-8 pb-3 overflow-hidden">

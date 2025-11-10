@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { MapPin } from 'lucide-react';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
@@ -15,23 +15,42 @@ const Pricing = () => {
   
   const [basePrice, setBasePrice] = useState(() => {
     // Initialize from state if available (from loaded draft), otherwise use default
-    return state.weekdayPrice && state.weekdayPrice > 0 ? state.weekdayPrice : 1525;
+    return state.weekdayPrice && state.weekdayPrice > 0 ? state.weekdayPrice : 0;
   });
   const [isSaving, setIsSaving] = useState(false);
   const [isPriceBreakdownOpen, setIsPriceBreakdownOpen] = useState(false);
   const [isEditingPrice, setIsEditingPrice] = useState(false);
   const [editPriceValue, setEditPriceValue] = useState('');
   
+  // Ref to track the latest basePrice value
+  const basePriceRef = useRef(basePrice);
+  
+  // Update ref whenever basePrice changes
+  useEffect(() => {
+    basePriceRef.current = basePrice;
+    console.log('📍 Pricing: basePriceRef updated to:', basePriceRef.current);
+  }, [basePrice]);
+  
   // Calculate pricing breakdown
-  const guestServiceFee = Math.round(basePrice * 0.141); // ~14.1% service fee
-  const guestPriceBeforeTaxes = basePrice + guestServiceFee;
-  const platformFee = Math.round(basePrice * 0.033); // ~3.3% platform fee on host
-  const youEarn = basePrice - platformFee;
+  const guestServiceFee = 100; // Fixed Php100 service fee
+  const guestPrice = basePrice + guestServiceFee;
+  const youEarn = basePrice;
 
-  const canProceed = basePrice > 0;
+  // Check if we can proceed - consider both basePrice and if user is editing with a valid value
+  const getCurrentPrice = () => {
+    if (isEditingPrice && editPriceValue) {
+      const parsedValue = parseInt(editPriceValue, 10);
+      if (!isNaN(parsedValue) && parsedValue >= 0) {
+        return parsedValue;
+      }
+    }
+    return basePriceRef.current || basePrice;
+  };
+  
+  const canProceed = getCurrentPrice() > 0;
 
   const handlePriceChange = (increment) => {
-    const newPrice = Math.max(100, basePrice + increment);
+    const newPrice = Math.max(0, basePrice + increment);
     console.log('Price changing from', basePrice, 'to', newPrice);
     setBasePrice(newPrice);
     
@@ -48,7 +67,7 @@ const Pricing = () => {
   const handlePriceInputBlur = () => {
     if (editPriceValue) {
       const numValue = parseInt(editPriceValue, 10);
-      if (!isNaN(numValue) && numValue >= 100) {
+      if (!isNaN(numValue) && numValue >= 0) {
         setBasePrice(numValue);
         actions.updatePricing(numValue, state.weekendPrice || 0);
       } else {
@@ -72,6 +91,9 @@ const Pricing = () => {
     setEditPriceValue(basePrice.toString());
   };
 
+  // Ref to track if we've loaded pricing from Firebase
+  const hasLoadedPricing = useRef(false);
+
   // Load draft data when navigating from "Continue Editing"
   useEffect(() => {
     const loadDraftData = async () => {
@@ -91,21 +113,86 @@ const Pricing = () => {
     loadDraftData();
   }, [location.state?.draftId, state?.draftId, state.user, actions]);
 
-  // Update pricing from state when draft loads
+  // Reset hasLoadedPricing when draftId changes (so we reload when navigating back)
   useEffect(() => {
-    if (state.weekdayPrice && state.weekdayPrice > 0 && state.weekdayPrice !== basePrice) {
+    hasLoadedPricing.current = false;
+  }, [location.state?.draftId, state?.draftId]);
+
+  // Load pricing directly from Firebase when component mounts or draftId changes
+  useEffect(() => {
+    const loadPricingFromFirebase = async () => {
+      if (hasLoadedPricing.current) {
+        return; // Already loaded
+      }
+
+      const draftIdToUse = location.state?.draftId || state?.draftId;
+      
+      // Skip if no draftId or temp draftId
+      if (!draftIdToUse || draftIdToUse.startsWith('temp_')) {
+        console.log('📍 Pricing: No valid draftId, skipping Firebase load');
+        return;
+      }
+
+      try {
+        console.log('📍 Pricing: Loading pricing from Firebase with draftId:', draftIdToUse);
+        const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
+        const docSnap = await getDoc(draftRef);
+        
+        if (docSnap.exists()) {
+          const draftData = docSnap.data();
+          console.log('📍 Pricing: Draft data exists');
+          console.log('📍 Pricing: draftData.data?.pricing:', draftData.data?.pricing);
+          
+          // Check nested data.pricing.weekdayPrice (where we save it)
+          const savedWeekdayPrice = draftData.data?.pricing?.weekdayPrice;
+          
+          if (savedWeekdayPrice !== undefined && savedWeekdayPrice > 0) {
+            console.log('📍 Pricing: ✅ Found saved weekdayPrice:', savedWeekdayPrice);
+            setBasePrice(savedWeekdayPrice);
+            basePriceRef.current = savedWeekdayPrice;
+            
+            // Update context with saved pricing
+            if (!state.weekdayPrice || state.weekdayPrice !== savedWeekdayPrice) {
+              console.log('📍 Pricing: Updating context with saved weekdayPrice:', savedWeekdayPrice);
+              actions.updatePricing(savedWeekdayPrice, draftData.data?.pricing?.weekendPrice || state.weekendPrice || 0);
+            }
+            
+            hasLoadedPricing.current = true;
+            return; // Exit early if we found it in Firebase
+          } else {
+            console.log('📍 Pricing: ⚠️ No weekdayPrice found in Firebase draft or weekdayPrice is 0');
+          }
+        } else {
+          console.log('📍 Pricing: ⚠️ Draft document does not exist for draftId:', draftIdToUse);
+        }
+      } catch (error) {
+        console.error('📍 Pricing: ❌ Error loading pricing from Firebase:', error);
+      }
+    };
+
+    loadPricingFromFirebase();
+  }, [location.state?.draftId, state?.draftId, state.weekdayPrice, state.weekendPrice, actions]);
+
+  // Update pricing from state when draft loads (fallback if Firebase load didn't work)
+  useEffect(() => {
+    if (!hasLoadedPricing.current && state.weekdayPrice && state.weekdayPrice > 0 && state.weekdayPrice !== basePrice) {
       console.log('📍 Pricing: Updating price from state:', state.weekdayPrice);
       setBasePrice(state.weekdayPrice);
+      basePriceRef.current = state.weekdayPrice;
+      hasLoadedPricing.current = true;
     }
-  }, [state.weekdayPrice]);
+  }, [state.weekdayPrice, basePrice]);
 
-  // Update context whenever basePrice changes
+  // Update context whenever basePrice changes (but don't update if basePrice is 0 and state already has a value)
   useEffect(() => {
-    if (basePrice !== state.weekdayPrice) {
-      console.log('Pricing - Updating context with new price:', basePrice);
+    if (basePrice !== state.weekdayPrice && basePrice > 0) {
+      console.log('📍 Pricing - Updating context with new price:', basePrice);
       actions.updatePricing(basePrice, state.weekendPrice || 0);
+    } else if (basePrice === 0 && state.weekdayPrice > 0) {
+      // If basePrice is 0 but state has a value, don't overwrite it
+      console.log('📍 Pricing - basePrice is 0, keeping state.weekdayPrice:', state.weekdayPrice);
     }
-  }, [basePrice]);
+  }, [basePrice, state.weekdayPrice, state.weekendPrice, actions]);
 
   // Helper function to ensure we have a valid draftId and save pricing to Firebase
   const ensureDraftAndSave = async (pricingData, targetRoute = '/pages/weekendpricing') => {
@@ -162,12 +249,26 @@ const Pricing = () => {
         if (docSnap.exists()) {
           // Update existing document - save pricing under data.pricing and currentStep
           const nextStep = targetRoute === '/pages/weekendpricing' ? 'weekendpricing' : 'pricing';
+          
+          // Get existing pricing data to preserve weekendPrice if it exists
+          const existingData = docSnap.data();
+          const existingPricing = existingData.data?.pricing || {};
+          
+          // Preserve existing weekendPrice if it exists and is > 0, otherwise use the one from pricingData
+          // pricingData.weekendPrice is already set to weekdayPrice if weekendPrice doesn't exist
+          const weekendPriceToSave = existingPricing.weekendPrice > 0 
+            ? existingPricing.weekendPrice 
+            : pricingData.weekendPrice;
+          
           await updateDoc(draftRef, {
-            'data.pricing': pricingData,
+            'data.pricing': {
+              weekdayPrice: pricingData.weekdayPrice, // Always update weekdayPrice from Pricing page
+              weekendPrice: weekendPriceToSave // Preserve existing weekendPrice if it exists, otherwise use new value
+            },
             currentStep: nextStep,
             lastModified: new Date()
           });
-          console.log('📍 Pricing: ✅ Saved pricing to data.pricing and currentStep to Firebase:', draftIdToUse, '- pricing:', pricingData, ', currentStep:', nextStep);
+          console.log('📍 Pricing: ✅ Saved pricing to data.pricing and currentStep to Firebase:', draftIdToUse, '- pricing:', { weekdayPrice: pricingData.weekdayPrice, weekendPrice: weekendPriceToSave }, ', currentStep:', nextStep);
         } else {
           // Document doesn't exist, create it
           console.log('📍 Pricing: Document not found, creating new one');
@@ -220,7 +321,7 @@ const Pricing = () => {
         actions.setCurrentStep('pricing');
       }
       
-      // Ensure pricing is updated in context
+      // Ensure pricing is updated in context (so WeekendPricing can access it when navigating)
       actions.updatePricing(basePrice, state.weekendPrice || 0);
       
       // Prepare pricing data to save
@@ -234,6 +335,7 @@ const Pricing = () => {
       try {
         draftIdToUse = await ensureDraftAndSave(pricingData, '/pages/pricing');
         console.log('📍 Pricing: ✅ Saved pricing to Firebase on Save & Exit');
+        console.log('📍 Pricing: weekdayPrice saved:', basePrice, '- will be available for WeekendPricing when navigating');
       } catch (saveError) {
         console.error('📍 Pricing: Error saving to Firebase on Save & Exit:', saveError);
         // Continue with save & exit even if Firebase save fails
@@ -243,10 +345,11 @@ const Pricing = () => {
       updateSessionStorageBeforeNav('pricing');
       
       // Navigate to dashboard
-      navigate('/host/hostdashboard', { 
+      navigate('/host/listings', { 
         state: { 
           message: 'Draft saved successfully!',
-          draftSaved: true 
+          draftSaved: true,
+          weekdayPrice: basePrice // Pass weekdayPrice so it's available if navigating to WeekendPricing
         }
       });
     } catch (error) {
@@ -260,29 +363,30 @@ const Pricing = () => {
   // Debug: Log the location state
   console.log('Pricing - location.state:', location.state);
 
-  const handleNext = () => {
-    // Update pricing in context before proceeding
-    actions.updatePricing({ weekdayPrice: basePrice });
-    navigate('/host/onboarding/weekendpricing');
-  };
-
-  const handleBack = () => {
-    navigate(-1);
-  };
-
   return (
-    <div className="min-h-screen bg-white">
-      <OnboardingHeader showProgress={true} />
+    <div className="h-screen bg-white overflow-hidden flex flex-col">
+      <style>{`
+        .pricing-main::-webkit-scrollbar {
+          display: none; /* Chrome, Safari, Opera */
+        }
+      `}</style>
+      <OnboardingHeader showProgress={true} customSaveAndExit={handleSaveAndExitClick} />
 
       {/* Main Content */}
-      <main className="pt-28 px-8 pb-32">
+      <main 
+        className="pricing-main flex-1 overflow-y-auto pt-28 px-8 pb-32"
+        style={{
+          scrollbarWidth: 'none', /* Firefox */
+          msOverflowStyle: 'none', /* IE and Edge */
+        }}
+      >
         <div className="max-w-2xl mx-auto">
           <div className="text-center mb-12">
             <h1 className="text-3xl font-medium text-gray-900 mb-4">
               Now, set a weekday base price
             </h1>
             <p className="text-lg text-gray-600">
-              Tip: ₱{basePrice.toLocaleString()}. You'll set a weekend price next.
+              You'll set a weekend price next.
             </p>
           </div>
 
@@ -322,7 +426,7 @@ const Pricing = () => {
                   onClick={() => setIsPriceBreakdownOpen(!isPriceBreakdownOpen)}
                   className="text-gray-600 hover:text-gray-800 flex items-center gap-1 mx-auto transition-colors"
                 >
-                  Guest price before taxes ₱{guestPriceBeforeTaxes.toLocaleString()}
+                  Guest price ₱{guestPrice.toLocaleString()}
                   <svg 
                     className={`w-4 h-4 transition-transform ${isPriceBreakdownOpen ? 'rotate-180' : ''}`}
                     fill="none" 
@@ -350,8 +454,8 @@ const Pricing = () => {
                   </div>
                   
                   <div className="border-t border-gray-200 pt-4 flex justify-between items-center">
-                    <span className="text-gray-600 font-medium">Guest price before taxes</span>
-                    <span className="text-gray-900 font-semibold">₱{guestPriceBeforeTaxes.toLocaleString()}</span>
+                    <span className="text-gray-600 font-medium">Guest price</span>
+                    <span className="text-gray-900 font-semibold">₱{guestPrice.toLocaleString()}</span>
                   </div>
                   
                   <div className="border-t border-gray-200 pt-4 flex justify-between items-center">
@@ -378,17 +482,6 @@ const Pricing = () => {
             )}
           </div>
 
-          {/* Action Buttons */}
-          <div className="space-y-4 text-center">
-            <button className="flex items-center justify-center gap-2 text-red-600 hover:text-red-700 mx-auto">
-              <MapPin className="w-4 h-4" />
-              View similar listings
-            </button>
-            
-            <button className="text-gray-600 hover:text-gray-800 underline">
-              Learn more about pricing
-            </button>
-          </div>
         </div>
       </main>
 
@@ -399,47 +492,125 @@ const Pricing = () => {
           navigate('/pages/guestselection');
         }}
         onNext={async () => {
-          if (canProceed) {
-            try {
-              // Update context first
-              actions.updatePricing(basePrice, state.weekendPrice || 0);
-              
-              // Prepare pricing data to save
-              const pricingData = {
-                weekdayPrice: basePrice,
-                weekendPrice: state.weekendPrice || 0
-              };
-              
-              // Save pricing to Firebase
-              let draftIdToUse;
-              try {
-                draftIdToUse = await ensureDraftAndSave(pricingData, '/pages/weekendpricing');
-                console.log('📍 Pricing: ✅ Saved pricing to Firebase on Next click');
-              } catch (saveError) {
-                console.error('📍 Pricing: Error saving to Firebase on Next:', saveError);
-                // Continue navigation even if save fails - data is in context
+          try {
+            // IMMEDIATELY capture weekdayPrice when Next button is clicked - this is the trigger point
+            console.log('📍📍📍 Pricing: Next button clicked - CAPTURING weekdayPrice NOW');
+            console.log('📍 Pricing: basePrice state:', basePrice);
+            console.log('📍 Pricing: basePriceRef.current:', basePriceRef.current);
+            console.log('📍 Pricing: editPriceValue:', editPriceValue);
+            console.log('📍 Pricing: isEditingPrice:', isEditingPrice);
+            console.log('📍 Pricing: state.weekdayPrice:', state.weekdayPrice);
+            console.log('📍 Pricing: canProceed:', canProceed);
+            
+            // STEP 1: Get the actual current value - prioritize the ref which always has the latest value
+            let currentWeekdayPrice = basePriceRef.current || basePrice;
+            console.log('📍 Pricing: STEP 1 - Initial currentWeekdayPrice:', currentWeekdayPrice);
+            
+            // STEP 2: If user is editing and has entered a value, use that value FIRST
+            if (isEditingPrice && editPriceValue) {
+              const parsedValue = parseInt(editPriceValue, 10);
+              if (!isNaN(parsedValue) && parsedValue >= 0) {
+                currentWeekdayPrice = parsedValue;
+                console.log('📍 Pricing: STEP 2 - ✅ Using editPriceValue:', currentWeekdayPrice);
+                // Update state immediately and sync ref BEFORE proceeding
+                setBasePrice(currentWeekdayPrice);
+                basePriceRef.current = currentWeekdayPrice;
+                setIsEditingPrice(false);
+                // Update context immediately
+                actions.updatePricing(currentWeekdayPrice, state.weekendPrice || 0);
               }
-              
-              // Update current step in context
-              if (actions.setCurrentStep) {
-                actions.setCurrentStep('weekendpricing');
-              }
-              
-              // Update sessionStorage before navigating forward
-              updateSessionStorageBeforeNav('pricing', 'weekendpricing');
-              
-              // Navigate to weekend pricing page
-              navigate('/pages/weekendpricing', { 
-                state: { 
-                  ...location.state,
-                  weekdayPrice: basePrice,
-                  draftId: draftIdToUse || state?.draftId || location.state?.draftId
-                } 
-              });
-            } catch (error) {
-              console.error('Error saving pricing:', error);
-              alert('Error saving progress. Please try again.');
             }
+            
+            // STEP 3: Fallback to context if value is still 0
+            if (currentWeekdayPrice === 0 && state.weekdayPrice > 0) {
+              currentWeekdayPrice = state.weekdayPrice;
+              console.log('📍 Pricing: STEP 3 - ✅ Using state.weekdayPrice as fallback:', currentWeekdayPrice);
+            }
+            
+            console.log('📍 Pricing: ✅ FINAL currentWeekdayPrice captured:', currentWeekdayPrice);
+            
+            // STEP 4: Validate we have a valid price
+            if (!currentWeekdayPrice || currentWeekdayPrice <= 0) {
+              console.error('📍 Pricing: ❌ STEP 4 - Cannot proceed - currentWeekdayPrice is invalid:', currentWeekdayPrice);
+              alert('Please set a valid price (greater than 0) before continuing.');
+              return;
+            }
+            
+            // STEP 5: Prepare weekendPrice - set to same value as weekdayPrice initially, so WeekendPricing can see it in advance
+            // If weekendPrice already exists and is > 0, preserve it, otherwise use weekdayPrice
+            const weekendPriceToSave = (state.weekendPrice && state.weekendPrice > 0) 
+              ? state.weekendPrice 
+              : currentWeekdayPrice;
+            
+            // Update context with the captured weekdayPrice and weekendPrice FIRST - this ensures it's available immediately
+            actions.updatePricing(currentWeekdayPrice, weekendPriceToSave);
+            console.log('📍 Pricing: STEP 5 - ✅ Updated context with weekdayPrice:', currentWeekdayPrice, 'and weekendPrice:', weekendPriceToSave);
+            
+            // CRITICAL: Wait a tick to ensure context update is processed before navigation
+            await new Promise(resolve => setTimeout(resolve, 0));
+              
+            // Prepare pricing data to save
+            const pricingData = {
+              weekdayPrice: currentWeekdayPrice,
+              weekendPrice: weekendPriceToSave // Same as weekdayPrice initially, so WeekendPricing can see it
+            };
+            
+            // Save pricing to Firebase
+            let draftIdToUse;
+            try {
+              draftIdToUse = await ensureDraftAndSave(pricingData, '/pages/weekendpricing');
+              console.log('📍 Pricing: ✅ Saved pricing to Firebase on Next click, draftId:', draftIdToUse);
+            } catch (saveError) {
+              console.error('📍 Pricing: Error saving to Firebase on Next:', saveError);
+              // Continue navigation even if save fails - data is in context
+            }
+            
+            // Update current step in context
+            if (actions.setCurrentStep) {
+              actions.setCurrentStep('weekendpricing');
+            }
+            
+            // Update sessionStorage before navigating forward
+            updateSessionStorageBeforeNav('pricing', 'weekendpricing');
+            
+            // STEP 6: Create navigation state with weekdayPrice - THIS IS WHERE WE PASS IT TO WEEKENDPRICING
+            console.log('📍 Pricing: STEP 6 - ✅ Preparing navigation state with weekdayPrice');
+            console.log('📍 Pricing: weekdayPrice value to pass:', currentWeekdayPrice);
+            console.log('📍 Pricing: Type of weekdayPrice:', typeof currentWeekdayPrice);
+            console.log('📍 Pricing: ⚠️ CRITICAL - weekdayPrice MUST be passed from Pricing page\'s Next button to WeekendPricing');
+            
+            // CRITICAL: Create navigation state with weekdayPrice as the PRIMARY value
+            // This is the ONLY place where weekdayPrice should be passed to WeekendPricing
+            const weekendPricingState = {
+              weekdayPrice: currentWeekdayPrice, // PRIMARY: This MUST be passed to WeekendPricing
+              draftId: draftIdToUse || state?.draftId || location.state?.draftId
+            };
+            
+            // Spread other properties from location.state EXCEPT weekdayPrice and draftId (to avoid conflicts)
+            if (location.state) {
+              Object.keys(location.state).forEach(key => {
+                if (key !== 'weekdayPrice' && key !== 'draftId') {
+                  weekendPricingState[key] = location.state[key];
+                }
+              });
+            }
+            
+            console.log('📍 Pricing: STEP 7 - ✅✅✅ NAVIGATING TO WEEKENDPRICING WITH weekdayPrice');
+            console.log('📍 Pricing: weekendPricingState object:', JSON.stringify(weekendPricingState, null, 2));
+            console.log('📍 Pricing: weekendPricingState.weekdayPrice:', weekendPricingState.weekdayPrice);
+            console.log('📍 Pricing: weekendPricingState.draftId:', weekendPricingState.draftId);
+            console.log('📍 Pricing: ⚠️ CRITICAL - weekdayPrice MUST be received by WeekendPricing from this navigation state');
+            
+            // Navigate to WeekendPricing - THIS IS THE CRITICAL STEP WHERE weekdayPrice IS PASSED
+            navigate('/pages/weekendpricing', { 
+              state: weekendPricingState
+            });
+            
+            console.log('📍 Pricing: STEP 8 - ✅ Navigation called successfully with weekdayPrice:', currentWeekdayPrice);
+          } catch (error) {
+            console.error('📍 Pricing: ❌ ERROR in onNext handler:', error);
+            console.error('📍 Pricing: Error stack:', error.stack);
+            alert('Error saving progress. Please try again.');
           }
         }}
         backText="Back"

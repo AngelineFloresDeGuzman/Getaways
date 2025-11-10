@@ -3,8 +3,10 @@ import React from 'react';
 const OnboardingFooter = ({ 
   onBack, 
   onNext, 
+  onSkip,
   backText = "Back", 
-  nextText = "Next", 
+  nextText = "Next",
+  skipText = "Skip",
   canProceed = true,
   showProgress = true,
   currentStep = 0,
@@ -24,24 +26,41 @@ const OnboardingFooter = ({
               >
                 {backText}
               </button>
+            ) : onSkip ? (
+              <button
+                onClick={onSkip}
+                className="text-gray-600 text-sm font-medium hover:text-gray-900 transition-colors underline"
+              >
+                {skipText}
+              </button>
             ) : (
               <div></div>
             )}
             
-            <button 
-              onClick={onNext}
-              disabled={!canProceed}
-              className={`rounded-lg px-6 py-2.5 text-sm font-medium transition-all duration-300 hover:shadow-lg hover:scale-105 ${
-                canProceed 
-                  ? 'bg-primary text-white' 
-                  : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-              }`}
-              style={canProceed ? { background: 'hsl(var(--primary))', color: 'white' } : {}}
-              onMouseEnter={(e) => { if (canProceed) { e.currentTarget.style.background = 'hsl(var(--primary))'; e.currentTarget.style.opacity = '0.9'; e.currentTarget.style.transform = 'scale(1.05)'; } }}
-              onMouseLeave={(e) => { if (canProceed) { e.currentTarget.style.background = 'hsl(var(--primary))'; e.currentTarget.style.opacity = '1'; e.currentTarget.style.transform = 'scale(1)'; } }}
-            >
-              {nextText}
-            </button>
+            <div className="flex items-center gap-3">
+              {onSkip && onBack && (
+                <button
+                  onClick={onSkip}
+                  className="text-gray-600 text-sm font-medium hover:text-gray-900 transition-colors underline"
+                >
+                  {skipText}
+                </button>
+              )}
+              <button 
+                onClick={onNext}
+                disabled={!canProceed}
+                className={`rounded-lg px-6 py-2.5 text-sm font-medium transition-all duration-300 hover:shadow-lg hover:scale-105 ${
+                  canProceed 
+                    ? 'bg-primary text-white' 
+                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                }`}
+                style={canProceed ? { background: 'hsl(var(--primary))', color: 'white' } : {}}
+                onMouseEnter={(e) => { if (canProceed) { e.currentTarget.style.background = 'hsl(var(--primary))'; e.currentTarget.style.opacity = '0.9'; e.currentTarget.style.transform = 'scale(1.05)'; } }}
+                onMouseLeave={(e) => { if (canProceed) { e.currentTarget.style.background = 'hsl(var(--primary))'; e.currentTarget.style.opacity = '1'; e.currentTarget.style.transform = 'scale(1)'; } }}
+              >
+                {nextText}
+              </button>
+            </div>
           </div>
         </div>
       </div>

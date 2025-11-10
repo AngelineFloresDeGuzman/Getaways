@@ -533,9 +533,9 @@ export const OnboardingProvider = ({ children }) => {
       const draftId = await saveDraftCallback();
       console.log('OnboardingContext: saveDraft completed, draftId:', draftId);
       
-      // Navigate to host dashboard
-      console.log('OnboardingContext: Navigating to host dashboard...');
-      navigate('/host/hostdashboard', { 
+      // Navigate to listings tab
+      console.log('OnboardingContext: Navigating to listings tab...');
+      navigate('/host/listings', { 
         state: { 
           message: 'Draft saved successfully!',
           draftSaved: true 

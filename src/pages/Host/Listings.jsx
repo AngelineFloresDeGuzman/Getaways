@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import Navigation from '@/components/Navigation';
 import Footer from '@/components/Footer';
 import { toast } from '@/components/ui/sonner';
@@ -34,6 +34,10 @@ const TABS = [
 
 const HostListings = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const savedDraftsRef = useRef(null);
+  const hasScrolledRef = useRef(false);
+  const toastShownRef = useRef(false);
   const [listings, setListings] = useState([]);
   const [drafts, setDrafts] = useState([]);
   const [unpublishedListings, setUnpublishedListings] = useState([]);
@@ -65,6 +69,42 @@ const HostListings = () => {
     });
     return () => unsubscribe();
   }, []);
+
+  // Handle scroll to saved drafts section and show toast message
+  useEffect(() => {
+    // Reset flags when navigating to a new page (pathname changes without state)
+    if (!location.state?.scrollToDrafts && !location.state?.message) {
+      hasScrolledRef.current = false;
+      toastShownRef.current = false;
+    }
+    
+    // Handle scroll to drafts section
+    if (location.state?.scrollToDrafts && savedDraftsRef.current && !loading && drafts.length >= 0 && !hasScrolledRef.current) {
+      hasScrolledRef.current = true;
+      // Small delay to ensure the page has rendered
+      setTimeout(() => {
+        savedDraftsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 500);
+    }
+    
+    // Show toast message only once per navigation
+    if (location.state?.message && !toastShownRef.current) {
+      toastShownRef.current = true;
+      toast.success(location.state.message);
+      
+      // Clear the message from state immediately to prevent re-triggering
+      const { message, ...restState } = location.state;
+      navigate(location.pathname, { replace: true, state: restState });
+    }
+    
+    // Clear scroll state after handling
+    if (location.state?.scrollToDrafts && hasScrolledRef.current) {
+      setTimeout(() => {
+        const { scrollToDrafts, ...restState } = location.state;
+        navigate(location.pathname, { replace: true, state: restState });
+      }, 1000);
+    }
+  }, [location.state, location.pathname, loading, drafts.length, navigate]);
 
   const loadListings = async () => {
     try {
@@ -107,19 +147,84 @@ const HostListings = () => {
 
       const allListingsData = querySnapshot.docs.map(doc => {
         const data = doc.data();
-        const locationData = data.locationData || {};
-        const photosData = data.photos || [];
+        const category = data.category || 'accommodation';
+        
+        // Handle service vs accommodation data structure
+        let locationData, photosData, title, price;
+        
+        if (category === 'service') {
+          // Service-specific fields
+          // Location can be stored as object in locationData or location, or as string in location
+          locationData = data.locationData || (typeof data.location === 'object' ? data.location : {});
+          photosData = data.photos || [];
+          title = data.title || 'Untitled Service';
+          // Price can be in pricing.basePrice, pricing.price, or data.price
+          const pricing = data.pricing || {};
+          price = pricing.basePrice || pricing.price || pricing.weekdayPrice || data.price || 0;
+        } else {
+          // Accommodation fields
+          locationData = data.locationData || {};
+          photosData = data.photos || [];
+          title = data.title || 'Untitled Listing';
+          price = data.price || 0;
+        }
+        
         const firstPhoto = photosData[0];
+
+        // Extract location display
+        let locationDisplay = 'No location';
+        let locationCity = '';
+        let locationArea = '';
+        
+        if (category === 'service') {
+          // For services, check locationData first, then data.location (which might be string or object)
+          if (locationData && typeof locationData === 'object' && Object.keys(locationData).length > 0) {
+            if (locationData.city && locationData.province) {
+              locationDisplay = `${locationData.city}, ${locationData.province}`;
+              locationCity = locationData.city;
+              locationArea = locationData.province;
+            } else if (locationData.city) {
+              locationDisplay = locationData.city;
+              locationCity = locationData.city;
+            } else if (locationData.province) {
+              locationDisplay = locationData.province;
+              locationArea = locationData.province;
+            } else if (locationData.country) {
+              locationDisplay = locationData.country;
+              locationArea = locationData.country;
+            }
+          } else if (typeof data.location === 'string' && data.location && data.location !== 'Location') {
+            locationDisplay = data.location;
+          }
+        } else {
+          // Accommodation location handling
+          locationDisplay = data.location || 
+            (locationData.city && locationData.province 
+              ? `${locationData.city}, ${locationData.province}`
+              : locationData.city || locationData.country || 'No location');
+          locationCity = locationData.city || '';
+          locationArea = locationData.province || locationData.country || '';
+        }
+
+        // Extract service-specific fields
+        let serviceCategory = null;
+        let serviceOfferingsCount = 0;
+        
+        if (category === 'service') {
+          serviceCategory = data.serviceCategory || null;
+          serviceOfferingsCount = Array.isArray(data.serviceOfferings) ? data.serviceOfferings.length : 0;
+        }
 
         return {
           id: doc.id,
           ...data,
-          locationDisplay: data.location || 
-            (locationData.city && locationData.province 
-              ? `${locationData.city}, ${locationData.province}`
-              : locationData.city || locationData.country || 'No location'),
-          locationCity: locationData.city || '',
-          locationArea: locationData.province || locationData.country || '',
+          title: title,
+          price: price,
+          locationDisplay: locationDisplay,
+          locationCity: locationCity,
+          locationArea: locationArea,
+          serviceCategory: serviceCategory,
+          serviceOfferingsCount: serviceOfferingsCount,
           mainImage: (() => {
             if (firstPhoto?.base64) return firstPhoto.base64;
             if (firstPhoto?.url) return firstPhoto.url;
@@ -169,8 +274,19 @@ const HostListings = () => {
       
       const transformedDrafts = userDrafts.map(draft => {
         const data = draft.data || {};
-        const title = data.title || draft.title || 'Untitled Draft';
-        const locationData = data.locationData || {};
+        const category = draft.category || 'accommodation';
+        const title = category === 'service' 
+          ? (data.serviceTitle || data.title || draft.title || 'Untitled Draft')
+          : (data.title || draft.title || 'Untitled Draft');
+        
+        // Handle location data based on category
+        let locationData = {};
+        if (category === 'service') {
+          locationData = data.serviceLocation || data.locationData || {};
+        } else {
+          locationData = data.locationData || {};
+        }
+        
         let location = 'No location';
         let locationCity = '';
         let locationArea = '';
@@ -183,13 +299,19 @@ const HostListings = () => {
           } else if (locationData.city) {
             location = locationData.city;
             locationCity = locationData.city;
+          } else if (locationData.province) {
+            location = locationData.province;
+            locationArea = locationData.province;
           } else if (locationData.country) {
             location = locationData.country;
             locationArea = locationData.country;
           }
         }
         
-        const photos = Array.isArray(data.photos) ? data.photos : [];
+        // Handle photos based on category
+        const photos = category === 'service'
+          ? (Array.isArray(data.servicePhotos) ? data.servicePhotos : (Array.isArray(data.photos) ? data.photos : []))
+          : (Array.isArray(data.photos) ? data.photos : []);
         const mainImage = photos.length > 0 && photos[0] && (photos[0].base64 || photos[0].url)
           ? (photos[0].base64 || photos[0].url)
           : null;
@@ -197,6 +319,7 @@ const HostListings = () => {
         const propertyBasics = data.propertyBasics || {};
         const privacyType = data.privacyType || null;
         const propertyStructure = data.propertyStructure || null;
+        const serviceCategory = data.serviceCategory || null;
         const currentStep = draft.currentStep || 'hostingsteps';
         const progress = calculateProgress(currentStep);
         
@@ -246,6 +369,7 @@ const HostListings = () => {
         
         return {
           ...draft,
+          category: category,
           title,
           location,
           locationCity,
@@ -253,6 +377,7 @@ const HostListings = () => {
           mainImage,
           privacyType,
           propertyStructure,
+          serviceCategory,
           progress,
           lastModifiedFormatted,
         };
@@ -300,18 +425,69 @@ const HostListings = () => {
       
       const allListingsData = querySnapshot.docs.map(doc => {
         const data = doc.data();
-        const locationData = data.locationData || {};
-        const photosData = data.photos || [];
+        const category = data.category || 'accommodation';
+        
+        // Handle service vs accommodation data structure
+        let locationData, photosData;
+        
+        if (category === 'service') {
+          locationData = data.locationData || (typeof data.location === 'object' ? data.location : {});
+          photosData = data.photos || [];
+        } else {
+          locationData = data.locationData || {};
+          photosData = data.photos || [];
+        }
+        
+        // Extract location display
+        let locationDisplay = 'No location';
+        let locationCity = '';
+        let locationArea = '';
+        
+        if (category === 'service') {
+          if (locationData && typeof locationData === 'object' && Object.keys(locationData).length > 0) {
+            if (locationData.city && locationData.province) {
+              locationDisplay = `${locationData.city}, ${locationData.province}`;
+              locationCity = locationData.city;
+              locationArea = locationData.province;
+            } else if (locationData.city) {
+              locationDisplay = locationData.city;
+              locationCity = locationData.city;
+            } else if (locationData.province) {
+              locationDisplay = locationData.province;
+              locationArea = locationData.province;
+            } else if (locationData.country) {
+              locationDisplay = locationData.country;
+              locationArea = locationData.country;
+            }
+          } else if (typeof data.location === 'string' && data.location && data.location !== 'Location') {
+            locationDisplay = data.location;
+          }
+        } else {
+          locationDisplay = data.location || 
+            (locationData.city && locationData.province 
+              ? `${locationData.city}, ${locationData.province}`
+              : locationData.city || locationData.country || 'No location');
+          locationCity = locationData.city || '';
+          locationArea = locationData.province || locationData.country || '';
+        }
+        
+        // Extract service-specific fields
+        let serviceCategory = null;
+        let serviceOfferingsCount = 0;
+        
+        if (category === 'service') {
+          serviceCategory = data.serviceCategory || null;
+          serviceOfferingsCount = Array.isArray(data.serviceOfferings) ? data.serviceOfferings.length : 0;
+        }
         
         return {
           id: doc.id,
           ...data,
-          locationDisplay: data.location || 
-            (locationData.city && locationData.province 
-              ? `${locationData.city}, ${locationData.province}`
-              : locationData.city || locationData.country || 'No location'),
-          locationCity: locationData.city || '',
-          locationArea: locationData.province || locationData.country || '',
+          locationDisplay: locationDisplay,
+          locationCity: locationCity,
+          locationArea: locationArea,
+          serviceCategory: serviceCategory,
+          serviceOfferingsCount: serviceOfferingsCount,
           mainImage: (() => {
             const firstPhoto = photosData[0];
             if (firstPhoto?.base64) return firstPhoto.base64;
@@ -376,27 +552,63 @@ const HostListings = () => {
         }
 
         const listingData = listingSnap.data();
+        const category = listingData.category || 'accommodation';
         
-        const draftDataObject = {
-          title: listingData.title || '',
-          description: listingData.description || '',
-          category: listingData.category || 'accommodation',
-          price: listingData.price || 0,
-          location: listingData.location || '',
-          locationData: listingData.locationData || {},
-          photos: listingData.photos || [],
-          propertyBasics: listingData.propertyBasics || {},
-          amenities: listingData.amenities || [],
-          descriptionHighlights: listingData.descriptionHighlights || [],
-          privacyType: listingData.privacyType || '',
-          propertyStructure: listingData.propertyStructure || '',
-        };
+        let draftDataObject = {};
+        let editRoute = '/pages/finaldetails';
+        let currentStep = 'finaldetails';
+        
+        if (category === 'service') {
+          // Service-specific data collection
+          draftDataObject = {
+            title: listingData.title || '',
+            description: listingData.description || '',
+            category: 'service',
+            serviceTitle: listingData.title || '',
+            serviceDescription: listingData.description || '',
+            serviceCategory: listingData.serviceCategory || null,
+            serviceYearsOfExperience: listingData.serviceYearsOfExperience || null,
+            serviceExperience: listingData.serviceExperience || null,
+            serviceDegree: listingData.serviceDegree || null,
+            serviceCareerHighlight: listingData.serviceCareerHighlight || null,
+            serviceProfilePicture: listingData.serviceProfilePicture || null,
+            serviceProfiles: listingData.serviceProfiles || [],
+            serviceAddress: listingData.serviceAddress || null,
+            serviceWhereProvide: listingData.serviceWhereProvide || null,
+            serviceLocation: listingData.locationData || listingData.location || {},
+            servicePhotos: listingData.photos || [],
+            servicePricing: listingData.pricing || {},
+            serviceOfferings: listingData.serviceOfferings || [],
+            serviceNationalPark: listingData.serviceNationalPark !== undefined ? listingData.serviceNationalPark : null,
+            serviceTransportingGuests: listingData.serviceTransportingGuests !== undefined ? listingData.serviceTransportingGuests : null,
+            serviceAgreedToTerms: listingData.serviceAgreedToTerms !== undefined ? listingData.serviceAgreedToTerms : false,
+            descriptionHighlights: listingData.descriptionHighlights || [],
+          };
+          editRoute = '/pages/service-what-provide';
+          currentStep = 'service-what-provide';
+        } else {
+          // Accommodation-specific data collection
+          draftDataObject = {
+            title: listingData.title || '',
+            description: listingData.description || '',
+            category: 'accommodation',
+            price: listingData.price || 0,
+            location: listingData.location || '',
+            locationData: listingData.locationData || {},
+            photos: listingData.photos || [],
+            propertyBasics: listingData.propertyBasics || {},
+            amenities: listingData.amenities || [],
+            descriptionHighlights: listingData.descriptionHighlights || [],
+            privacyType: listingData.privacyType || '',
+            propertyStructure: listingData.propertyStructure || '',
+          };
 
-        if (listingData.bathroomTypes !== undefined && listingData.bathroomTypes !== null) {
-          draftDataObject.bathroomTypes = listingData.bathroomTypes;
-        }
-        if (listingData.occupancy !== undefined && listingData.occupancy !== null) {
-          draftDataObject.occupancy = listingData.occupancy;
+          if (listingData.bathroomTypes !== undefined && listingData.bathroomTypes !== null) {
+            draftDataObject.bathroomTypes = listingData.bathroomTypes;
+          }
+          if (listingData.occupancy !== undefined && listingData.occupancy !== null) {
+            draftDataObject.occupancy = listingData.occupancy;
+          }
         }
 
         Object.keys(draftDataObject).forEach(key => {
@@ -408,9 +620,9 @@ const HostListings = () => {
         const draftData = {
           userId: auth.currentUser.uid,
           userEmail: auth.currentUser.email,
-          category: listingData.category || 'accommodation',
+          category: category,
           status: 'draft',
-          currentStep: 'finaldetails',
+          currentStep: currentStep,
           lastModified: serverTimestamp(),
           createdAt: serverTimestamp(),
           publishedListingId: listing.id,
@@ -425,11 +637,20 @@ const HostListings = () => {
 
       await loadListings();
 
-      navigate('/pages/finaldetails', { 
+      // Navigate to correct edit route based on listing category
+      const listingCategory = listing.category || 'accommodation';
+      const editRoutes = {
+        'service': '/pages/service-what-provide',
+        'accommodation': '/pages/finaldetails',
+        'experience': '/pages/finaldetails', // Update if experience has different route
+      };
+      
+      navigate(editRoutes[listingCategory] || '/pages/finaldetails', { 
         state: { 
           draftId: draftId, 
           listingId: listing.id, 
-          isEditMode: true 
+          isEditMode: true,
+          category: listingCategory
         } 
       });
     } catch (error) {
@@ -507,6 +728,34 @@ const HostListings = () => {
       console.error('Error deleting draft:', error);
       toast.error('Failed to delete draft.');
     }
+  };
+
+  // Helper function to format service category name
+  const getServiceCategoryName = (categoryId) => {
+    if (!categoryId) return '';
+    const categoryMap = {
+      "catering": "Catering",
+      "chef": "Chef",
+      "hair-styling": "Hair Styling",
+      "makeup": "Makeup",
+      "massage": "Massage",
+      "nails": "Nail",
+      "personal-training": "Personal Training",
+      "photography": "Photography",
+      "prepared-meals": "Prepared Meal",
+      "spa-treatments": "Spa Treatment",
+    };
+    return categoryMap[categoryId] || categoryId;
+  };
+
+  // Helper function to get correct route based on listing category
+  const getListingRoute = (listing) => {
+    const routeMap = {
+      'accommodation': `/accommodations/${listing.id}`,
+      'service': `/services/${listing.id}`,
+      'experience': `/experiences/${listing.id}`,
+    };
+    return routeMap[listing.category] || `/accommodations/${listing.id}`;
   };
 
   const handleRepublishListing = async (listing, e) => {
@@ -641,7 +890,7 @@ const HostListings = () => {
                   listingView === 'grid' ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                       {(listingTab === 'all' ? listings : listings.filter(l => l.category === listingTab)).map((listing, idx) => (
-                        <div key={listing.id || idx} className="card-listing cursor-pointer hover-lift overflow-hidden" onClick={() => navigate(`/accommodations/${listing.id}`)}>
+                        <div key={listing.id || idx} className="card-listing cursor-pointer hover-lift overflow-hidden" onClick={() => navigate(getListingRoute(listing))}>
                           <div className="relative w-full overflow-hidden aspect-[4/3] bg-gray-100">
                             {listing.mainImage ? (
                               <img 
@@ -673,7 +922,19 @@ const HostListings = () => {
                               </span>
                             </p>
                             
-                            {(listing.privacyType || listing.propertyStructure) && (
+                            {/* Show service category for services, or property type for accommodations */}
+                            {listing.category === 'service' && listing.serviceCategory ? (
+                              <div className="mb-3">
+                                <span className="inline-block px-2 py-1 text-xs font-medium bg-primary/10 text-primary rounded-md">
+                                  {getServiceCategoryName(listing.serviceCategory)}
+                                  {listing.serviceOfferingsCount > 0 && (
+                                    <span className="ml-1 text-muted-foreground">
+                                      • {listing.serviceOfferingsCount} {listing.serviceOfferingsCount === 1 ? 'offering' : 'offerings'}
+                                    </span>
+                                  )}
+                                </span>
+                              </div>
+                            ) : (listing.privacyType || listing.propertyStructure) && (
                               <div className="mb-3">
                                 <span className="inline-block px-2 py-1 text-xs font-medium bg-primary/10 text-primary rounded-md">
                                   {listing.privacyType && listing.propertyStructure
@@ -688,7 +949,9 @@ const HostListings = () => {
                                 <span className="font-heading text-lg font-bold text-foreground">
                                   ₱{listing.price.toLocaleString()}
                                 </span>
-                                <span className="text-sm text-muted-foreground ml-1">/ night</span>
+                                {listing.category !== 'service' && (
+                                  <span className="text-sm text-muted-foreground ml-1">/ night</span>
+                                )}
                               </div>
                             )}
                             
@@ -707,7 +970,7 @@ const HostListings = () => {
                               </button>
                               <button 
                                 className="btn-outline px-3 py-2 text-sm font-medium" 
-                                onClick={e => {e.stopPropagation(); navigate(`/accommodations/${listing.id}`);}}
+                                onClick={e => {e.stopPropagation(); navigate(getListingRoute(listing));}}
                               >
                                 View
                               </button>
@@ -726,7 +989,7 @@ const HostListings = () => {
                   ) : (
                     <div className="space-y-4">
                       {(listingTab === 'all' ? listings : listings.filter(l => l.category === listingTab)).map((listing, idx) => (
-                        <div key={listing.id || idx} className="card-listing hover-lift cursor-pointer flex items-start gap-4 p-4" onClick={() => navigate(`/accommodations/${listing.id}`)}>
+                        <div key={listing.id || idx} className="card-listing hover-lift cursor-pointer flex items-start gap-4 p-4" onClick={() => navigate(getListingRoute(listing))}>
                           <div className="relative flex-shrink-0 w-36 h-36 overflow-hidden rounded-lg bg-gray-100">
                             {listing.mainImage ? (
                               <img 
@@ -752,9 +1015,27 @@ const HostListings = () => {
                                 ? `${listing.locationCity}, ${listing.locationArea}`
                                 : listing.locationDisplay || 'No location'}
                             </p>
+                            
+                            {/* Show service category for services */}
+                            {listing.category === 'service' && listing.serviceCategory && (
+                              <div className="mb-2">
+                                <span className="inline-block px-2 py-1 text-xs font-medium bg-primary/10 text-primary rounded-md">
+                                  {getServiceCategoryName(listing.serviceCategory)}
+                                  {listing.serviceOfferingsCount > 0 && (
+                                    <span className="ml-1 text-muted-foreground">
+                                      • {listing.serviceOfferingsCount} {listing.serviceOfferingsCount === 1 ? 'offering' : 'offerings'}
+                                    </span>
+                                  )}
+                                </span>
+                              </div>
+                            )}
+                            
                             {listing.price && (
                               <p className="font-heading text-lg font-bold text-foreground mb-2">
-                                ₱{listing.price.toLocaleString()}<span className="text-sm font-normal text-muted-foreground">/ night</span>
+                                ₱{listing.price.toLocaleString()}
+                                {listing.category !== 'service' && (
+                                  <span className="text-sm font-normal text-muted-foreground">/ night</span>
+                                )}
                               </p>
                             )}
                             <div className="flex items-center gap-1 text-xs text-muted-foreground mb-3">
@@ -772,7 +1053,7 @@ const HostListings = () => {
                               </button>
                               <button 
                                 className="btn-outline px-3 py-2 text-sm font-medium" 
-                                onClick={e => {e.stopPropagation(); navigate(`/accommodations/${listing.id}`);}}
+                                onClick={e => {e.stopPropagation(); navigate(getListingRoute(listing));}}
                               >
                                 View
                               </button>
@@ -795,8 +1076,8 @@ const HostListings = () => {
           )}
 
           {/* Saved Drafts Container with Tabs */}
-          {user && drafts.length > 0 && (
-            <div className="mb-12">
+          {user && (
+            <div className="mb-12" ref={savedDraftsRef}>
               <div className="mb-2">
                 <h2 className="text-xl font-bold text-foreground mb-2">Saved Drafts</h2>
               </div>
@@ -954,7 +1235,14 @@ const HostListings = () => {
                                 </span>
                               </p>
                               
-                              {(draft.privacyType || draft.propertyStructure) && (
+                              {/* Show service category for service drafts, or property type for accommodation drafts */}
+                              {draft.category === 'service' && draft.serviceCategory ? (
+                                <div className="mb-2">
+                                  <span className="inline-block px-2 py-0.5 text-xs font-medium bg-primary/10 text-primary rounded">
+                                    {getServiceCategoryName(draft.serviceCategory)}
+                                  </span>
+                                </div>
+                              ) : (draft.privacyType || draft.propertyStructure) && (
                                 <div className="mb-2">
                                   <span className="inline-block px-2 py-0.5 text-xs font-medium bg-primary/10 text-primary rounded">
                                     {draft.privacyType && draft.propertyStructure
@@ -1071,9 +1359,22 @@ const HostListings = () => {
                                 <MapPin className="w-4 h-4" />
                                 <span className="line-clamp-1">{listing.locationDisplay || 'No location'}</span>
                               </div>
+                              {/* Show service category for services, or guests for accommodations */}
+                              {listing.category === 'service' && listing.serviceCategory ? (
+                                <div className="mb-2">
+                                  <span className="inline-block px-2 py-1 text-xs font-medium bg-primary/10 text-primary rounded-md">
+                                    {getServiceCategoryName(listing.serviceCategory)}
+                                    {listing.serviceOfferingsCount > 0 && (
+                                      <span className="ml-1 text-muted-foreground">
+                                        • {listing.serviceOfferingsCount} {listing.serviceOfferingsCount === 1 ? 'offering' : 'offerings'}
+                                      </span>
+                                    )}
+                                  </span>
+                                </div>
+                              ) : null}
                               <div className="flex items-center justify-between text-sm mb-3">
                                 <div className="flex items-center gap-4">
-                                  {listing.guests && (
+                                  {listing.category !== 'service' && listing.guests && (
                                     <div className="flex items-center gap-1">
                                       <Users className="w-4 h-4 text-gray-400" />
                                       <span>{listing.guests}</span>
@@ -1135,8 +1436,23 @@ const HostListings = () => {
                                 <MapPin className="w-4 h-4" />
                                 <span className="line-clamp-1">{listing.locationDisplay || 'No location'}</span>
                               </div>
+                              
+                              {/* Show service category for services */}
+                              {listing.category === 'service' && listing.serviceCategory && (
+                                <div className="mb-2">
+                                  <span className="inline-block px-2 py-1 text-xs font-medium bg-primary/10 text-primary rounded-md">
+                                    {getServiceCategoryName(listing.serviceCategory)}
+                                    {listing.serviceOfferingsCount > 0 && (
+                                      <span className="ml-1 text-muted-foreground">
+                                        • {listing.serviceOfferingsCount} {listing.serviceOfferingsCount === 1 ? 'offering' : 'offerings'}
+                                      </span>
+                                    )}
+                                  </span>
+                                </div>
+                              )}
+                              
                               <div className="flex items-center gap-4 text-sm text-gray-600 mb-3">
-                                {listing.guests && (
+                                {listing.category !== 'service' && listing.guests && (
                                   <div className="flex items-center gap-1">
                                     <Users className="w-4 h-4" />
                                     <span>{listing.guests}</span>
@@ -1185,9 +1501,12 @@ const HostListings = () => {
       <OnboardingProvider>
         <HostTypeModal
           isOpen={showHostTypeModal}
-          onClose={() => setShowHostTypeModal(false)}
+          onClose={() => {
+            setShowHostTypeModal(false);
+            setForceHostTypeSelection(false);
+          }}
           currentUser={user}
-          forceSelection={forceHostTypeSelection}
+          forceHostTypeSelection={forceHostTypeSelection}
         />
       </OnboardingProvider>
 

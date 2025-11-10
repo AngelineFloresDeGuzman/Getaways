@@ -5,12 +5,13 @@ import Footer from "@/components/Footer";
 import { Calendar, MapPin, Users, MessageSquare, Star } from "lucide-react";
 import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc, onSnapshot, collection, query, where } from "firebase/firestore";
+import { doc, getDoc, onSnapshot, collection, query, where, updateDoc, serverTimestamp } from "firebase/firestore";
 import { getGuestBookings } from "@/pages/Guest/services/bookingService";
 import { createReview, getReviewByBookingId } from "@/pages/Guest/services/reviewService";
 import { format } from "date-fns";
 import LogIn from "@/pages/Auth/LogIn";
 import ReviewModal from "@/components/ReviewModal";
+import { toast } from "@/components/ui/sonner";
 
 const Bookings = () => {
   const [user, setUser] = useState(null);
@@ -19,7 +20,28 @@ const Bookings = () => {
   const [loading, setLoading] = useState(true);
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState(null);
+  const [completingBooking, setCompletingBooking] = useState(null);
   const navigate = useNavigate();
+
+  // Handle marking booking as completed
+  const handleMarkCompleted = async (bookingId) => {
+    if (completingBooking === bookingId) return;
+    
+    setCompletingBooking(bookingId);
+    try {
+      const bookingRef = doc(db, 'bookings', bookingId);
+      await updateDoc(bookingRef, {
+        status: 'completed',
+        updatedAt: serverTimestamp()
+      });
+      toast.success('Booking marked as completed!');
+    } catch (error) {
+      console.error('Error marking booking as completed:', error);
+      toast.error('Failed to mark booking as completed');
+    } finally {
+      setCompletingBooking(null);
+    }
+  };
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -347,24 +369,38 @@ const Bookings = () => {
                         <p className="text-xs text-muted-foreground">Total</p>
                         <p className="text-lg font-bold text-foreground">₱{(booking.totalPrice || 0).toLocaleString()}</p>
                       </div>
-                              {booking.status === 'completed' && (
-                                <button 
-                                  className="btn-outline text-xs px-3 py-1.5"
-                                  onClick={async (e) => {
-                                    e.stopPropagation();
-                                    // Check if review already exists
-                                    const existingReview = await getReviewByBookingId(booking.id);
-                                    if (existingReview) {
-                                      // Already reviewed - could show a message or navigate to edit
-                                      return;
-                                    }
-                                    setSelectedBooking(booking);
-                                    setShowReviewModal(true);
-                                  }}
-                                >
-                                  {booking.reviewed ? 'Reviewed' : 'Review'}
-                                </button>
-                              )}
+                      <div className="flex items-center gap-2">
+                        {booking.status === 'confirmed' && (
+                          <button 
+                            className="btn-outline text-xs px-3 py-1.5"
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              await handleMarkCompleted(booking.id);
+                            }}
+                            disabled={completingBooking === booking.id}
+                          >
+                            {completingBooking === booking.id ? 'Completing...' : 'Mark Complete'}
+                          </button>
+                        )}
+                        {booking.status === 'completed' && (
+                          <button 
+                            className="btn-outline text-xs px-3 py-1.5"
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              // Check if review already exists
+                              const existingReview = await getReviewByBookingId(booking.id);
+                              if (existingReview) {
+                                // Already reviewed - could show a message or navigate to edit
+                                return;
+                              }
+                              setSelectedBooking(booking);
+                              setShowReviewModal(true);
+                            }}
+                          >
+                            {booking.reviewed ? 'Reviewed' : 'Review'}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>

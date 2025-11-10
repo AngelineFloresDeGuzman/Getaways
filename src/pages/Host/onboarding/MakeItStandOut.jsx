@@ -4,7 +4,7 @@ import OnboardingFooter from './components/OnboardingFooter';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
 import { useSaveAndExitWithContext } from './hooks/useSaveAndExit.js';
-import { db } from '@/lib/firebase';
+import { db, auth } from '@/lib/firebase';
 import { doc, updateDoc, getDoc } from 'firebase/firestore';
 import { updateSessionStorageBeforeNav } from './utils/sessionStorageHelper';
 
@@ -74,45 +74,135 @@ const MakeItStandOut = () => {
     }
   }, [actions, state.currentStep]);
 
+  // Helper function to ensure we have a valid draftId and save currentStep to Firebase
+  const ensureDraftAndSave = async (targetStep = 'makeitstandout') => {
+    if (!auth.currentUser) {
+      throw new Error('User not authenticated');
+    }
+    
+    let draftIdToUse = state?.draftId || location.state?.draftId;
+    
+    // If draftId is temp, reset it to find/create a real one
+    if (draftIdToUse && draftIdToUse.startsWith('temp_')) {
+      console.log('📍 MakeItStandOut: Found temp ID, resetting to find/create real draft');
+      draftIdToUse = null;
+    }
+    
+    // If user is authenticated, ensure we have a draft
+    if (!draftIdToUse && state.user?.uid) {
+      try {
+        const { getUserDrafts, saveDraft } = await import('@/pages/Host/services/draftService');
+        const drafts = await getUserDrafts();
+        
+        if (drafts.length > 0) {
+          // Use the most recent draft
+          draftIdToUse = drafts[0].id;
+          console.log('📍 MakeItStandOut: Using existing draft:', draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        } else {
+          // No drafts exist, create a new one
+          console.log('📍 MakeItStandOut: No existing drafts, creating new draft');
+          
+          const newDraftData = {
+            currentStep: targetStep,
+            category: state.category || 'accommodation',
+            data: {}
+          };
+          draftIdToUse = await saveDraft(newDraftData, null);
+          console.log('📍 MakeItStandOut: ✅ Created new draft:', draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        }
+      } catch (error) {
+        console.error('📍 MakeItStandOut: Error finding/creating draft:', error);
+        throw error;
+      }
+    }
+    
+    // Save to Firebase if we have a valid draftId
+    if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
+      try {
+        const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
+        const docSnap = await getDoc(draftRef);
+        
+        if (docSnap.exists()) {
+          // Update existing document - save currentStep
+          await updateDoc(draftRef, {
+            currentStep: targetStep,
+            lastModified: new Date()
+          });
+          console.log('📍 MakeItStandOut: ✅ Saved currentStep to Firebase (currentStep:', targetStep, ')');
+        } else {
+          // Document doesn't exist, create it
+          console.log('📍 MakeItStandOut: Document not found, creating new one');
+          const { saveDraft } = await import('@/pages/Host/services/draftService');
+          
+          const newDraftData = {
+            currentStep: targetStep,
+            category: state.category || 'accommodation',
+            data: {}
+          };
+          draftIdToUse = await saveDraft(newDraftData, draftIdToUse);
+          console.log('📍 MakeItStandOut: ✅ Created new draft with currentStep:', draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        }
+        return draftIdToUse;
+      } catch (error) {
+        console.error('📍 MakeItStandOut: ❌ Error saving to Firebase:', error);
+        throw error;
+      }
+    } else if (state.user?.uid) {
+      // User authenticated but no draftId - this shouldn't happen after ensureDraftAndSave logic
+      console.warn('📍 MakeItStandOut: ⚠️ User authenticated but no valid draftId after ensureDraftAndSave');
+      throw new Error('Failed to create draft for authenticated user');
+    } else {
+      console.warn('📍 MakeItStandOut: ⚠️ User not authenticated, cannot save to Firebase');
+      return null;
+    }
+  };
+
   // Save & Exit handler
   const handleSaveAndExitClick = async () => {
-    console.log('MakeItStandOut Save & Exit clicked');
+    if (!auth.currentUser) {
+      alert('Please log in to save your progress');
+      return;
+    }
     
     try {
+      console.log('📍 MakeItStandOut: Save & Exit clicked');
+      
       // Set current step before saving so "Continue Editing" returns to this page
       if (actions.setCurrentStep) {
-        console.log('MakeItStandOut: Setting currentStep to makeitstandout');
+        console.log('📍 MakeItStandOut: Setting currentStep to makeitstandout');
         actions.setCurrentStep('makeitstandout');
       }
       
-      // Override the saveDraft to ensure currentStep is set correctly
-      if (actions.saveDraft) {
-        console.log('MakeItStandOut: Calling custom saveDraft with forced currentStep');
-        
-        // Create modified state data with forced currentStep
-        const { user, isLoading, ...dataToSave } = state;
-        dataToSave.currentStep = 'makeitstandout'; // Force the currentStep
-        
-        console.log('MakeItStandOut: Data to save with forced currentStep:', dataToSave);
-        
-        // Use context saveDraft to ensure only one draft per session
-        const draftId = await actions.saveDraft();
-        
-        // Update sessionStorage before Save & Exit navigation
-        updateSessionStorageBeforeNav('makeitstandout');
-        
-        // Navigate to dashboard
-        navigate('/host/hostdashboard', { 
-          state: { 
-            message: 'Draft saved successfully!',
-            draftSaved: true 
-          }
-        });
-      } else {
-        // Fallback to normal save
-        await handleSaveAndExit();
+      // Save currentStep to Firebase
+      let draftIdToUse;
+      try {
+        draftIdToUse = await ensureDraftAndSave('makeitstandout');
+        console.log('📍 MakeItStandOut: ✅ Saved currentStep to Firebase on Save & Exit');
+      } catch (saveError) {
+        console.error('📍 MakeItStandOut: Error saving to Firebase on Save & Exit:', saveError);
+        alert('Error saving progress: ' + saveError.message);
+        return;
       }
       
+      // Update sessionStorage before Save & Exit navigation
+      updateSessionStorageBeforeNav('makeitstandout');
+      
+      // Navigate to listings tab
+      navigate('/host/listings', { 
+        state: { 
+          message: 'Draft saved successfully!',
+          draftSaved: true 
+        }
+      });
     } catch (error) {
       console.error('Error in MakeItStandOut save:', error);
       alert('Failed to save progress: ' + error.message);
@@ -121,7 +211,7 @@ const MakeItStandOut = () => {
 
   return (
     <div className="min-h-screen bg-white">
-      <OnboardingHeader />
+      <OnboardingHeader customSaveAndExit={handleSaveAndExitClick} />
       <main className="pt-20 px-8 pb-32">
         <div className="relative z-0">
           <div className="absolute inset-0 -z-10 overflow-hidden">

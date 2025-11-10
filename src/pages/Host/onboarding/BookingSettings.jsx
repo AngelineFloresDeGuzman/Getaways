@@ -72,16 +72,90 @@ const BookingSettings = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]); // Run when route changes
 
-  // Initialize from context if available (after draft loading or direct navigation)
+  // Load bookingSettings from Firebase when draftId is available
   useEffect(() => {
-    if (state.bookingSettings && (hasInitialized.current || !location.state?.draftId)) {
-      console.log('BookingSettings - Initializing from context:', state.bookingSettings);
-      setSelectedOption(state.bookingSettings);
-      if (!hasInitialized.current) {
+    const loadBookingSettingsFromFirebase = async () => {
+      let draftIdToUse = state?.draftId || location.state?.draftId;
+      
+      // If no draftId yet, try to get it from user's drafts
+      if (!draftIdToUse && state.user?.uid) {
+        try {
+          const { getUserDrafts } = await import('@/pages/Host/services/draftService');
+          const drafts = await getUserDrafts();
+          if (drafts.length > 0) {
+            draftIdToUse = drafts[0].id;
+            console.log('📍 BookingSettings: Found draftId from getUserDrafts:', draftIdToUse);
+            if (!state.draftId && actions.setDraftId) {
+              actions.setDraftId(draftIdToUse);
+            }
+          }
+        } catch (error) {
+          console.error('📍 BookingSettings: Error getting user drafts:', error);
+        }
+      }
+      
+      // Load bookingSettings from Firebase if we have a draftId
+      if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
+        try {
+          console.log('📍 BookingSettings: Loading bookingSettings from Firebase with draftId:', draftIdToUse);
+          const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
+          const docSnap = await getDoc(draftRef);
+          
+          if (docSnap.exists()) {
+            const draftData = docSnap.data();
+            console.log('📍 BookingSettings: Draft data exists');
+            console.log('📍 BookingSettings: draftData.data:', draftData.data);
+            console.log('📍 BookingSettings: draftData.data?.bookingSettings:', draftData.data?.bookingSettings);
+            
+            // Check nested data.bookingSettings first (where we save it), then top-level, then context
+            const savedBookingSettings = draftData.data?.bookingSettings || draftData.bookingSettings || state.bookingSettings;
+            
+            if (savedBookingSettings) {
+              console.log('📍 BookingSettings: ✅ Found saved bookingSettings:', savedBookingSettings);
+              setSelectedOption(savedBookingSettings);
+              
+              // Also update context if it's not set there yet or is different
+              if (!state.bookingSettings || state.bookingSettings !== savedBookingSettings) {
+                console.log('📍 BookingSettings: Updating context with saved bookingSettings');
+                updateBookingSettingsContext(savedBookingSettings);
+              }
+              
+              if (!hasInitialized.current) {
+                hasInitialized.current = true;
+              }
+              return; // Exit early if we found it in Firebase
+            } else {
+              console.log('📍 BookingSettings: ⚠️ No bookingSettings found in Firebase draft');
+            }
+          } else {
+            console.log('📍 BookingSettings: ⚠️ Draft document does not exist for draftId:', draftIdToUse);
+          }
+        } catch (error) {
+          console.error('📍 BookingSettings: ❌ Error loading bookingSettings from Firebase:', error);
+        }
+      }
+      
+      // Fallback: check context state if Firebase didn't have it
+      if (state.bookingSettings && !hasInitialized.current) {
+        console.log('📍 BookingSettings: Using bookingSettings from context (fallback):', state.bookingSettings);
+        setSelectedOption(state.bookingSettings);
         hasInitialized.current = true;
       }
+    };
+    
+    loadBookingSettingsFromFirebase();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state?.draftId, location.state?.draftId, state.user?.uid, location.pathname]);
+  
+  // Also watch for bookingSettings changes in context (as a fallback)
+  useEffect(() => {
+    if (state.bookingSettings && !hasInitialized.current) {
+      console.log('📍 BookingSettings: BookingSettings changed in context, updating:', state.bookingSettings);
+      setSelectedOption(state.bookingSettings);
+      hasInitialized.current = true;
     }
-  }, [state.bookingSettings, hasInitialized.current, location.state?.draftId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.bookingSettings]);
 
   // Real-time context updates
   const updateBookingSettingsContext = (settings) => {
@@ -228,7 +302,7 @@ const BookingSettings = () => {
       updateSessionStorageBeforeNav('bookingsettings');
       
       // Navigate to dashboard
-      navigate('/host/hostdashboard', { 
+      navigate('/host/listings', { 
         state: { 
           message: 'Draft saved successfully!',
           draftSaved: true 
@@ -245,7 +319,7 @@ const BookingSettings = () => {
 
   return (
     <div className="min-h-screen bg-white">
-      <OnboardingHeader showProgress={true} />
+      <OnboardingHeader showProgress={true} customSaveAndExit={handleSaveAndExitClick} />
 
       {/* Main Content */}
       <main className="pt-20 px-8 pb-32">

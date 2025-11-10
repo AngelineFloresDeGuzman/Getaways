@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from "react";
-import { Moon, Sun, Menu, Home, Mountain, ConciergeBell, Calendar, List, MessageSquare, Clock, Settings, Globe, BookOpen, HelpCircle, UserPlus, Plus, Users, LogOut, Sparkles } from "lucide-react";
+import { Moon, Sun, Menu, Home, Mountain, ConciergeBell, Calendar, List, MessageSquare, Clock, Settings, Globe, BookOpen, HelpCircle, UserPlus, Plus, Users, LogOut, Sparkles, Wallet } from "lucide-react";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
@@ -84,7 +84,7 @@ const Navigation = () => {
   
   // Shared pages that can be accessed by both guests and hosts
   // They should show appropriate nav based on user role
-  const sharedPages = ['/accountsettings'];
+  const sharedPages = ['/accountsettings', '/ewallet'];
   
   const isHostSpecificPath = 
     location.pathname.includes('/host/') || 
@@ -193,9 +193,9 @@ const Navigation = () => {
   // 🔹 Firebase auth listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user && user.emailVerified) {
-        setCurrentUser(user);
-        // Fetch user roles from Firestore
+      if (user) {
+        // Fetch user roles from Firestore first to check if admin
+        let isAdmin = false;
         try {
           const userDocRef = doc(db, "users", user.uid);
           const userDoc = await getDoc(userDocRef);
@@ -210,6 +210,7 @@ const Navigation = () => {
             if (roles.length === 0) {
               roles = ['guest'];
             }
+            isAdmin = roles.includes('admin');
             setUserRoles(roles);
           } else {
             // If user doc doesn't exist, default to guest
@@ -219,10 +220,19 @@ const Navigation = () => {
           console.error("Error fetching user roles:", error);
           setUserRoles(['guest']); // Default to guest on error
         }
-        // If login just completed from modal, show HostTypeModal
-        if (pendingShowHostModal) {
-          setShowHostModal(true);
-          setPendingShowHostModal(false);
+        
+        // Allow admin users even if email not verified, otherwise require email verification
+        if (user.emailVerified || isAdmin) {
+          setCurrentUser(user);
+          // If login just completed from modal, show HostTypeModal
+          if (pendingShowHostModal) {
+            setShowHostModal(true);
+            setPendingShowHostModal(false);
+          }
+        } else {
+          await signOut(auth);
+          setCurrentUser(null);
+          setUserRoles([]);
         }
       } else {
         await signOut(auth);
@@ -490,6 +500,10 @@ const Navigation = () => {
                             <Settings className="w-5 h-5" />
                             Account settings
                           </Link>
+                          <Link to="/ewallet" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
+                            <Wallet className="w-5 h-5" />
+                            E-Wallet
+                          </Link>
                           <Link to="/languages" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
                             <Globe className="w-5 h-5" />
                             Languages & currency
@@ -551,6 +565,7 @@ const Navigation = () => {
                           <Link to="/messages" onClick={() => setMenuOpen(false)} className="block px-4 py-2 hover:bg-muted">Messages</Link>
                           <Link to="/notifications" onClick={() => setMenuOpen(false)} className="block px-4 py-2 hover:bg-muted">Notifications</Link>
                           <Link to="/accountsettings" onClick={() => setMenuOpen(false)} className="block px-4 py-2 hover:bg-muted">Account settings</Link>
+                          <Link to="/ewallet" onClick={() => setMenuOpen(false)} className="block px-4 py-2 hover:bg-muted">E-Wallet</Link>
                           <Link to="/languages" onClick={() => setMenuOpen(false)} className="block px-4 py-2 hover:bg-muted">Languages & currency</Link>
                           <Link to="/help" onClick={() => setMenuOpen(false)} className="block px-4 py-2 hover:bg-muted">Help Center</Link>
                           <hr className="my-2 mx-4 border-border" />

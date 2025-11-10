@@ -1,6 +1,6 @@
 {
   "projects": {
-    "default": "havenly-getaways",
+    "default": "getaways-official",
     "getaways": "getaways-official",
     "Getaways": "getaways-official"
   },

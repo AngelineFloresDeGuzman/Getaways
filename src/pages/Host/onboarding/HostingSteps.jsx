@@ -170,7 +170,7 @@ const HostingSteps = () => {
     } catch (e) {
       console.error('Failed to delete draft on cancel:', e);
     } finally {
-      navigate('/host/hostdashboard');
+      navigate('/host/listings');
     }
   };
 
@@ -184,7 +184,7 @@ const HostingSteps = () => {
         currentStep: "propertydetails",
         lastModified: new Date()
       });
-      navigate("/host/hostdashboard");
+      navigate("/host/listings");
     } catch (error) {
       console.error("Error saving draft:", error);
     }

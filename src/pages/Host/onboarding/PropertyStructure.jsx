@@ -3,7 +3,7 @@ import OnboardingHeader from './components/OnboardingHeader';
 import OnboardingFooter from './components/OnboardingFooter';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
-import { db } from '@/lib/firebase';
+import { db, auth } from '@/lib/firebase';
 import { doc, getDoc, setDoc, updateDoc, deleteField } from 'firebase/firestore';
 // Unique icon components for each property type - designed to match their labels
 const HouseIcon = () => (
@@ -331,33 +331,90 @@ const PropertyStructure = () => {
   };
 
   const handleSaveAndExit = async () => {
-    if (draftRef) {
-      setIsLoading(true);
-      try {
-        // Get existing data fields
-        const snap = await getDoc(draftRef);
-        const prevData = snap.exists() && snap.data().data ? snap.data().data : {};
-        await updateDoc(draftRef, {
-          data: {
-            ...prevData,
-            propertyStructure: selectedType,
-          },
-          lastModified: new Date(),
-          currentStep: 'privacytype',
-        });
-        navigate('/host/hostdashboard');
-      } catch (error) {
-        console.error('Error saving and exiting:', error);
-        alert('Error saving progress: ' + error.message);
-      } finally {
-        setIsLoading(false);
+    if (!auth.currentUser) {
+      alert('Please log in to save your progress');
+      return;
+    }
+    
+    setIsLoading(true);
+    try {
+      // Update context with current propertyStructure
+      if (selectedType && actions.updatePropertyStructure) {
+        actions.updatePropertyStructure(selectedType);
       }
+      
+      // Ensure we have a draftId
+      let draftIdToUse = draftId || state?.draftId;
+      if (!draftIdToUse && state.user?.uid) {
+        try {
+          const { getUserDrafts, saveDraft } = await import('@/pages/Host/services/draftService');
+          const drafts = await getUserDrafts();
+          if (drafts.length > 0) {
+            draftIdToUse = drafts[0].id;
+          } else {
+            const newDraftData = {
+              currentStep: 'propertystructure',
+              category: state.category || 'accommodation',
+              data: {
+                propertyStructure: selectedType
+              }
+            };
+            draftIdToUse = await saveDraft(newDraftData, null);
+            if (actions.setDraftId) {
+              actions.setDraftId(draftIdToUse);
+            }
+          }
+        } catch (error) {
+          console.error('Error creating/finding draft:', error);
+        }
+      }
+      
+      if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
+        const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
+        const docSnap = await getDoc(draftRef);
+        
+        if (docSnap.exists()) {
+          await updateDoc(draftRef, {
+            'data.propertyStructure': selectedType,
+            propertyStructure: deleteField(), // Remove old top-level field if exists
+            currentStep: 'propertystructure',
+            lastModified: new Date(),
+          });
+          console.log('📍 PropertyStructure: ✅ Saved propertyStructure to Firebase on Save & Exit:', selectedType);
+        } else {
+          // Create new draft
+          const { saveDraft } = await import('@/pages/Host/services/draftService');
+          const newDraftData = {
+            currentStep: 'propertystructure',
+            category: state.category || 'accommodation',
+            data: {
+              propertyStructure: selectedType
+            }
+          };
+          draftIdToUse = await saveDraft(newDraftData, draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        }
+      }
+      
+      navigate('/host/listings', { 
+        state: { 
+          message: 'Draft saved successfully!',
+          draftSaved: true 
+        }
+      });
+    } catch (error) {
+      console.error('Error saving and exiting:', error);
+      alert('Error saving progress: ' + error.message);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   return (
     <div className="min-h-screen bg-white">
-      <OnboardingHeader showProgress={true} />
+      <OnboardingHeader showProgress={true} customSaveAndExit={handleSaveAndExit} />
 
       {/* Main Content */}
       <main className="pt-24 px-8 pb-32">

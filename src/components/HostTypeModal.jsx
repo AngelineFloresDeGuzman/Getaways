@@ -31,13 +31,17 @@ const HostTypeModal = ({ isOpen, onClose, currentUser, forceHostTypeSelection, f
   const [cameFromSignup, setCameFromSignup] = useState(false);
   // Track if we're explicitly switching to login (don't let useEffect override) - using ref to avoid triggering re-renders
   const explicitLoginSwitch = useRef(false);
+  // Track if login was successful (to differentiate between closing after login vs closing without login)
+  const loginSuccessful = useRef(false);
 
   useEffect(() => {
     if (isOpen) {
       setModalSession((s) => s + 1); // increment to mark a new modal session
+      loginSuccessful.current = false; // Reset login success flag when modal opens
     } else {
-      // Reset flag when modal closes
+      // Reset flags when modal closes
       explicitLoginSwitch.current = false;
+      loginSuccessful.current = false;
     }
   }, [isOpen]);
 
@@ -121,10 +125,17 @@ const HostTypeModal = ({ isOpen, onClose, currentUser, forceHostTypeSelection, f
 
       console.log('🚀 Starting draft creation for category:', category);
       
+      // Set initial step based on category
+      const initialStep = category === "experience" 
+        ? "experience-category-selection" 
+        : category === "service"
+        ? "service-category-selection"
+        : "hostingsteps";
+      
       // Prepare minimal draft data with proper structure
       const draftData = {
         category,
-        currentStep: "hostingsteps",
+        currentStep: initialStep,
         data: {},
       };
 
@@ -148,8 +159,8 @@ const HostTypeModal = ({ isOpen, onClose, currentUser, forceHostTypeSelection, f
       }
       
       if (actions.setCurrentStep) {
-        actions.setCurrentStep("hostingsteps");
-        console.log('✅ Current step set to hostingsteps');
+        actions.setCurrentStep(initialStep);
+        console.log('✅ Current step set to', initialStep);
       }
 
       // Check if user already has host role
@@ -178,14 +189,33 @@ const HostTypeModal = ({ isOpen, onClose, currentUser, forceHostTypeSelection, f
       // Clear the signup flag since user has now selected their hosting type
       localStorage.removeItem('justSignedUpForHosting');
       
-      // Navigate to first onboarding step with draft ID
-      navigate(`/pages/hostingsteps`, { 
-        state: { 
-          draftId: newDraftId,
-          category: category,
-          isNewDraft: true
-        } 
-      });
+      // Navigate to first onboarding step based on category
+      if (category === "experience") {
+        navigate(`/pages/experience-category-selection`, { 
+          state: { 
+            draftId: newDraftId,
+            category: category,
+            isNewDraft: true
+          } 
+        });
+      } else if (category === "service") {
+        navigate(`/pages/service-category-selection`, { 
+          state: { 
+            draftId: newDraftId,
+            category: category,
+            isNewDraft: true
+          } 
+        });
+      } else {
+        // Navigate to first onboarding step with draft ID for accommodations
+        navigate(`/pages/hostingsteps`, { 
+          state: { 
+            draftId: newDraftId,
+            category: category,
+            isNewDraft: true
+          } 
+        });
+      }
       
       onClose();
       console.log('✅ Draft creation flow completed successfully');
@@ -207,10 +237,28 @@ const HostTypeModal = ({ isOpen, onClose, currentUser, forceHostTypeSelection, f
 
 
 
-  // After login/signup, show host type selection instead of closing modal
+  // Handle closing login modal - only show host type selection if login was successful
   const handleCloseLoginModal = () => {
-    explicitLoginSwitch.current = false; // Reset flag after login
+    explicitLoginSwitch.current = false; // Reset flag
     setShowLoginModal(false);
+    
+    // Only show host type selection if login was successful
+    // If user just closed the modal without logging in, close everything
+    if (loginSuccessful.current) {
+      setShowHostTypeSelection(true);
+      loginSuccessful.current = false; // Reset flag
+    } else {
+      // User closed modal without logging in, close everything
+      onClose();
+    }
+  };
+
+  // Handle successful login - this will be called from LogIn component after successful login
+  const handleLoginSuccess = () => {
+    loginSuccessful.current = true;
+    explicitLoginSwitch.current = false; // Reset flag
+    setShowLoginModal(false);
+    // Show host type selection after successful login
     setShowHostTypeSelection(true);
   };
 
@@ -361,6 +409,7 @@ const HostTypeModal = ({ isOpen, onClose, currentUser, forceHostTypeSelection, f
             <LogIn
               isModal={true}
               onClose={handleCloseLoginModal}
+              onLoginSuccess={handleLoginSuccess}
               onSwitchToSignup={handleSwitchToSignup}
               upgradeToHost={true}
             />

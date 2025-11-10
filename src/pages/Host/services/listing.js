@@ -27,6 +27,9 @@ export const createListing = async (listingData, existingListingId = null) => {
 
   const listingsCollection = collection(db, 'listings');
   
+  // Get category early for conditional logic
+  const category = listingData.category || 'accommodation';
+  
   // Extract location data for easy access
   const locationData = listingData.location || {};
   const photos = listingData.photos || [];
@@ -55,7 +58,7 @@ export const createListing = async (listingData, existingListingId = null) => {
     // Core fields
     ownerId: user.uid,
     ownerEmail: user.email,
-    category: listingData.category || 'accommodation',
+    category: category,
     title: listingData.title || 'Untitled Listing',
     description: listingData.description || '',
     descriptionHighlights: listingData.descriptionHighlights || [],
@@ -63,8 +66,10 @@ export const createListing = async (listingData, existingListingId = null) => {
     // Location (simplified for display, full data in locationData)
     location: locationData.city || locationData.province || locationData.country || 'Location',
     
-    // Pricing
-    price: pricing.weekdayPrice || pricing.basePrice || 0,
+    // Pricing - handle both accommodation and service pricing
+    price: category === 'service' 
+      ? (pricing.basePrice || pricing.price || pricing.weekdayPrice || 0)
+      : (pricing.weekdayPrice || pricing.basePrice || 0),
     
     // Photos - STORE ONCE in photos array only (don't duplicate in image/images)
     // For display, use photos[0].base64 from the photos array
@@ -84,17 +89,37 @@ export const createListing = async (listingData, existingListingId = null) => {
     
     // Property details (structured data)
     locationData: locationData,
-    propertyBasics: listingData.propertyBasics || {},
-    amenities: listingData.amenities || {},
-    privacyType: listingData.privacyType || '',
-    propertyStructure: listingData.propertyStructure || '',
     pricing: pricing,
-    bookingSettings: listingData.bookingSettings || {},
-    guestSelection: listingData.guestSelection || {},
-    discounts: listingData.discounts || {},
-    safetyDetails: listingData.safetyDetails || {},
-    finalDetails: listingData.finalDetails || {},
   };
+
+  // Add category-specific fields
+  if (category === 'service') {
+    // Service-specific fields
+    listingDoc.serviceCategory = listingData.serviceCategory || null;
+    listingDoc.serviceYearsOfExperience = listingData.serviceYearsOfExperience || null;
+    listingDoc.serviceExperience = listingData.serviceExperience || null;
+    listingDoc.serviceDegree = listingData.serviceDegree || null;
+    listingDoc.serviceCareerHighlight = listingData.serviceCareerHighlight || null;
+    listingDoc.serviceProfilePicture = listingData.serviceProfilePicture || null;
+    listingDoc.serviceProfiles = listingData.serviceProfiles || [];
+    listingDoc.serviceAddress = listingData.serviceAddress || null;
+    listingDoc.serviceWhereProvide = listingData.serviceWhereProvide || null;
+    listingDoc.serviceOfferings = listingData.serviceOfferings || [];
+    listingDoc.serviceNationalPark = listingData.serviceNationalPark !== undefined ? listingData.serviceNationalPark : null;
+    listingDoc.serviceTransportingGuests = listingData.serviceTransportingGuests !== undefined ? listingData.serviceTransportingGuests : null;
+    listingDoc.serviceAgreedToTerms = listingData.serviceAgreedToTerms !== undefined ? listingData.serviceAgreedToTerms : false;
+  } else {
+    // Accommodation-specific fields
+    listingDoc.propertyBasics = listingData.propertyBasics || {};
+    listingDoc.amenities = listingData.amenities || {};
+    listingDoc.privacyType = listingData.privacyType || '';
+    listingDoc.propertyStructure = listingData.propertyStructure || '';
+    listingDoc.bookingSettings = listingData.bookingSettings || {};
+    listingDoc.guestSelection = listingData.guestSelection || {};
+    listingDoc.discounts = listingData.discounts || {};
+    listingDoc.safetyDetails = listingData.safetyDetails || {};
+    listingDoc.finalDetails = listingData.finalDetails || {};
+  }
 
   // If updating existing listing, preserve createdAt and publishedAt
   // CRITICAL: Only update changed fields, preserve unchanged data

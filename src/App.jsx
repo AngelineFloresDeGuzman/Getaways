@@ -23,8 +23,37 @@ import CalendarPage from "@/pages/Host/Calendar";
 import HostListings from "@/pages/Host/Listings";
 import AdminDashboard from "@/pages/Admin/AdminDashboard";
 import AccountSettings from "@/pages/Common/AccountSettings";
+import EWallet from "@/pages/Common/EWallet";
 import Favorites from "@/pages/Guest/Favorites";
 import HostingSteps from './pages/Host/onboarding/HostingSteps.jsx';
+import ExperienceCategorySelection from "./pages/Host/onboarding/ExperienceCategorySelection";
+import ExperienceSubcategorySelection from "./pages/Host/onboarding/ExperienceSubcategorySelection";
+import ExperienceLocation from "./pages/Host/onboarding/ExperienceLocation";
+import ExperienceListingSummary from "./pages/Host/onboarding/ExperienceListingSummary";
+import ExperienceDetails from "./pages/Host/onboarding/ExperienceDetails";
+import ServiceCategorySelection from "./pages/Host/onboarding/ServiceCategorySelection";
+import ServiceLocation from "./pages/Host/onboarding/ServiceLocation";
+import ServiceYearsOfExperience from "./pages/Host/onboarding/ServiceYearsOfExperience";
+import ServiceQualifications from "./pages/Host/onboarding/ServiceQualifications";
+import ServiceOnlineProfiles from "./pages/Host/onboarding/ServiceOnlineProfiles";
+import ServiceWhereProvide from "./pages/Host/onboarding/ServiceWhereProvide";
+import ServiceAddress from "./pages/Host/onboarding/ServiceAddress";
+import ServicePhotos from "./pages/Host/onboarding/ServicePhotos";
+import ServiceTitle from "./pages/Host/onboarding/ServiceTitle";
+import ServiceOfferings from "./pages/Host/onboarding/ServiceOfferings";
+import CreateYourOfferings from "./pages/Host/onboarding/CreateYourOfferings";
+import ServiceDescription from "./pages/Host/onboarding/ServiceDescription";
+import ServiceWhatProvide from "./pages/Host/onboarding/ServiceWhatProvide";
+import OfferingTitle from "./pages/Host/onboarding/OfferingTitle";
+import OfferingPhoto from "./pages/Host/onboarding/OfferingPhoto";
+import OfferingGuests from "./pages/Host/onboarding/OfferingGuests";
+import OfferingPrice from "./pages/Host/onboarding/OfferingPrice";
+import OfferingPricePerGuest from "./pages/Host/onboarding/OfferingPricePerGuest";
+import OfferingPriceFixed from "./pages/Host/onboarding/OfferingPriceFixed";
+import OfferingMinimumPrice from "./pages/Host/onboarding/OfferingMinimumPrice";
+import OfferingReviewPricing from "./pages/Host/onboarding/OfferingReviewPricing";
+import OfferingDiscounts from "./pages/Host/onboarding/OfferingDiscounts";
+import OfferingAvailability from "./pages/Host/onboarding/OfferingAvailability";
 import PropertyDetails from "./pages/Host/onboarding/PropertyDetails";
 import PropertyStructure from "./pages/Host/onboarding/PropertyStructure";
 import PrivacyType from "./pages/Host/onboarding/PrivacyType";
@@ -113,12 +142,42 @@ const App = () => {
             <Route path="/notifications" element={<Notifications darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/admin/admindashboard" element={<AdminDashboard darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/accountsettings" element={<AccountSettings darkMode={darkMode} setDarkMode={setDarkMode} />} />
+            <Route path="/ewallet" element={<EWallet />} />
             
             {/* Onboarding Routes with Context */}
             <Route path="/pages/*" element={
               <OnboardingProvider>
                 <Routes>
                   <Route path="hostingsteps" element={<HostingSteps />} />
+                  <Route path="experience-category-selection" element={<ExperienceCategorySelection />} />
+                  <Route path="experience-subcategory-selection" element={<ExperienceSubcategorySelection />} />
+                  <Route path="experience-location" element={<ExperienceLocation />} />
+                  <Route path="experience-listing-summary" element={<ExperienceListingSummary />} />
+                  <Route path="experience-details" element={<ExperienceDetails />} />
+                  <Route path="service-category-selection" element={<ServiceCategorySelection />} />
+                  <Route path="service-location" element={<ServiceLocation />} />
+                  <Route path="service-years-of-experience" element={<ServiceYearsOfExperience />} />
+                  <Route path="service-qualifications" element={<ServiceQualifications />} />
+                  <Route path="service-online-profiles" element={<ServiceOnlineProfiles />} />
+                  <Route path="service-where-provide" element={<ServiceWhereProvide />} />
+                  <Route path="service-photos" element={<ServicePhotos />} />
+                  <Route path="service-title" element={<ServiceTitle />} />
+                  <Route path="create-your-offerings" element={<CreateYourOfferings />} />
+                  <Route path="your-offerings" element={<ServiceOfferings />} />
+                  <Route path="service-offerings" element={<ServiceOfferings />} />
+                  <Route path="offering-title" element={<OfferingTitle />} />
+                  <Route path="offering-photo" element={<OfferingPhoto />} />
+                  <Route path="offering-guests" element={<OfferingGuests />} />
+                  <Route path="offering-price" element={<OfferingPrice />} />
+                  <Route path="offering-price-per-guest" element={<OfferingPricePerGuest />} />
+                  <Route path="offering-price-fixed" element={<OfferingPriceFixed />} />
+                  <Route path="offering-minimum-price" element={<OfferingMinimumPrice />} />
+                  <Route path="offering-review-pricing" element={<OfferingReviewPricing />} />
+                  <Route path="offering-discounts" element={<OfferingDiscounts />} />
+                  <Route path="offering-availability" element={<OfferingAvailability />} />
+                  <Route path="service-address" element={<ServiceAddress />} />
+                  <Route path="service-what-provide" element={<ServiceWhatProvide />} />
+                  <Route path="service-description" element={<ServiceDescription />} />
                   <Route path="propertydetails" element={<PropertyDetails />} />
                   <Route path="propertystructure" element={<PropertyStructure />} />
                   <Route path="privacytype" element={<PrivacyType />} />

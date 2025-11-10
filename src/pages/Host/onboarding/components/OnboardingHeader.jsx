@@ -1,8 +1,9 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import { useOnboarding } from "@/pages/Host/contexts/OnboardingContext";
+import { User, MapPin, Image, BookOpen, Camera, Trash2, Building, Users, DollarSign, Briefcase, Award, Phone, Mail } from "lucide-react";
 
-const OnboardingHeader = ({ showProgress = true, currentStepNameOverride }) => {
+const OnboardingHeader = ({ showProgress = true, currentStepNameOverride, experienceCurrentStep, onExperienceStepChange, serviceCurrentStep, onServiceStepChange, customSaveAndExit }) => {
   const navigate = useNavigate();
   let contextData;
   try {
@@ -15,6 +16,65 @@ const OnboardingHeader = ({ showProgress = true, currentStepNameOverride }) => {
     };
   }
   const { state, actions } = contextData;
+
+  // Check if this is an experience details page (with sidebar layout)
+  const isExperienceDetails = currentStepNameOverride === 'experience-details' || state.currentStep === 'experience-details';
+  
+  // Check if this is a service details page (with sidebar layout)
+  const isServiceDetails = currentStepNameOverride === 'service-details' || state.currentStep === 'service-details';
+  
+  // Debug: Log if customSaveAndExit is provided
+  if (isExperienceDetails && customSaveAndExit) {
+    console.log("✅ Custom save handler detected for experience details");
+  } else if (isExperienceDetails && !customSaveAndExit) {
+    console.warn("⚠️ Experience details page but no custom save handler provided");
+  }
+  
+  if (isServiceDetails && customSaveAndExit) {
+    console.log("✅ Custom save handler detected for service details");
+  } else if (isServiceDetails && !customSaveAndExit) {
+    console.warn("⚠️ Service details page but no custom save handler provided");
+  }
+  
+  // Experience sidebar steps
+  const experienceSteps = [
+    { id: 1, label: "About you", icon: User },
+    { id: 2, label: "Location", icon: MapPin },
+    { id: 3, label: "Photos", icon: Image },
+    { id: 4, label: "Description", icon: BookOpen },
+    { id: 5, label: "Camera", icon: Camera },
+    { id: 6, label: "Trash", icon: Trash2 },
+    { id: 7, label: "Building", icon: Building },
+    { id: 8, label: "Guests", icon: Users },
+    { id: 9, label: "Price", icon: DollarSign },
+    { id: 10, label: "Private", icon: DollarSign },
+    { id: 11, label: "Review", icon: BookOpen },
+    { id: 12, label: "Discounts", icon: DollarSign },
+    { id: 13, label: "Legal", icon: BookOpen },
+    { id: 14, label: "Title", icon: BookOpen },
+    { id: 15, label: "Create", icon: BookOpen },
+    { id: 16, label: "Submit", icon: BookOpen },
+  ];
+
+  // Service sidebar steps
+  const serviceSteps = [
+    { id: 1, label: "About you", icon: User },
+    { id: 2, label: "Location", icon: MapPin },
+    { id: 3, label: "Photos", icon: Image },
+    { id: 4, label: "Description", icon: BookOpen },
+    { id: 5, label: "Portfolio", icon: Briefcase },
+    { id: 6, label: "Credentials", icon: Award },
+    { id: 7, label: "Contact", icon: Phone },
+    { id: 8, label: "Email", icon: Mail },
+    { id: 9, label: "Price", icon: DollarSign },
+    { id: 10, label: "Availability", icon: Building },
+    { id: 11, label: "Review", icon: BookOpen },
+    { id: 12, label: "Discounts", icon: DollarSign },
+    { id: 13, label: "Terms", icon: BookOpen },
+    { id: 14, label: "Title", icon: BookOpen },
+    { id: 15, label: "Create", icon: BookOpen },
+    { id: 16, label: "Submit", icon: BookOpen },
+  ];
 
   // Add animated water effect styles
   React.useEffect(() => {
@@ -36,6 +96,7 @@ const OnboardingHeader = ({ showProgress = true, currentStepNameOverride }) => {
       document.head.appendChild(style);
     }
   }, []);
+  
   const handleSaveAndExit = async () => {
     const { auth } = await import("@/lib/firebase");
     const currentUser = auth.currentUser;
@@ -45,18 +106,160 @@ const OnboardingHeader = ({ showProgress = true, currentStepNameOverride }) => {
       return;
     }
     try {
+      // For experience details, always use custom handler if provided
+      if (isExperienceDetails && customSaveAndExit) {
+        console.log("✅ Using custom save handler for experience details");
+        await customSaveAndExit();
+        return; // Don't execute context handler after custom handler
+      }
+      
+      // For service details, always use custom handler if provided
+      if (isServiceDetails && customSaveAndExit) {
+        console.log("✅ Using custom save handler for service details");
+        await customSaveAndExit();
+        return; // Don't execute context handler after custom handler
+      }
+      
+      // Use custom save handler if provided (for other cases), otherwise use context handler
+      if (customSaveAndExit) {
+        console.log("✅ Using custom save handler");
+        await customSaveAndExit();
+        return; // Don't execute context handler after custom handler
+      }
+      
+      // Default: use context handler for accommodation onboarding
+      console.log("Using context save handler");
       await actions.saveAndExit();
       console.log("✅ Save and exit completed successfully!");
     } catch (error) {
+      console.error("Error in handleSaveAndExit:", error);
       alert("Failed to save draft: " + error.message);
     }
   };
+
+  // If this is experience details page, render header with horizontal navbar instead of progress bar
+  if (isExperienceDetails) {
+    const currentStep = experienceCurrentStep || 1;
+
+    return (
+      <>
+        {/* Header with horizontal navbar */}
+        <header className="fixed top-0 left-0 right-0 bg-white z-50 shadow-sm pt-2 relative overflow-visible border-b border-gray-200">
+          <div className="py-2 px-6 flex items-center justify-between">
+              <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate('/host/listings')}>
+              <img src="/logo.jpg" alt="Getaways" className="h-8 w-8" />
+              <span className="font-bold text-lg md:text-xl text-primary">Getaways</span>
+            </div>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={handleSaveAndExit}
+                className="border border-primary text-primary text-xs font-medium px-4 py-1.5 rounded-md transition-all duration-300 hover:shadow-md hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{ background: 'white' }}
+                onMouseEnter={(e) => { if (!state.isLoading) { e.currentTarget.style.background = 'hsl(var(--primary))'; e.currentTarget.style.color = 'white'; e.currentTarget.style.transform = 'scale(1.05)'; } }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'white'; e.currentTarget.style.color = 'hsl(var(--primary))'; e.currentTarget.style.transform = 'scale(1)'; }}
+                disabled={state.isLoading}
+              >
+                {state.isLoading ? "Saving..." : "Save & Exit"}
+              </button>
+            </div>
+          </div>
+          {/* Step Circles at Bottom - Half extends below border */}
+          <div className="w-full bg-white px-6 flex items-end justify-center relative" style={{ height: '4px', paddingTop: '0', paddingBottom: '0' }}>
+            {/* Step Icons - Centered */}
+            <div className="flex items-center gap-4" style={{ bottom: '0', transform: 'translateY(50%)' }}>
+              {experienceSteps.map((step) => {
+                const Icon = step.icon;
+                const isActive = step.id === currentStep;
+                const isCompleted = step.id < currentStep;
+                return (
+                  <button
+                    key={step.id}
+                    onClick={() => onExperienceStepChange && onExperienceStepChange(step.id)}
+                    className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors relative z-10 ${
+                      isActive
+                        ? "bg-primary text-white"
+                        : isCompleted
+                        ? "bg-gray-200 text-gray-600"
+                        : "bg-gray-100 text-gray-400 hover:bg-gray-200"
+                    }`}
+                    title={step.label}
+                  >
+                    <Icon className="w-5 h-5" />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </header>
+      </>
+    );
+  }
+
+  // If this is service details page, render header with horizontal navbar instead of progress bar
+  if (isServiceDetails) {
+    const currentStep = serviceCurrentStep || 1;
+
+    return (
+      <>
+        {/* Header with horizontal navbar */}
+        <header className="fixed top-0 left-0 right-0 bg-white z-50 shadow-sm pt-2 relative overflow-visible border-b border-gray-200">
+          <div className="py-2 px-6 flex items-center justify-between">
+              <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate('/host/listings')}>
+              <img src="/logo.jpg" alt="Getaways" className="h-8 w-8" />
+              <span className="font-bold text-lg md:text-xl text-primary">Getaways</span>
+            </div>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={handleSaveAndExit}
+                className="border border-primary text-primary text-xs font-medium px-4 py-1.5 rounded-md transition-all duration-300 hover:shadow-md hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{ background: 'white' }}
+                onMouseEnter={(e) => { if (!state.isLoading) { e.currentTarget.style.background = 'hsl(var(--primary))'; e.currentTarget.style.color = 'white'; e.currentTarget.style.transform = 'scale(1.05)'; } }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'white'; e.currentTarget.style.color = 'hsl(var(--primary))'; e.currentTarget.style.transform = 'scale(1)'; }}
+                disabled={state.isLoading}
+              >
+                {state.isLoading ? "Saving..." : "Save & Exit"}
+              </button>
+            </div>
+          </div>
+          {/* Step Circles at Bottom - Half extends below border */}
+          <div className="w-full bg-white px-6 flex items-end justify-center relative" style={{ height: '4px', paddingTop: '0', paddingBottom: '0' }}>
+            {/* Step Icons - Centered */}
+            <div className="flex items-center gap-4" style={{ bottom: '0', transform: 'translateY(50%)' }}>
+              {serviceSteps.map((step) => {
+                const Icon = step.icon;
+                const isActive = step.id === currentStep;
+                const isCompleted = step.id < currentStep;
+                return (
+                  <button
+                    key={step.id}
+                    onClick={() => onServiceStepChange && onServiceStepChange(step.id)}
+                    className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors relative z-10 ${
+                      isActive
+                        ? "bg-primary text-white"
+                        : isCompleted
+                        ? "bg-gray-200 text-gray-600"
+                        : "bg-gray-100 text-gray-400 hover:bg-gray-200"
+                    }`}
+                    title={step.label}
+                  >
+                    <Icon className="w-5 h-5" />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </header>
+      </>
+    );
+  }
+
+  // Regular header for accommodations (unchanged)
   return (
     <>
       {/* Header with progress line at bottom */}
       <header className="fixed top-0 left-0 right-0 bg-white z-50 border-b shadow-sm pt-2">
         <div className="py-2 px-6 flex items-center justify-between">
-          <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate('/host/hostdashboard')}>
+              <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate('/host/listings')}>
             <img src="/logo.jpg" alt="Getaways" className="h-8 w-8" />
             <span className="font-bold text-lg md:text-xl text-primary">Getaways</span>
           </div>
@@ -112,9 +315,123 @@ const StepProgress = ({ currentStepName = 'hostingsteps' }) => {
 
   // HostingSteps should display as 0% for Step 1 (movement starts at propertydetails)
   const isHostingSteps = currentStepName === 'hostingsteps';
-  if (isHostingSteps) {
+  // Experience category selection should also display as 0% for Step 1
+  const isExperienceCategorySelection = currentStepName === 'experience-category-selection';
+  // Service category selection should also display as 0% for Step 1
+  const isServiceCategorySelection = currentStepName === 'service-category-selection';
+  // Experience subcategory selection is part of Step 1 for experiences
+  const isExperienceSubcategorySelection = currentStepName === 'experience-subcategory-selection';
+  if (isHostingSteps || isExperienceCategorySelection || isServiceCategorySelection) {
     currentMainStep = 1;
     progressInStep = 0;
+  }
+  // For experience subcategory, show progress within Step 1
+  const isExperienceLocation = currentStepName === 'experience-location';
+  const isServiceLocation = currentStepName === 'service-location';
+  const isServiceYearsOfExperience = currentStepName === 'service-years-of-experience';
+  const isServiceQualifications = currentStepName === 'service-qualifications';
+  const isServiceOnlineProfiles = currentStepName === 'service-online-profiles';
+  const isServiceWhereProvide = currentStepName === 'service-where-provide';
+  const isServiceAddress = currentStepName === 'service-address';
+  const isServicePhotos = currentStepName === 'service-photos';
+  const isServiceTitle = currentStepName === 'service-title';
+  const isServiceOfferings = currentStepName === 'service-offerings';
+  const isCreateYourOfferings = currentStepName === 'create-your-offerings';
+  const isServiceWhatProvide = currentStepName === 'service-what-provide';
+  const isServiceDescription = currentStepName === 'service-description';
+  if (isExperienceSubcategorySelection) {
+    currentMainStep = 1;
+    // Calculate progress: category selection (0%) -> subcategory selection (50%) -> location (75%) -> next step (100%)
+    progressInStep = 50;
+  }
+  // For experience location, show progress within Step 1
+  const isExperienceListingSummary = currentStepName === 'experience-listing-summary';
+  if (isExperienceLocation) {
+    currentMainStep = 1;
+    progressInStep = 75;
+  }
+  // For service location, show progress within Step 1 (similar to experience location)
+  if (isServiceLocation) {
+    currentMainStep = 1;
+    // Calculate progress: category selection (0%) -> location (50%) -> years of experience (75%) -> next step (100%)
+    progressInStep = 50;
+  }
+  // For service years of experience, show progress within Step 1
+  if (isServiceYearsOfExperience) {
+    currentMainStep = 1;
+    // Calculate progress: category selection (0%) -> location (50%) -> years of experience (75%) -> next step (100%)
+    progressInStep = 75;
+  }
+  // For service qualifications, show progress within Step 1
+  if (isServiceQualifications) {
+    currentMainStep = 1;
+    progressInStep = 87.5;
+  }
+  // For service online profiles, show progress within Step 1
+  if (isServiceOnlineProfiles) {
+    currentMainStep = 1;
+    progressInStep = 95;
+  }
+  // For service address, show progress within Step 1
+  if (isServiceAddress) {
+    currentMainStep = 1;
+    progressInStep = 97.5;
+  }
+  // For service where provide, show progress within Step 1
+  if (isServiceWhereProvide) {
+    currentMainStep = 1;
+    progressInStep = 98.5;
+  }
+  // For service photos, show progress within Step 1
+  if (isServicePhotos) {
+    currentMainStep = 1;
+    progressInStep = 99;
+  }
+  // For service title, show progress within Step 1
+  if (isServiceTitle) {
+    currentMainStep = 1;
+    progressInStep = 99.5;
+  }
+  // For service offerings, show progress within Step 1
+  if (isServiceOfferings || isCreateYourOfferings) {
+    currentMainStep = 1;
+    progressInStep = 99.8;
+  }
+  
+  // For service what provide, show progress within Step 1
+  if (isServiceWhatProvide) {
+    currentMainStep = 1;
+    progressInStep = 99.85;
+  }
+  
+  // For service description, show progress within Step 1
+  if (isServiceDescription) {
+    currentMainStep = 1;
+    progressInStep = 99.9;
+  }
+  
+  // For offering creation steps, show progress within Step 1
+  const isOfferingTitle = currentStepName === 'offering-title';
+  const isOfferingPhoto = currentStepName === 'offering-photo';
+  const isOfferingGuests = currentStepName === 'offering-guests';
+  const isOfferingPrice = currentStepName === 'offering-price';
+  const isOfferingPricePerGuest = currentStepName === 'offering-price-per-guest';
+  const isOfferingPriceFixed = currentStepName === 'offering-price-fixed';
+  const isOfferingMinimumPrice = currentStepName === 'offering-minimum-price';
+  const isOfferingReviewPricing = currentStepName === 'offering-review-pricing';
+  const isOfferingDiscounts = currentStepName === 'offering-discounts';
+  const isOfferingAvailability = currentStepName === 'offering-availability';
+  
+  if (isOfferingTitle || isOfferingPhoto || isOfferingGuests || isOfferingPrice || 
+      isOfferingPricePerGuest || isOfferingPriceFixed || isOfferingMinimumPrice || 
+      isOfferingReviewPricing || isOfferingDiscounts || isOfferingAvailability) {
+    currentMainStep = 1;
+    progressInStep = 99.9; // Slightly higher than offerings list
+  }
+  // For experience listing summary, show 100% progress for Step 1 (ready to move to Step 2)
+  if (isExperienceListingSummary) {
+    currentMainStep = 1;
+    progressInStep = 100;
   }
 
   // Debug logging
@@ -155,10 +472,10 @@ const StepProgress = ({ currentStepName = 'hostingsteps' }) => {
   const isMovingToNewStepGroupSync = storedStepSync !== currentMainStep && storedStepSync > 0 && currentMainStep > 0;
   const isMovingForwardBetweenGroupsSync = isMovingToNewStepGroupSync && currentMainStep > storedStepSync;
   
-  // On HostingSteps, start rendered at the last value so it can animate DOWN to 0
+  // On HostingSteps or ExperienceCategorySelection or ServiceCategorySelection, start rendered at the last value so it can animate DOWN to 0
   // When moving forward to a new step group, always start at 0 (not the previous step's progress)
   // When moving backward to a previous step group, start from 0 or the stored value for that step
-  const initialDisplayed = isHostingSteps
+  const initialDisplayed = (isHostingSteps || isExperienceCategorySelection || isServiceCategorySelection)
     ? storedValSync
     : (isMovingForwardBetweenGroupsSync 
         ? 0 
@@ -169,7 +486,7 @@ const StepProgress = ({ currentStepName = 'hostingsteps' }) => {
   const [displayedProgress, setDisplayedProgress] = React.useState(initialDisplayed);
 
   React.useEffect(() => {
-    if (isHostingSteps) {
+    if (isHostingSteps || isExperienceCategorySelection || isServiceCategorySelection) {
       // Animate backwards to 0 from the last stored value
       const lastVal = Number(sessionStorage.getItem(storageKey) || '0');
       setDisplayedProgress(lastVal);
@@ -179,6 +496,212 @@ const StepProgress = ({ currentStepName = 'hostingsteps' }) => {
           setDisplayedProgress(0);
           prevProgressRef.current = 0;
           sessionStorage.setItem(storageKey, '0');
+          sessionStorage.setItem(storageStepKey, String(currentMainStep));
+          sessionStorage.setItem(storagePrevStepKey, currentStepName);
+        });
+      });
+      return () => cancelAnimationFrame(id0);
+    }
+    
+    // For experience subcategory selection, animate to 50% progress
+    if (isExperienceSubcategorySelection) {
+      const lastVal = Number(sessionStorage.getItem(storageKey) || '0');
+      setDisplayedProgress(lastVal);
+      prevProgressRef.current = lastVal;
+      const id0 = requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setDisplayedProgress(50);
+          prevProgressRef.current = 50;
+          sessionStorage.setItem(storageKey, '50');
+          sessionStorage.setItem(storageStepKey, String(currentMainStep));
+          sessionStorage.setItem(storagePrevStepKey, currentStepName);
+        });
+      });
+      return () => cancelAnimationFrame(id0);
+    }
+    
+    // For service location, animate to 50% progress
+    if (isServiceLocation) {
+      const lastVal = Number(sessionStorage.getItem(storageKey) || '0');
+      setDisplayedProgress(lastVal);
+      prevProgressRef.current = lastVal;
+      const id0 = requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setDisplayedProgress(50);
+          prevProgressRef.current = 50;
+          sessionStorage.setItem(storageKey, '50');
+          sessionStorage.setItem(storageStepKey, String(currentMainStep));
+          sessionStorage.setItem(storagePrevStepKey, currentStepName);
+        });
+      });
+      return () => cancelAnimationFrame(id0);
+    }
+    
+    // For service years of experience, animate to 75% progress
+    if (isServiceYearsOfExperience) {
+      const lastVal = Number(sessionStorage.getItem(storageKey) || '0');
+      setDisplayedProgress(lastVal);
+      prevProgressRef.current = lastVal;
+      const id0 = requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setDisplayedProgress(75);
+          prevProgressRef.current = 75;
+          sessionStorage.setItem(storageKey, '75');
+          sessionStorage.setItem(storageStepKey, String(currentMainStep));
+          sessionStorage.setItem(storagePrevStepKey, currentStepName);
+        });
+      });
+      return () => cancelAnimationFrame(id0);
+    }
+    
+    // For service qualifications, animate to 87.5% progress
+    if (isServiceQualifications) {
+      const lastVal = Number(sessionStorage.getItem(storageKey) || '0');
+      setDisplayedProgress(lastVal);
+      prevProgressRef.current = lastVal;
+      const id0 = requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setDisplayedProgress(87.5);
+          prevProgressRef.current = 87.5;
+          sessionStorage.setItem(storageKey, '87.5');
+          sessionStorage.setItem(storageStepKey, String(currentMainStep));
+          sessionStorage.setItem(storagePrevStepKey, currentStepName);
+        });
+      });
+      return () => cancelAnimationFrame(id0);
+    }
+    
+    // For service online profiles, animate to 95% progress
+    if (isServiceOnlineProfiles) {
+      const lastVal = Number(sessionStorage.getItem(storageKey) || '0');
+      setDisplayedProgress(lastVal);
+      prevProgressRef.current = lastVal;
+      const id0 = requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setDisplayedProgress(95);
+          prevProgressRef.current = 95;
+          sessionStorage.setItem(storageKey, '95');
+          sessionStorage.setItem(storageStepKey, String(currentMainStep));
+          sessionStorage.setItem(storagePrevStepKey, currentStepName);
+        });
+      });
+      return () => cancelAnimationFrame(id0);
+    }
+    
+    // For service address, animate to 97.5% progress
+    if (isServiceAddress) {
+      const lastVal = Number(sessionStorage.getItem(storageKey) || '0');
+      setDisplayedProgress(lastVal);
+      prevProgressRef.current = lastVal;
+      const id0 = requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setDisplayedProgress(97.5);
+          prevProgressRef.current = 97.5;
+          sessionStorage.setItem(storageKey, '97.5');
+          sessionStorage.setItem(storageStepKey, String(currentMainStep));
+          sessionStorage.setItem(storagePrevStepKey, currentStepName);
+        });
+      });
+      return () => cancelAnimationFrame(id0);
+    }
+    
+    // For service where provide, animate to 98.5% progress
+    if (isServiceWhereProvide) {
+      const lastVal = Number(sessionStorage.getItem(storageKey) || '0');
+      setDisplayedProgress(lastVal);
+      prevProgressRef.current = lastVal;
+      const id0 = requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setDisplayedProgress(98.5);
+          prevProgressRef.current = 98.5;
+          sessionStorage.setItem(storageKey, '98.5');
+          sessionStorage.setItem(storageStepKey, String(currentMainStep));
+          sessionStorage.setItem(storagePrevStepKey, currentStepName);
+        });
+      });
+      return () => cancelAnimationFrame(id0);
+    }
+
+    // For service photos, animate to 99% progress
+    if (isServicePhotos) {
+      const lastVal = Number(sessionStorage.getItem(storageKey) || '0');
+      setDisplayedProgress(lastVal);
+      prevProgressRef.current = lastVal;
+      const id0 = requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setDisplayedProgress(99);
+          prevProgressRef.current = 99;
+          sessionStorage.setItem(storageKey, '99');
+          sessionStorage.setItem(storageStepKey, String(currentMainStep));
+          sessionStorage.setItem(storagePrevStepKey, currentStepName);
+        });
+      });
+      return () => cancelAnimationFrame(id0);
+    }
+
+    // For service title, animate to 99.5% progress
+    if (isServiceTitle) {
+      const lastVal = Number(sessionStorage.getItem(storageKey) || '0');
+      setDisplayedProgress(lastVal);
+      prevProgressRef.current = lastVal;
+      const id0 = requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setDisplayedProgress(99.5);
+          prevProgressRef.current = 99.5;
+          sessionStorage.setItem(storageKey, '99.5');
+          sessionStorage.setItem(storageStepKey, String(currentMainStep));
+          sessionStorage.setItem(storagePrevStepKey, currentStepName);
+        });
+      });
+      return () => cancelAnimationFrame(id0);
+    }
+    
+    // For service what provide, animate to 99.85% progress
+    if (isServiceWhatProvide) {
+      const lastVal = Number(sessionStorage.getItem(storageKey) || '0');
+      setDisplayedProgress(lastVal);
+      prevProgressRef.current = lastVal;
+      const id1 = requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setDisplayedProgress(99.85);
+          prevProgressRef.current = 99.85;
+          sessionStorage.setItem(storageKey, '99.85');
+          sessionStorage.setItem(storageStepKey, String(currentMainStep));
+          sessionStorage.setItem(storagePrevStepKey, currentStepName);
+        });
+      });
+      return () => cancelAnimationFrame(id1);
+    }
+
+    // For service description, animate to 99.9% progress
+    if (isServiceDescription) {
+      const lastVal = Number(sessionStorage.getItem(storageKey) || '0');
+      setDisplayedProgress(lastVal);
+      prevProgressRef.current = lastVal;
+      const id2 = requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setDisplayedProgress(99.9);
+          prevProgressRef.current = 99.9;
+          sessionStorage.setItem(storageKey, '99.9');
+          sessionStorage.setItem(storageStepKey, String(currentMainStep));
+          sessionStorage.setItem(storagePrevStepKey, currentStepName);
+        });
+      });
+      return () => cancelAnimationFrame(id2);
+    }
+    
+    // For offering creation steps, animate to 99.9% progress
+    if (isOfferingTitle || isOfferingPhoto || isOfferingGuests || isOfferingPrice || 
+        isOfferingPricePerGuest || isOfferingPriceFixed || isOfferingMinimumPrice || 
+        isOfferingReviewPricing || isOfferingDiscounts || isOfferingAvailability) {
+      const lastVal = Number(sessionStorage.getItem(storageKey) || '0');
+      setDisplayedProgress(lastVal);
+      prevProgressRef.current = lastVal;
+      const id0 = requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setDisplayedProgress(99.9);
+          prevProgressRef.current = 99.9;
+          sessionStorage.setItem(storageKey, '99.9');
           sessionStorage.setItem(storageStepKey, String(currentMainStep));
           sessionStorage.setItem(storagePrevStepKey, currentStepName);
         });
@@ -365,7 +888,7 @@ const StepProgress = ({ currentStepName = 'hostingsteps' }) => {
       });
     });
     return () => cancelAnimationFrame(id);
-  }, [currentStepName, progressInStep, currentMainStep, isHostingSteps, isNavigatingBackward, prevStepName]);
+  }, [currentStepName, progressInStep, currentMainStep, isHostingSteps, isExperienceCategorySelection, isServiceCategorySelection, isExperienceSubcategorySelection, isExperienceLocation, isServiceLocation, isServiceYearsOfExperience, isServiceQualifications, isServiceOnlineProfiles, isServiceWhereProvide, isServiceAddress, isServicePhotos, isServiceTitle, isServiceOfferings, isCreateYourOfferings, isServiceWhatProvide, isServiceDescription, isOfferingTitle, isOfferingPhoto, isOfferingGuests, isOfferingPrice, isOfferingPricePerGuest, isOfferingPriceFixed, isOfferingMinimumPrice, isOfferingReviewPricing, isOfferingDiscounts, isExperienceListingSummary, isNavigatingBackward, prevStepName]);
 
   // Render three segments with progress
   return (

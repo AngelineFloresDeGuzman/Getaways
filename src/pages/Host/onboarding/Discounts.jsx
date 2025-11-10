@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import OnboardingHeader from './components/OnboardingHeader';
 import OnboardingFooter from './components/OnboardingFooter';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -18,6 +18,9 @@ const Discounts = () => {
     'weekly': true,
     'monthly': true
   });
+  
+  // Ref to track initialization
+  const hasInitialized = useRef(false);
 
   const discountOptions = [
     {
@@ -192,7 +195,7 @@ const Discounts = () => {
       updateSessionStorageBeforeNav('discounts');
       
       // Navigate to dashboard
-      navigate('/host/hostdashboard', { 
+      navigate('/host/listings', { 
         state: { 
           message: 'Draft saved successfully!',
           draftSaved: true 
@@ -213,6 +216,71 @@ const Discounts = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]); // Run when route changes
 
+  // Load discounts from Firebase when component mounts or draftId changes
+  useEffect(() => {
+    const loadDiscountsFromFirebase = async () => {
+      if (hasInitialized.current) {
+        return; // Already initialized
+      }
+
+      const draftIdToUse = location.state?.draftId || state?.draftId;
+      
+      // Skip if no draftId or temp draftId
+      if (!draftIdToUse || draftIdToUse.startsWith('temp_')) {
+        console.log('📍 Discounts: No valid draftId, skipping Firebase load');
+        return;
+      }
+
+      try {
+        console.log('📍 Discounts: Loading discounts from Firebase with draftId:', draftIdToUse);
+        const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
+        const docSnap = await getDoc(draftRef);
+        
+        if (docSnap.exists()) {
+          const draftData = docSnap.data();
+          console.log('📍 Discounts: Draft data exists');
+          console.log('📍 Discounts: draftData.data:', draftData.data);
+          console.log('📍 Discounts: draftData.data?.discounts:', draftData.data?.discounts);
+          
+          // Check nested data.discounts first (where we save it), then context
+          const savedDiscounts = draftData.data?.discounts || state.discounts;
+          
+          if (savedDiscounts) {
+            console.log('📍 Discounts: ✅ Found saved discounts:', savedDiscounts);
+            
+            // Convert percentage values back to boolean state
+            const restoredDiscounts = {
+              'new-listing': savedDiscounts.earlyBird > 0,
+              'last-minute': savedDiscounts.lastMinute > 0,
+              'weekly': savedDiscounts.weekly > 0,
+              'monthly': savedDiscounts.monthly > 0
+            };
+            
+            console.log('📍 Discounts: Restored discount state:', restoredDiscounts);
+            setDiscounts(restoredDiscounts);
+            
+            // Also update context if it's not set there yet or is different
+            if (!state.discounts || JSON.stringify(state.discounts) !== JSON.stringify(savedDiscounts)) {
+              console.log('📍 Discounts: Updating context with saved discounts');
+              actions.updateDiscounts(savedDiscounts);
+            }
+            
+            hasInitialized.current = true;
+            return; // Exit early if we found it in Firebase
+          } else {
+            console.log('📍 Discounts: ⚠️ No discounts found in Firebase draft');
+          }
+        } else {
+          console.log('📍 Discounts: ⚠️ Draft document does not exist for draftId:', draftIdToUse);
+        }
+      } catch (error) {
+        console.error('📍 Discounts: ❌ Error loading discounts from Firebase:', error);
+      }
+    };
+
+    loadDiscountsFromFirebase();
+  }, [location.state?.draftId, state?.draftId, state.discounts, actions]);
+
   // Sync discounts to context when they change, so Save & Exit in header saves the current selections
   useEffect(() => {
     const discountsData = buildDiscountsData();
@@ -228,7 +296,7 @@ const Discounts = () => {
 
   return (
     <div className="min-h-screen bg-white">
-      <OnboardingHeader showProgress={true} />
+      <OnboardingHeader showProgress={true} customSaveAndExit={handleSaveAndExitClick} />
 
       {/* Main Content */}
       <main className="pt-20 px-8 pb-32">

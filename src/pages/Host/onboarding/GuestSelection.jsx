@@ -52,11 +52,89 @@ const GuestSelection = () => {
     initializePage();
   }, [location.state?.draftId, state.user, actions.loadDraft]);
 
-  // Update selectedOption when state changes (after loading draft)
+  // Load guestSelection from Firebase when draftId is available
   useEffect(() => {
-    if (state.selectedGuestOption) {
+    const loadGuestSelectionFromFirebase = async () => {
+      let draftIdToUse = state?.draftId || location.state?.draftId;
+      
+      // If no draftId yet, try to get it from user's drafts
+      if (!draftIdToUse && state.user?.uid) {
+        try {
+          const { getUserDrafts } = await import('@/pages/Host/services/draftService');
+          const drafts = await getUserDrafts();
+          if (drafts.length > 0) {
+            draftIdToUse = drafts[0].id;
+            console.log('📍 GuestSelection: Found draftId from getUserDrafts:', draftIdToUse);
+            if (!state.draftId && actions.setDraftId) {
+              actions.setDraftId(draftIdToUse);
+            }
+          }
+        } catch (error) {
+          console.error('📍 GuestSelection: Error getting user drafts:', error);
+        }
+      }
+      
+      // Load guestSelection from Firebase if we have a draftId
+      if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
+        try {
+          console.log('📍 GuestSelection: Loading guestSelection from Firebase with draftId:', draftIdToUse);
+          const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
+          const docSnap = await getDoc(draftRef);
+          
+          if (docSnap.exists()) {
+            const draftData = docSnap.data();
+            console.log('📍 GuestSelection: Draft data exists');
+            console.log('📍 GuestSelection: draftData.data:', draftData.data);
+            console.log('📍 GuestSelection: draftData.data?.guestSelection:', draftData.data?.guestSelection);
+            
+            // Check nested data.guestSelection first (where we save it), then top-level, then context
+            const savedGuestSelection = draftData.data?.guestSelection || draftData.guestSelection || state.selectedGuestOption;
+            
+            if (savedGuestSelection) {
+              console.log('📍 GuestSelection: ✅ Found saved guestSelection:', savedGuestSelection);
+              setSelectedOption(savedGuestSelection);
+              
+              // Also update context if it's not set there yet or is different
+              if (!state.selectedGuestOption || state.selectedGuestOption !== savedGuestSelection) {
+                console.log('📍 GuestSelection: Updating context with saved guestSelection');
+                updateGuestSelectionContext(savedGuestSelection);
+              }
+              
+              if (!hasInitialized.current) {
+                hasInitialized.current = true;
+              }
+              return; // Exit early if we found it in Firebase
+            } else {
+              console.log('📍 GuestSelection: ⚠️ No guestSelection found in Firebase draft');
+            }
+          } else {
+            console.log('📍 GuestSelection: ⚠️ Draft document does not exist for draftId:', draftIdToUse);
+          }
+        } catch (error) {
+          console.error('📍 GuestSelection: ❌ Error loading guestSelection from Firebase:', error);
+        }
+      }
+      
+      // Fallback: check context state if Firebase didn't have it
+      if (state.selectedGuestOption && !hasInitialized.current) {
+        console.log('📍 GuestSelection: Using guestSelection from context (fallback):', state.selectedGuestOption);
+        setSelectedOption(state.selectedGuestOption);
+        hasInitialized.current = true;
+      }
+    };
+    
+    loadGuestSelectionFromFirebase();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state?.draftId, location.state?.draftId, state.user?.uid, location.pathname]);
+  
+  // Also watch for selectedGuestOption changes in context (as a fallback)
+  useEffect(() => {
+    if (state.selectedGuestOption && !hasInitialized.current) {
+      console.log('📍 GuestSelection: selectedGuestOption changed in context, updating:', state.selectedGuestOption);
       setSelectedOption(state.selectedGuestOption);
+      hasInitialized.current = true;
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.selectedGuestOption]);
 
   // Set current step when component mounts or route changes
@@ -218,7 +296,7 @@ const GuestSelection = () => {
       updateSessionStorageBeforeNav('guestselection');
       
       // Navigate to dashboard
-      navigate('/host/hostdashboard', { 
+      navigate('/host/listings', { 
         state: { 
           message: 'Draft saved successfully!',
           draftSaved: true 
@@ -232,7 +310,7 @@ const GuestSelection = () => {
 
   return (
     <div className="min-h-screen bg-white">
-      <OnboardingHeader showProgress={true} />
+      <OnboardingHeader showProgress={true} customSaveAndExit={handleSaveAndExitClick} />
 
       {/* Main Content */}
       <main className="pt-20 px-8 pb-32">

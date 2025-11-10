@@ -24,7 +24,7 @@ import {
   Flame as FireIcon
 } from 'lucide-react';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
-import { db } from '@/lib/firebase';
+import { db, auth } from '@/lib/firebase';
 import { doc, updateDoc, getDoc } from 'firebase/firestore';
 
 const Amenities = () => {
@@ -185,13 +185,85 @@ const Amenities = () => {
   };
 
   const handleSaveAndExit = async () => {
+    if (!auth.currentUser) {
+      alert('Please log in to save your progress');
+      return;
+    }
+    
     try {
+      console.log('📍 Amenities: Save & Exit clicked');
+      console.log('Current selectedAmenities:', selectedAmenities);
+      
       // Update context with latest amenities
       actions.updateState({ selectedAmenities });
       
-      // Save amenities to Firebase before exiting
-      const draftIdToUse = state?.draftId || location.state?.draftId;
+      // Set current step before saving so "Continue Editing" returns to this page
+      if (actions.setCurrentStep) {
+        console.log('📍 Amenities: Setting currentStep to amenities');
+        actions.setCurrentStep('amenities');
+      }
       
+      // Ensure we have a draftId
+      let draftIdToUse = state?.draftId || location.state?.draftId;
+      
+      // If draftId is temp, reset it to find/create a real one
+      if (draftIdToUse && draftIdToUse.startsWith('temp_')) {
+        console.log('📍 Amenities: Found temp ID, resetting to find/create real draft');
+        draftIdToUse = null;
+      }
+      
+      // If user is authenticated, ensure we have a draft
+      if (!draftIdToUse && state.user?.uid) {
+        try {
+          const { getUserDrafts, saveDraft } = await import('@/pages/Host/services/draftService');
+          const drafts = await getUserDrafts();
+          
+          if (drafts.length > 0) {
+            // Use the most recent draft
+            draftIdToUse = drafts[0].id;
+            console.log('📍 Amenities: Using existing draft:', draftIdToUse);
+            if (actions.setDraftId) {
+              actions.setDraftId(draftIdToUse);
+            }
+          } else {
+            // No drafts exist, create a new one
+            console.log('📍 Amenities: No existing drafts, creating new draft');
+            
+            // Categorize selected amenities
+            const favoritesIds = ['wifi', 'tv', 'kitchen', 'washer', 'free_parking', 'paid_parking', 'air_conditioning', 'dedicated_workspace'];
+            const standoutIds = ['pool', 'hot_tub', 'patio', 'bbq_grill', 'outdoor_dining', 'fire_pit', 'pool_table', 'indoor_fireplace', 'piano', 'exercise_equipment', 'lake_access', 'beach_access', 'ski_in_out', 'outdoor_shower'];
+            const safetyIds = ['smoke_alarm', 'first_aid_kit', 'fire_extinguisher', 'carbon_monoxide_alarm'];
+            
+            const favorites = selectedAmenities.filter(id => favoritesIds.includes(id));
+            const standout = selectedAmenities.filter(id => standoutIds.includes(id));
+            const safety = selectedAmenities.filter(id => safetyIds.includes(id));
+            
+            const amenitiesData = {
+              favorites: favorites.length > 0 ? favorites : [],
+              standout: standout.length > 0 ? standout : [],
+              safety: safety.length > 0 ? safety : []
+            };
+            
+            const newDraftData = {
+              currentStep: 'amenities',
+              category: state.category || 'accommodation',
+              data: {
+                amenities: amenitiesData
+              }
+            };
+            draftIdToUse = await saveDraft(newDraftData, null);
+            console.log('📍 Amenities: ✅ Created new draft:', draftIdToUse);
+            if (actions.setDraftId) {
+              actions.setDraftId(draftIdToUse);
+            }
+          }
+        } catch (error) {
+          console.error('📍 Amenities: Error finding/creating draft:', error);
+          throw error;
+        }
+      }
+      
+      // Save to Firebase if we have a valid draftId
       if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
         try {
           const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
@@ -220,26 +292,59 @@ const Amenities = () => {
               lastModified: new Date()
             });
             console.log('📍 Amenities: ✅ Saved amenities to Firebase on Save & Exit:', amenitiesData);
+          } else {
+            // Document doesn't exist, create it
+            console.log('📍 Amenities: Document not found, creating new one');
+            const { saveDraft } = await import('@/pages/Host/services/draftService');
+            
+            const favoritesIds = ['wifi', 'tv', 'kitchen', 'washer', 'free_parking', 'paid_parking', 'air_conditioning', 'dedicated_workspace'];
+            const standoutIds = ['pool', 'hot_tub', 'patio', 'bbq_grill', 'outdoor_dining', 'fire_pit', 'pool_table', 'indoor_fireplace', 'piano', 'exercise_equipment', 'lake_access', 'beach_access', 'ski_in_out', 'outdoor_shower'];
+            const safetyIds = ['smoke_alarm', 'first_aid_kit', 'fire_extinguisher', 'carbon_monoxide_alarm'];
+            
+            const favorites = selectedAmenities.filter(id => favoritesIds.includes(id));
+            const standout = selectedAmenities.filter(id => standoutIds.includes(id));
+            const safety = selectedAmenities.filter(id => safetyIds.includes(id));
+            
+            const amenitiesData = {
+              favorites: favorites.length > 0 ? favorites : [],
+              standout: standout.length > 0 ? standout : [],
+              safety: safety.length > 0 ? safety : []
+            };
+            
+            const newDraftData = {
+              currentStep: 'amenities',
+              category: state.category || 'accommodation',
+              data: {
+                amenities: amenitiesData
+              }
+            };
+            draftIdToUse = await saveDraft(newDraftData, draftIdToUse);
+            console.log('📍 Amenities: ✅ Created new draft with amenities:', draftIdToUse);
+            if (actions.setDraftId) {
+              actions.setDraftId(draftIdToUse);
+            }
           }
         } catch (saveError) {
           console.error('📍 Amenities: Error saving to Firebase on Save & Exit:', saveError);
+          alert('Error saving progress: ' + saveError.message);
+          return;
         }
+      } else if (state.user?.uid) {
+        // User authenticated but no draftId - this shouldn't happen after ensureDraftAndSave logic
+        console.warn('📍 Amenities: ⚠️ User authenticated but no valid draftId after ensureDraftAndSave');
+        throw new Error('Failed to create draft for authenticated user');
       }
       
       // Update sessionStorage before Save & Exit navigation
       updateSessionStorageBeforeNav('amenities');
       
-      // Use context's saveAndExit function for navigation
-      if (actions.saveAndExit) {
-        await actions.saveAndExit();
-      } else {
-        navigate('/host/hostdashboard', { 
-          state: { 
-            message: 'Draft saved successfully!',
-            draftSaved: true 
-          }
-        });
-      }
+      // Navigate to listings tab
+      navigate('/host/listings', { 
+        state: { 
+          message: 'Draft saved successfully!',
+          draftSaved: true 
+        }
+      });
     } catch (error) {
       console.error('Error saving and exiting:', error);
       alert('Error saving progress: ' + error.message);
@@ -273,7 +378,7 @@ const Amenities = () => {
 
   return (
     <div className="min-h-screen bg-white">
-      <OnboardingHeader showProgress={true} />
+      <OnboardingHeader showProgress={true} customSaveAndExit={handleSaveAndExit} />
 
       {/* Main Content */}
       <main className="pt-20 px-8 pb-32">

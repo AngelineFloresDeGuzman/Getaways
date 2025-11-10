@@ -11,48 +11,66 @@ import { updateSessionStorageBeforeNav } from './utils/sessionStorageHelper';
 import { PayPalScriptProvider, PayPalButtons, usePayPalScriptReducer } from '@paypal/react-paypal-js';
 
 // PayPal Client ID - Replace with your actual PayPal Client ID from PayPal Developer Dashboard
-// For testing, use sandbox client ID
+// For testing, use sandbox client ID from https://developer.paypal.com/
 // Set VITE_PAYPAL_CLIENT_ID in .env file (e.g., VITE_PAYPAL_CLIENT_ID=your_client_id_here)
-const PAYPAL_CLIENT_ID = import.meta.env.VITE_PAYPAL_CLIENT_ID || 'test';
+// IMPORTANT: PayPal buttons require a valid client ID. If not set, PayPal payment buttons will be disabled.
+const PAYPAL_CLIENT_ID = import.meta.env.VITE_PAYPAL_CLIENT_ID || '';
+const HAS_VALID_PAYPAL_CLIENT_ID = PAYPAL_CLIENT_ID && PAYPAL_CLIENT_ID !== 'test' && PAYPAL_CLIENT_ID.length > 10;
 
 // PayPal Button Wrapper Component
 const PayPalButtonWrapper = ({ amount, onSuccess, onError, disabled, planName }) => {
-  const [{ isPending }] = usePayPalScriptReducer();
+  const [{ isPending, isResolved }] = usePayPalScriptReducer();
+  
+  // If no valid PayPal client ID, show message instead of buttons
+  if (!HAS_VALID_PAYPAL_CLIENT_ID) {
+    return (
+      <div className="text-center py-6 px-4 bg-amber-50 border-2 border-amber-200 rounded-lg">
+        <p className="text-sm text-amber-800 font-semibold mb-2">
+          PayPal payment is not configured
+        </p>
+        <p className="text-xs text-amber-700">
+          Please set VITE_PAYPAL_CLIENT_ID in your .env file with a valid PayPal Client ID from the PayPal Developer Dashboard.
+        </p>
+      </div>
+    );
+  }
   
   return (
     <>
       {isPending && <div className="text-center py-4 text-gray-600">Loading PayPal...</div>}
-      <PayPalButtons
-        disabled={disabled || isPending}
-        style={{
-          layout: 'vertical',
-          color: 'blue',
-          shape: 'rect',
-          label: 'paypal'
-        }}
-        createOrder={(data, actions) => {
-          return actions.order.create({
-            purchase_units: [
-              {
-                amount: {
-                  value: typeof amount === 'string' ? amount : amount.toString(),
-                  currency_code: 'PHP'
-                },
-                description: `Getaways Listing Subscription - ${planName || 'Subscription'}`
-              }
-            ]
-          });
-        }}
-        onApprove={(data, actions) => {
-          return actions.order.capture().then((details) => {
-            onSuccess(details);
-          });
-        }}
-        onError={(err) => {
-          console.error('PayPal error:', err);
-          onError(err);
-        }}
-      />
+      {isResolved && (
+        <PayPalButtons
+          disabled={disabled || isPending}
+          style={{
+            layout: 'vertical',
+            color: 'blue',
+            shape: 'rect',
+            label: 'paypal'
+          }}
+          createOrder={(data, actions) => {
+            return actions.order.create({
+              purchase_units: [
+                {
+                  amount: {
+                    value: typeof amount === 'string' ? amount : amount.toString(),
+                    currency_code: 'PHP'
+                  },
+                  description: `Getaways Listing Subscription - ${planName || 'Subscription'}`
+                }
+              ]
+            });
+          }}
+          onApprove={(data, actions) => {
+            return actions.order.capture().then((details) => {
+              onSuccess(details);
+            });
+          }}
+          onError={(err) => {
+            console.error('PayPal error:', err);
+            onError(err);
+          }}
+        />
+      )}
     </>
   );
 };
@@ -70,7 +88,8 @@ const Payment = () => {
   const [requiresPayment, setRequiresPayment] = useState(true); // Whether payment is required
   const [paypalAccountConnected, setPaypalAccountConnected] = useState(false);
   const [paypalEmail, setPaypalEmail] = useState('');
-  const [showConnectPayPal, setShowConnectPayPal] = useState(false);
+  const [paypalAccountId, setPaypalAccountId] = useState('');
+  const [paypalAccountName, setPaypalAccountName] = useState('');
   const [paypalEmailInput, setPaypalEmailInput] = useState('');
   const [isConnectingPayPal, setIsConnectingPayPal] = useState(false);
   const [uploadProgress, setUploadProgress] = useState('');
@@ -192,9 +211,9 @@ const Payment = () => {
                 setUploadProgress('Finalizing...');
                 await new Promise(resolve => setTimeout(resolve, 500));
                 
-                // Navigate to dashboard
+                // Navigate to listings tab
                 updateSessionStorageBeforeNav('payment');
-                navigate('/host/hostdashboard', {
+                navigate('/host/listings', {
                   state: {
                     message: isEditMode 
                       ? 'Listing updated successfully!'
@@ -257,9 +276,9 @@ const Payment = () => {
                 // Small delay to show "Finalizing" message
                 await new Promise(resolve => setTimeout(resolve, 500));
                 
-                // Navigate to dashboard
+                // Navigate to listings tab
                 updateSessionStorageBeforeNav('payment');
-                navigate('/host/hostdashboard', {
+                navigate('/host/listings', {
                   state: {
                     message: 'Listing updated successfully!',
                     listingUpdated: true,
@@ -323,7 +342,7 @@ const Payment = () => {
                     setUploadProgress('Finalizing...');
                     await new Promise(resolve => setTimeout(resolve, 500));
                     
-                    navigate('/host/hostdashboard', {
+                    navigate('/host/listings', {
                       state: {
                         message: 'Listing updated successfully!',
                         listingUpdated: true,
@@ -392,6 +411,8 @@ const Payment = () => {
             if (paypalEmailToUse) {
               setPaypalAccountConnected(userPayment.paypalStatus === 'connected' || userData.paypalStatus === 'connected');
               setPaypalEmail(paypalEmailToUse);
+              setPaypalAccountId(userPayment.paypalAccountId || '');
+              setPaypalAccountName(userPayment.paypalAccountName || '');
             }
           }
         } catch (error) {
@@ -404,7 +425,7 @@ const Payment = () => {
   }, []);
 
   // Check if user can proceed (both checkboxes must be checked AND PayPal connected)
-  const canProceed = acceptedPolicy && acceptedCompliance && paypalAccountConnected;
+  const canProceed = acceptedPolicy && acceptedCompliance;
 
   // Helper function to convert base64 to File
   const base64ToFile = (base64String, fileName, mimeType = 'image/jpeg') => {
@@ -622,11 +643,18 @@ const Payment = () => {
       }
       
       const data = draftData.data || {};
+      const category = draftData.category || 'accommodation';
 
-      // Prepare listing data from draft - format for accommodations page display
-      const locationData = data.locationData || {};
-      const photos = data.photos || [];
-      const pricing = data.pricing || {};
+      // Prepare listing data from draft - handle both accommodation and service categories
+      const locationData = category === 'service' 
+        ? (data.serviceLocation || data.locationData || {})
+        : (data.locationData || {});
+      const photos = category === 'service'
+        ? (data.servicePhotos || data.photos || [])
+        : (data.photos || []);
+      const pricing = category === 'service'
+        ? (data.servicePricing || data.pricing || {})
+        : (data.pricing || {});
       
       // Debug: Log photos data to help diagnose missing images issue
       console.log('📍 Payment: Photos from draft:', photos);
@@ -635,32 +663,56 @@ const Payment = () => {
       
       // Prepare listing data first (without photos - we'll add them after upload)
       const listingDataWithoutPhotos = {
-        category: draftData.category || 'accommodation',
-        title: data.title || 'Untitled Listing',
-        description: data.description || '',
+        category: category,
+        title: category === 'service'
+          ? (data.serviceTitle || data.title || 'Untitled Service')
+          : (data.title || 'Untitled Listing'),
+        description: category === 'service'
+          ? (data.serviceDescription || data.description || '')
+          : (data.description || ''),
         descriptionHighlights: data.descriptionHighlights || [],
         location: locationData, // Full location data object
-        propertyBasics: data.propertyBasics || {},
-        amenities: data.amenities || {},
         photos: [], // Will be updated after upload
-        privacyType: data.privacyType || draftData.privacyType || '',
-        propertyStructure: data.propertyStructure || draftData.propertyStructure || '',
         pricing: pricing,
-        bookingSettings: data.bookingSettings || {},
-        guestSelection: data.guestSelection || {},
-        discounts: data.discounts || {},
-        safetyDetails: data.safetyDetails || {},
-        finalDetails: data.finalDetails || {},
         // Status - always active for published listings (subscription checked from user payment)
-        status: 'active', // Published and active - will appear on accommodations page
+        status: 'active', // Published and active - will appear on listings page
         publishedAt: serverTimestamp(),
-        // Fields for accommodations page display
-        price: pricing.weekdayPrice || pricing.basePrice || 0,
-        image: null, // Will be updated after upload
-        images: [], // Will be updated after upload
+        // Fields for listings page display
+        price: pricing.weekdayPrice || pricing.basePrice || pricing.price || 0,
         rating: 0,
         reviews: 0
       };
+
+      // Add category-specific fields
+      if (category === 'service') {
+        // Service-specific fields - collect all service data from draft
+        listingDataWithoutPhotos.serviceCategory = data.serviceCategory;
+        listingDataWithoutPhotos.serviceYearsOfExperience = data.serviceYearsOfExperience;
+        listingDataWithoutPhotos.serviceExperience = data.serviceExperience;
+        listingDataWithoutPhotos.serviceDegree = data.serviceDegree;
+        listingDataWithoutPhotos.serviceCareerHighlight = data.serviceCareerHighlight;
+        listingDataWithoutPhotos.serviceProfilePicture = data.serviceProfilePicture;
+        listingDataWithoutPhotos.serviceProfiles = data.serviceProfiles || [];
+        listingDataWithoutPhotos.serviceAddress = data.serviceAddress;
+        listingDataWithoutPhotos.serviceWhereProvide = data.serviceWhereProvide;
+        listingDataWithoutPhotos.serviceOfferings = data.serviceOfferings || [];
+        listingDataWithoutPhotos.serviceNationalPark = data.serviceNationalPark;
+        listingDataWithoutPhotos.serviceTransportingGuests = data.serviceTransportingGuests;
+        listingDataWithoutPhotos.serviceAgreedToTerms = data.serviceAgreedToTerms;
+      } else {
+        // Accommodation-specific fields
+        listingDataWithoutPhotos.propertyBasics = data.propertyBasics || {};
+        listingDataWithoutPhotos.amenities = data.amenities || {};
+        listingDataWithoutPhotos.privacyType = data.privacyType || draftData.privacyType || '';
+        listingDataWithoutPhotos.propertyStructure = data.propertyStructure || draftData.propertyStructure || '';
+        listingDataWithoutPhotos.bookingSettings = data.bookingSettings || {};
+        listingDataWithoutPhotos.guestSelection = data.guestSelection || {};
+        listingDataWithoutPhotos.discounts = data.discounts || {};
+        listingDataWithoutPhotos.safetyDetails = data.safetyDetails || {};
+        listingDataWithoutPhotos.finalDetails = data.finalDetails || {};
+        listingDataWithoutPhotos.image = null; // Will be updated after upload
+        listingDataWithoutPhotos.images = []; // Will be updated after upload
+      }
 
       // Compress photos first (to reduce Firestore document size)
       console.log('📦 Compressing photos for Firestore storage...');
@@ -860,7 +912,52 @@ const Payment = () => {
     }
   };
 
-  // Handle PayPal account connection
+
+  // Save PayPal connection to Firebase (simplified)
+  const savePayPalConnection = async ({ email, accountId, accountName }) => {
+    if (!auth.currentUser) {
+      throw new Error('User not authenticated');
+    }
+
+    const userRef = doc(db, 'users', auth.currentUser.uid);
+    const userSnap = await getDoc(userRef);
+    
+    // Get existing payment data to preserve it
+    const existingData = userSnap.exists() ? userSnap.data() : {};
+    const existingPayment = existingData.payment || {};
+    
+    // Update payment map with PayPal connection info (preserve existing payment data)
+    const updateData = {
+      payment: {
+        ...existingPayment, // Preserve existing payment data
+        paypalEmail: email,
+        paypalAccountId: accountId || `PP_${Date.now()}`,
+        paypalAccountName: accountName || email.split('@')[0],
+        paypalConnectedAt: serverTimestamp(),
+        paypalStatus: 'connected',
+        method: 'paypal' // Set method when PayPal is connected
+      }
+    };
+    
+    if (userSnap.exists()) {
+      await updateDoc(userRef, updateData);
+    } else {
+      // Create user document if it doesn't exist
+      const { setDoc } = await import('firebase/firestore');
+      await setDoc(userRef, {
+        ...updateData,
+        createdAt: serverTimestamp()
+      });
+    }
+    
+    setPaypalAccountConnected(true);
+    setPaypalEmail(email);
+    setPaypalAccountId(accountId || `PP_${Date.now()}`);
+    setPaypalAccountName(accountName || email.split('@')[0]);
+    setPaypalEmailInput(''); // Clear input after successful connection
+  };
+
+  // Handle PayPal account connection via email
   const handleConnectPayPal = async () => {
     // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -872,47 +969,17 @@ const Payment = () => {
     setIsConnectingPayPal(true);
     
     try {
-      if (auth.currentUser) {
-        const userRef = doc(db, 'users', auth.currentUser.uid);
-        const userSnap = await getDoc(userRef);
-        
-        // Get existing payment data to preserve it
-        const existingData = userSnap.exists() ? userSnap.data() : {};
-        const existingPayment = existingData.payment || {};
-        
-        // Update payment map with PayPal connection info (preserve existing payment data)
-        const updateData = {
-          payment: {
-            ...existingPayment, // Preserve existing payment data
-            paypalEmail: paypalEmailInput.trim(),
-            paypalConnectedAt: serverTimestamp(),
-            paypalStatus: 'connected',
-            method: 'paypal' // Set method when PayPal is connected
-          }
-        };
-        
-        if (userSnap.exists()) {
-          await updateDoc(userRef, updateData);
-        } else {
-          // Create user document if it doesn't exist
-          const { setDoc } = await import('firebase/firestore');
-          await setDoc(userRef, {
-            ...updateData,
-            createdAt: serverTimestamp()
-          });
-        }
-        
-        setPaypalAccountConnected(true);
-        setPaypalEmail(paypalEmailInput.trim());
-        setPaypalEmailInput('');
-        setShowConnectPayPal(false);
-      } else {
-        alert('Please log in to connect your PayPal account.');
-      }
+      await savePayPalConnection({
+        email: paypalEmailInput.trim(),
+        accountId: `PP_${Date.now()}`,
+        accountName: paypalEmailInput.trim().split('@')[0]
+      });
+      // Success - the state will update and show the connected status
+      console.log('PayPal account connected successfully');
+      setIsConnectingPayPal(false);
     } catch (error) {
       console.error('Error connecting PayPal:', error);
       alert('Failed to connect PayPal account: ' + error.message);
-    } finally {
       setIsConnectingPayPal(false);
     }
   };
@@ -987,8 +1054,8 @@ const Payment = () => {
       
       setUploadProgress('Finalizing...');
 
-      // Navigate to dashboard with success message
-      navigate('/host/hostdashboard', {
+      // Navigate to listings tab with success message
+      navigate('/host/listings', {
         state: {
           message: isEditMode 
             ? 'Payment successful! Your listing has been updated.'
@@ -1005,9 +1072,9 @@ const Payment = () => {
       setIsProcessing(false);
       alert(`Payment was successful, but there was an error publishing your listing: ${error.message}\n\nYour payment has been recorded. Please contact support with transaction ID: ${details.id}`);
       
-      // Even if listing publication fails, navigate to dashboard
+      // Even if listing publication fails, navigate to listings tab
       // User can try again or contact support
-      navigate('/host/hostdashboard', {
+      navigate('/host/listings', {
         state: {
           message: 'Payment successful, but listing publication encountered an error. Please contact support.',
           paymentSuccessful: true,
@@ -1029,26 +1096,92 @@ const Payment = () => {
   // PayPal expects amount as string in decimal format (e.g., "99.99" for ₱9999)
   const amountInDecimal = (selectedPlanPrice / 100).toFixed(2);
 
+  // PayPal SDK options - only use valid client ID to prevent errors
+  // If no valid client ID, use a safe placeholder that won't trigger OAuth popups
+  const paypalOptions = HAS_VALID_PAYPAL_CLIENT_ID ? {
+    clientId: PAYPAL_CLIENT_ID,
+    currency: 'PHP',
+    intent: 'capture',
+    enableFunding: 'paypal', // Only enable PayPal funding, disable credit/debit cards
+    disableFunding: 'card,credit,paylater,venmo' // Explicitly disable card options
+  } : {
+    // Use a placeholder that prevents SDK from initializing
+    // This avoids any OAuth popups or errors when clicking connection buttons
+    clientId: '',
+    currency: 'PHP',
+    intent: 'capture',
+    "data-sdk-integration-source": "button-factory",
+    enableFunding: 'paypal',
+    disableFunding: 'card,credit,paylater,venmo'
+  };
+
   return (
-    <PayPalScriptProvider
-      options={{
-        clientId: PAYPAL_CLIENT_ID === 'test' ? 'sb' : PAYPAL_CLIENT_ID, // 'sb' for sandbox mode
-        currency: 'PHP',
-        intent: 'capture'
-      }}
+    <PayPalScriptProvider 
+      options={paypalOptions}
+      deferLoading={!HAS_VALID_PAYPAL_CLIENT_ID}
     >
-      <div className="min-h-screen bg-white">
+      <style>{`
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: #f1f1f1;
+          border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: #888;
+          border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: #555;
+        }
+        @keyframes fadeInUp {
+          from {
+            opacity: 0;
+            transform: translateY(20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        @keyframes pulse {
+          0%, 100% {
+            opacity: 1;
+          }
+          50% {
+            opacity: 0.5;
+          }
+        }
+        .animate-fadeInUp {
+          animation: fadeInUp 0.5s ease-out;
+        }
+        .gradient-bg {
+          background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--primary-hover)) 100%);
+        }
+        .glass-effect {
+          background: rgba(255, 255, 255, 0.7);
+          backdrop-filter: blur(10px);
+          border: 1px solid rgba(255, 255, 255, 0.18);
+        }
+      `}</style>
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-muted/30">
         <OnboardingHeader />
-        <main className="pt-20 px-8 pb-32">
-        <div className="max-w-4xl mx-auto">
+        <main className="pt-20 px-4 sm:px-6 lg:px-8 pb-32">
+        <div className="max-w-5xl mx-auto space-y-10">
           {/* Header */}
-          <div className="mb-8">
-            <h1 className="text-3xl font-semibold text-gray-900 mb-2">
+          <div className="mb-16 text-center animate-fadeInUp">
+            <div className="inline-block mb-4">
+              <div className="w-16 h-16 bg-primary rounded-2xl flex items-center justify-center shadow-xl mx-auto">
+                <Lock className="w-8 h-8 text-white" />
+              </div>
+            </div>
+            <h1 className="text-4xl sm:text-5xl font-bold text-gray-900 mb-3">
               {requiresPayment ? 'Complete Your Subscription' : 'Updating Your Listing'}
             </h1>
-            <p className="text-gray-600">
+            <p className="text-lg text-gray-600 max-w-2xl mx-auto">
               {requiresPayment 
-                ? 'Subscribe to publish your listing and make it visible to guests'
+                ? 'Subscribe to publish your listing and make it visible to guests worldwide'
                 : 'Your listing is being updated...'}
             </p>
           </div>
@@ -1072,249 +1205,103 @@ const Payment = () => {
             </div>
           )}
 
-          {/* Subscription Plans - Only show if payment required */}
+          {/* Policy and Compliance - FIRST, before plans - Only show if payment required */}
           {requiresPayment && (
-            <div className="mb-8">
-              <h2 className="text-xl font-medium text-gray-900 mb-4">Choose Your Plan</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {subscriptionPlans.map((plan) => (
-                <div
-                  key={plan.id}
-                  onClick={() => setSelectedPlan(plan.id)}
-                  className={`p-6 border-2 rounded-xl cursor-pointer transition-all ${
-                    selectedPlan === plan.id
-                      ? 'border-black bg-gray-50'
-                      : 'border-gray-200 hover:border-gray-300'
-                  } ${plan.popular ? 'relative' : ''}`}
-                >
-                  {plan.popular && (
-                    <span className="absolute top-4 right-4 bg-primary text-white text-xs font-medium px-2 py-1 rounded">
-                      Most Popular
-                    </span>
-                  )}
-                  <div className="mb-4">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-1">{plan.name}</h3>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-3xl font-bold text-gray-900">₱{plan.price.toLocaleString()}</span>
-                      <span className="text-gray-600 text-sm">
-                        {plan.id === 'monthly' ? '/month' : '/year'}
-                      </span>
-                    </div>
-                    {plan.savings && (
-                      <span className="text-sm text-primary font-medium">Save {plan.savings}</span>
-                    )}
-                  </div>
-                  <p className="text-sm text-gray-600">{plan.description}</p>
+            <div className="mb-10 space-y-6 animate-fadeInUp">
+              <div className="mb-6 text-center">
+                <div className="inline-flex items-center gap-3 mb-3">
+                  <span className="bg-primary text-white text-sm font-bold px-4 py-1.5 rounded-full">Step 1</span>
+                  <h2 className="text-2xl font-bold text-gray-900">Policy & Compliance</h2>
                 </div>
-              ))}
+                <p className="text-sm text-gray-600">Please review and accept our terms before proceeding</p>
               </div>
-            </div>
-          )}
-
-          {/* Payment Method - PayPal Account Connection - Only show if payment required */}
-          {requiresPayment && (
-            <div className="mb-8">
-              <h2 className="text-xl font-medium text-gray-900 mb-4">Connect Your PayPal Account</h2>
-              
-              {paypalAccountConnected ? (
-                // Connected PayPal Account
-                <div className="border-2 border-green-500 rounded-lg p-6 bg-green-50">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="w-16 h-16 bg-green-600 rounded-lg flex items-center justify-center shadow-lg">
-                        <CheckCircle className="w-8 h-8 text-white" />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="font-bold text-gray-900 text-lg">PayPal Account Connected</span>
-                          <CheckCircle className="w-5 h-5 text-green-600" />
-                        </div>
-                        <p className="text-sm text-gray-600">{paypalEmail}</p>
-                        <p className="text-xs text-gray-500 mt-1">Your PayPal account is ready for payments</p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => {
-                        if (confirm('Disconnect PayPal account? You will need to reconnect to make payments.')) {
-                          handleConnectPayPal(); // Will show prompt to reconnect
-                        }
-                      }}
-                      className="text-sm text-gray-600 hover:text-gray-900 underline"
-                    >
-                      Change
-                    </button>
-                  </div>
-                  <div className="mt-4 bg-white rounded-lg p-4 border border-green-200">
-                    <div className="flex items-center gap-2 text-sm text-gray-700">
-                      <Lock className="w-4 h-4 text-green-600" />
-                      <span className="font-medium">Secured with PayPal's encryption</span>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                // Not Connected - Show Connect Form
-                <div className="border-2 border-blue-600 rounded-lg p-6 bg-gradient-to-br from-blue-50 to-blue-100">
-                  <div className="flex items-center gap-4 mb-4">
-                    <div className="w-16 h-16 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg">
-                      <span className="text-white font-bold text-2xl">PP</span>
-                    </div>
-                    <div className="flex-1">
-                      <span className="font-bold text-gray-900 text-xl">PayPal</span>
-                      <p className="text-sm text-gray-600 mt-1">Connect your PayPal account to proceed with payment</p>
-                    </div>
-                  </div>
-                  
-                  {!showConnectPayPal ? (
-                    <div className="bg-white rounded-lg p-4 border border-blue-200 mb-4">
-                    <p className="text-sm text-gray-700 mb-3">
-                      Link your PayPal account to enable secure subscription payments. Your payment details are stored securely by PayPal.
-                    </p>
-                    <button
-                      onClick={() => setShowConnectPayPal(true)}
-                      className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-6 rounded-lg transition-colors flex items-center justify-center gap-2"
-                    >
-                      <Link2 className="w-5 h-5" />
-                      Connect PayPal Account
-                    </button>
-                    </div>
-                  ) : (
-                    <div className="bg-white rounded-lg p-4 border border-blue-200 mb-4">
-                      <p className="text-sm text-gray-700 mb-4">
-                        Enter your PayPal email address to connect your account.
-                      </p>
-                      <div className="space-y-3">
-                        <div>
-                          <label htmlFor="paypalEmail" className="block text-sm font-medium text-gray-700 mb-1">
-                            PayPal Email Address
-                          </label>
-                          <input
-                            id="paypalEmail"
-                            type="email"
-                            value={paypalEmailInput}
-                            onChange={(e) => setPaypalEmailInput(e.target.value)}
-                            placeholder="your.email@example.com"
-                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                            disabled={isConnectingPayPal}
-                          />
-                        </div>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => {
-                              setShowConnectPayPal(false);
-                              setPaypalEmailInput('');
-                            }}
-                            disabled={isConnectingPayPal}
-                            className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            onClick={handleConnectPayPal}
-                            disabled={isConnectingPayPal || !paypalEmailInput}
-                            className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                          >
-                            {isConnectingPayPal ? (
-                              <>
-                                <span className="animate-spin">⏳</span>
-                                Connecting...
-                              </>
-                            ) : (
-                              <>
-                                <CheckCircle className="w-4 h-4" />
-                                Connect
-                              </>
-                            )}
-                          </button>
-                        </div>
-                      </div>
-                      <p className="text-xs text-gray-500 mt-3">
-                        Note: In production, this will redirect to PayPal OAuth for secure authentication.
-                      </p>
-                    </div>
-                  )}
-                  
-                  <div className="flex items-center gap-2 text-sm text-gray-700">
-                    <Lock className="w-4 h-4 text-blue-600" />
-                    <span>256-bit SSL encryption - Your payment details are never stored on our servers</span>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Policy and Compliance - Only show if payment required */}
-          {requiresPayment && (
-            <div className="mb-8 space-y-6">
-              <h2 className="text-xl font-medium text-gray-900">Policy & Compliance</h2>
               
               {/* Policy Agreement */}
-              <div className="border border-gray-200 rounded-lg p-6">
-                <div className="flex items-start gap-4 mb-4">
-                  <FileText className="w-6 h-6 text-primary mt-1 flex-shrink-0" />
+              <div className="relative border-2 border-primary/30 rounded-xl p-6 bg-gradient-to-br from-white to-primary/5 shadow-lg hover:shadow-xl transition-all duration-300">
+                <div className="absolute top-4 right-4">
+                  {acceptedPolicy && (
+                    <div className="w-7 h-7 bg-primary rounded-full flex items-center justify-center animate-fadeInUp">
+                      <CheckCircle className="w-4 h-4 text-white" />
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-start gap-5 mb-5">
+                  <div className="w-14 h-14 bg-primary rounded-xl flex items-center justify-center flex-shrink-0 shadow-md">
+                    <FileText className="w-7 h-7 text-white" />
+                  </div>
                   <div className="flex-1">
-                    <h3 className="font-semibold text-gray-900 mb-2">Listing Policy Agreement</h3>
-                    <div className="text-sm text-gray-700 space-y-2 max-h-48 overflow-y-auto pr-2">
-                      <p>
+                    <h3 className="font-bold text-gray-900 mb-3 text-lg">Listing Policy Agreement</h3>
+                    <div className="text-xs text-gray-700 space-y-2 max-h-36 overflow-y-auto pr-3 custom-scrollbar">
+                      <p className="font-semibold text-gray-900">
                         By publishing your listing on Getaways, you agree to the following terms:
                       </p>
-                      <ul className="list-disc list-inside space-y-1 ml-2">
-                        <li>Provide accurate and truthful information about your property</li>
-                        <li>Maintain your listing with current photos and pricing</li>
-                        <li>Respond to guest inquiries within 24 hours</li>
-                        <li>Honor confirmed reservations and provide the amenities listed</li>
-                        <li>Comply with local laws and regulations regarding short-term rentals</li>
-                        <li>Keep your subscription active to maintain listing visibility</li>
-                        <li>Getaways reserves the right to review and remove listings that violate our policies</li>
-                        <li>Subscription fees are non-refundable after publication</li>
+                      <ul className="list-disc list-inside space-y-2.5 ml-2">
+                        <li className="hover:text-gray-900 transition-colors">Provide accurate and truthful information about your property</li>
+                        <li className="hover:text-gray-900 transition-colors">Maintain your listing with current photos and pricing</li>
+                        <li className="hover:text-gray-900 transition-colors">Respond to guest inquiries within 24 hours</li>
+                        <li className="hover:text-gray-900 transition-colors">Honor confirmed reservations and provide the amenities listed</li>
+                        <li className="hover:text-gray-900 transition-colors">Comply with local laws and regulations regarding short-term rentals</li>
+                        <li className="hover:text-gray-900 transition-colors">Keep your subscription active to maintain listing visibility</li>
+                        <li className="hover:text-gray-900 transition-colors">Getaways reserves the right to review and remove listings that violate our policies</li>
+                        <li className="hover:text-gray-900 transition-colors">Subscription fees are non-refundable after publication</li>
                       </ul>
                     </div>
                   </div>
                 </div>
-                <label className="flex items-start gap-3 cursor-pointer">
+                <label className="flex items-start gap-4 cursor-pointer group p-4 rounded-lg hover:bg-white/50 transition-colors">
                   <input
                     type="checkbox"
                     checked={acceptedPolicy}
                     onChange={(e) => setAcceptedPolicy(e.target.checked)}
-                    className="mt-1 w-5 h-5 text-primary border-gray-300 rounded focus:ring-primary"
+                    className="mt-0.5 w-5 h-5 text-primary border-2 border-gray-300 rounded focus:ring-2 focus:ring-primary cursor-pointer transition-all"
                   />
-                  <span className="text-sm text-gray-700">
+                  <span className="text-sm text-gray-700 group-hover:text-gray-900 font-medium">
                     I have read and agree to the Listing Policy Agreement
                   </span>
                 </label>
               </div>
 
               {/* Compliance Agreement */}
-              <div className="border border-gray-200 rounded-lg p-6">
-                <div className="flex items-start gap-4 mb-4">
-                  <Shield className="w-6 h-6 text-primary mt-1 flex-shrink-0" />
+              <div className="relative border-2 border-primary/30 rounded-xl p-6 bg-gradient-to-br from-white to-primary/5 shadow-lg hover:shadow-xl transition-all duration-300">
+                <div className="absolute top-4 right-4">
+                  {acceptedCompliance && (
+                    <div className="w-7 h-7 bg-primary rounded-full flex items-center justify-center animate-fadeInUp">
+                      <CheckCircle className="w-4 h-4 text-white" />
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-start gap-5 mb-5">
+                  <div className="w-14 h-14 bg-primary rounded-xl flex items-center justify-center flex-shrink-0 shadow-md">
+                    <Shield className="w-7 h-7 text-white" />
+                  </div>
                   <div className="flex-1">
-                    <h3 className="font-semibold text-gray-900 mb-2">Compliance & Safety Requirements</h3>
-                    <div className="text-sm text-gray-700 space-y-2 max-h-48 overflow-y-auto pr-2">
-                      <p>
+                    <h3 className="font-bold text-gray-900 mb-3 text-lg">Compliance & Safety Requirements</h3>
+                    <div className="text-xs text-gray-700 space-y-2 max-h-36 overflow-y-auto pr-3 custom-scrollbar">
+                      <p className="font-semibold text-gray-900">
                         As a host, you must comply with the following safety and legal requirements:
                       </p>
-                      <ul className="list-disc list-inside space-y-1 ml-2">
-                        <li>Obtain all necessary permits, licenses, and registrations required by local authorities</li>
-                        <li>Ensure your property meets local building codes and safety standards</li>
-                        <li>Maintain working smoke detectors, carbon monoxide alarms, and fire extinguishers</li>
-                        <li>Provide emergency contact information to guests</li>
-                        <li>Maintain adequate insurance coverage for your property</li>
-                        <li>Comply with tax obligations for rental income in your jurisdiction</li>
-                        <li>Respect neighborhood quiet hours and local regulations</li>
-                        <li>Report any safety incidents or guest issues promptly</li>
-                        <li>Getaways may require verification of compliance documentation</li>
+                      <ul className="list-disc list-inside space-y-2.5 ml-2">
+                        <li className="hover:text-gray-900 transition-colors">Obtain all necessary permits, licenses, and registrations required by local authorities</li>
+                        <li className="hover:text-gray-900 transition-colors">Ensure your property meets local building codes and safety standards</li>
+                        <li className="hover:text-gray-900 transition-colors">Maintain working smoke detectors, carbon monoxide alarms, and fire extinguishers</li>
+                        <li className="hover:text-gray-900 transition-colors">Provide emergency contact information to guests</li>
+                        <li className="hover:text-gray-900 transition-colors">Maintain adequate insurance coverage for your property</li>
+                        <li className="hover:text-gray-900 transition-colors">Comply with tax obligations for rental income in your jurisdiction</li>
+                        <li className="hover:text-gray-900 transition-colors">Respect neighborhood quiet hours and local regulations</li>
+                        <li className="hover:text-gray-900 transition-colors">Report any safety incidents or guest issues promptly</li>
+                        <li className="hover:text-gray-900 transition-colors">Getaways may require verification of compliance documentation</li>
                       </ul>
                     </div>
                   </div>
                 </div>
-                <label className="flex items-start gap-3 cursor-pointer">
+                <label className="flex items-start gap-4 cursor-pointer group p-4 rounded-lg hover:bg-white/50 transition-colors">
                   <input
                     type="checkbox"
                     checked={acceptedCompliance}
                     onChange={(e) => setAcceptedCompliance(e.target.checked)}
-                    className="mt-1 w-5 h-5 text-primary border-gray-300 rounded focus:ring-primary"
+                    className="mt-0.5 w-5 h-5 text-primary border-2 border-gray-300 rounded focus:ring-2 focus:ring-primary cursor-pointer transition-all"
                   />
-                  <span className="text-sm text-gray-700">
+                  <span className="text-sm text-gray-700 group-hover:text-gray-900 font-medium">
                     I confirm that I will comply with all safety and legal requirements
                   </span>
                 </label>
@@ -1322,96 +1309,179 @@ const Payment = () => {
             </div>
           )}
 
-          {/* Summary - Only show if payment required */}
-          {requiresPayment && (
-            <div className="mb-8 border border-gray-200 rounded-lg p-6 bg-gray-50">
-              <h3 className="font-semibold text-gray-900 mb-4">Order Summary</h3>
-              <div className="space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Subscription Plan</span>
-                  <span className="font-medium text-gray-900">
-                    {subscriptionPlans.find(p => p.id === selectedPlan)?.name}
-                  </span>
+          {/* Subscription Plans - Only show if payment required AND policies accepted */}
+          {requiresPayment && acceptedPolicy && acceptedCompliance && (
+            <div className="mb-10 animate-fadeInUp">
+              <div className="text-center mb-6">
+                <div className="inline-flex items-center gap-3 mb-3">
+                  <span className="bg-primary text-white text-sm font-bold px-4 py-1.5 rounded-full">Step 2</span>
+                  <h2 className="text-2xl font-bold text-gray-900">Choose Your Plan</h2>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Price</span>
-                  <span className="font-medium text-gray-900">
-                    ₱{subscriptionPlans.find(p => p.id === selectedPlan)?.price.toLocaleString()}
-                    {selectedPlan === 'monthly' ? '/month' : '/year'}
-                  </span>
+                <p className="text-sm text-gray-600">Select a subscription plan to publish your listing</p>
+              </div>
+              
+              {/* Plan Selection */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+              {subscriptionPlans.map((plan, index) => (
+                <div
+                  key={plan.id}
+                  onClick={() => setSelectedPlan(plan.id)}
+                  className={`relative p-6 border-2 rounded-xl cursor-pointer transition-all duration-300 hover:shadow-xl ${
+                    selectedPlan === plan.id
+                      ? 'border-primary bg-gradient-to-br from-primary/10 to-primary/5 shadow-xl ring-2 ring-primary/20'
+                      : 'border-gray-200 hover:border-primary/50 bg-white shadow-md'
+                  } ${plan.popular ? 'md:scale-[1.02]' : ''}`}
+                  style={{ animationDelay: `${index * 0.1}s` }}
+                >
+                  {plan.popular && (
+                    <div className="absolute -top-3 left-1/2 transform -translate-x-1/2">
+                      <span className="bg-primary text-white text-xs font-bold px-3 py-1 rounded-full shadow-md flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span>
+                        Most Popular
+                      </span>
+                    </div>
+                  )}
+                  <div className="mb-5">
+                    <h3 className="text-lg font-bold text-gray-900 mb-3">{plan.name}</h3>
+                    <div className="flex items-baseline gap-2 mb-3">
+                      <span className="text-3xl font-extrabold text-gray-900">₱{plan.price.toLocaleString()}</span>
+                      <span className="text-gray-600 text-sm">
+                        {plan.id === 'monthly' ? '/month' : '/year'}
+                      </span>
+                    </div>
+                    {plan.savings && (
+                      <span className="inline-flex items-center gap-1 bg-primary text-white text-xs font-bold px-3 py-1 rounded-full shadow-sm">
+                        <span>💰</span>
+                        <span>Save {plan.savings}</span>
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm text-gray-600 mb-4">{plan.description}</p>
+                  {selectedPlan === plan.id && (
+                    <div className="mt-4 flex items-center justify-center gap-2 bg-primary text-white font-bold px-4 py-2 rounded-lg shadow-md animate-fadeInUp text-sm">
+                      <CheckCircle className="w-4 h-4" />
+                      <span>Selected</span>
+                    </div>
+                  )}
                 </div>
-                <div className="border-t border-gray-200 pt-2 mt-2">
-                  <div className="flex justify-between">
-                    <span className="font-semibold text-gray-900">Total</span>
-                    <span className="font-bold text-lg text-gray-900">
-                      ₱{subscriptionPlans.find(p => p.id === selectedPlan)?.price.toLocaleString()}
+              ))}
+              </div>
+
+              {/* Order Summary */}
+              <div className="mb-8 border-2 border-primary/30 rounded-xl p-6 bg-gradient-to-br from-primary/10 via-primary/5 to-white shadow-xl">
+                <div className="flex items-center gap-3 mb-5">
+                  <div className="w-12 h-12 bg-primary rounded-lg flex items-center justify-center">
+                    <span className="text-white font-bold text-xl">₱</span>
+                  </div>
+                  <h3 className="font-bold text-gray-900 text-lg">Order Summary</h3>
+                </div>
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center p-4 bg-white/60 rounded-lg">
+                    <span className="text-gray-600 text-sm font-medium">Subscription Plan</span>
+                    <span className="font-bold text-gray-900">
+                      {subscriptionPlans.find(p => p.id === selectedPlan)?.name}
                     </span>
+                  </div>
+                  <div className="flex justify-between items-center p-4 bg-white/60 rounded-lg">
+                    <span className="text-gray-600 text-sm font-medium">Price</span>
+                    <span className="font-bold text-gray-900">
+                      ₱{subscriptionPlans.find(p => p.id === selectedPlan)?.price.toLocaleString()}
+                      {selectedPlan === 'monthly' ? '/month' : '/year'}
+                    </span>
+                  </div>
+                  <div className="border-t-2 border-primary/30 pt-4 mt-3">
+                    <div className="flex justify-between items-center p-4 bg-primary rounded-lg text-white">
+                      <span className="font-bold">Total</span>
+                      <span className="font-extrabold text-xl">
+                        ₱{subscriptionPlans.find(p => p.id === selectedPlan)?.price.toLocaleString()}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
+
             </div>
           )}
 
-          {/* PayPal Payment Section - Only show if payment required */}
-          {requiresPayment && paypalAccountConnected && acceptedPolicy && acceptedCompliance && (
-            <div className="mb-8">
-              <h2 className="text-xl font-medium text-gray-900 mb-4">Complete Payment</h2>
-              <div className="border border-gray-200 rounded-lg p-6 bg-gray-50">
-                <p className="text-sm text-gray-700 mb-4">
-                  {isEditMode 
-                    ? 'Click the PayPal button below to complete your subscription payment and update your listing.'
-                    : 'Click the PayPal button below to complete your subscription payment and publish your listing.'
-                  }
-                </p>
+          {/* Payment Method - PayPal Payment - Only show if payment required AND policies accepted */}
+          {requiresPayment && acceptedPolicy && acceptedCompliance && (
+            <div className="mb-10 animate-fadeInUp">
+              <div className="text-center mb-6">
+                <div className="inline-flex items-center gap-3 mb-3">
+                  <span className="bg-primary text-white text-sm font-bold px-4 py-1.5 rounded-full">Step 3</span>
+                  <h2 className="text-2xl font-bold text-gray-900">Complete Payment & Publish Listing</h2>
+                </div>
+                <p className="text-sm text-gray-600">Complete your subscription payment to publish your listing</p>
+              </div>
+              
+              {/* Payment Completion Section - PayPal buttons will handle account selection/login */}
+              <div className="border-2 border-primary/30 rounded-xl p-6 bg-gradient-to-br from-primary/10 via-primary/5 to-white shadow-xl">
+                <div className="mb-6 text-center">
+                  <div className="flex flex-col items-center gap-4 mb-4">
+                    <div className="w-20 h-20 bg-white rounded-xl flex items-center justify-center shadow-lg border-2 border-primary/20 p-4">
+                      <img 
+                        src="https://www.paypalobjects.com/webstatic/mktg/logo/pp_cc_mark_111x69.jpg" 
+                        alt="PayPal" 
+                        className="w-full h-full object-contain"
+                        onError={(e) => {
+                          e.target.style.display = 'none';
+                          e.target.parentElement.innerHTML = '<span class="text-primary font-bold text-2xl">PayPal</span>';
+                        }}
+                      />
+                    </div>
+                    <div className="text-center">
+                      <p className="text-base font-bold text-gray-900 mb-2">PayPal Payment</p>
+                      <p className="text-sm text-gray-600">Click the button below to login and pay with PayPal</p>
+                    </div>
+                  </div>
+                </div>
                 
                 {/* Progress indicator */}
                 {isProcessing && (
-                  <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+                  <div className="mb-5 p-5 bg-primary/10 border-2 border-primary/30 rounded-lg shadow-md">
+                    <div className="flex items-center gap-4">
+                      <div className="animate-spin rounded-full h-7 w-7 border-3 border-primary border-t-transparent"></div>
                       <div className="flex-1">
-                        <p className="text-sm font-medium text-blue-900">Processing your payment and listing...</p>
+                        <p className="text-sm font-bold text-gray-900">Processing your payment and listing...</p>
                         {uploadProgress && (
-                          <p className="text-xs text-blue-700 mt-1">{uploadProgress}</p>
+                          <p className="text-xs text-gray-700 mt-2 font-medium">{uploadProgress}</p>
                         )}
                       </div>
                     </div>
                   </div>
                 )}
                 
-                <PayPalButtonWrapper
-                  amount={amountInDecimal} // PayPal expects decimal string (e.g., "99.99" for ₱9999)
-                  onSuccess={handlePayPalSuccess}
-                  onError={handlePayPalError}
-                  disabled={!canProceed || isProcessing}
-                  planName={subscriptionPlans.find(p => p.id === selectedPlan)?.name}
-                />
+                <div className="bg-white/90 backdrop-blur-sm rounded-lg p-5 border-2 border-gray-200 shadow-md flex justify-center">
+                  <div className="w-full max-w-md">
+                    <PayPalButtonWrapper
+                      amount={amountInDecimal}
+                      onSuccess={handlePayPalSuccess}
+                      onError={handlePayPalError}
+                      disabled={!canProceed || isProcessing}
+                      planName={subscriptionPlans.find(p => p.id === selectedPlan)?.name}
+                    />
+                  </div>
+                </div>
               </div>
             </div>
           )}
 
+
           {/* Action Buttons */}
-          <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center justify-between gap-6 pt-6">
             <button
               onClick={() => {
-                // Update sessionStorage before navigating back
-                updateSessionStorageBeforeNav('payment');
-                navigate('/pages/finaldetails');
+                navigate(-1);
               }}
-              className="text-gray-600 hover:text-gray-900 text-sm font-medium"
+              className="text-gray-600 hover:text-gray-900 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors"
             >
               ← Back
             </button>
-            {!paypalAccountConnected && (
-              <div className="text-sm text-gray-600 text-right">
-                <p>Please connect your PayPal account to proceed</p>
-              </div>
-            )}
-            {paypalAccountConnected && (!acceptedPolicy || !acceptedCompliance) && (
-              <div className="text-sm text-gray-600 text-right">
+            {!acceptedPolicy || !acceptedCompliance ? (
+              <div className="text-sm text-amber-600 text-right font-medium px-4 py-2">
                 <p>Please accept Policy & Compliance terms to proceed</p>
               </div>
-            )}
+            ) : null}
           </div>
         </div>
       </main>

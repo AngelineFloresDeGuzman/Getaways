@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { applyActionCode } from "firebase/auth";
-import { auth } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
+import { doc, updateDoc } from "firebase/firestore";
+import { verifyToken } from "@/lib/emailService";
 import { CheckCircle, XCircle, Loader2 } from "lucide-react";
 
 const VerifyEmail = () => {
@@ -9,19 +10,44 @@ const VerifyEmail = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const query = new URLSearchParams(window.location.search);
-    const mode = query.get("mode");
-    const oobCode = query.get("oobCode");
+    const verifyEmailToken = async () => {
+      const query = new URLSearchParams(window.location.search);
+      const token = query.get("token");
 
-    console.log("mode:", mode, "oobCode:", oobCode);
+      if (!token) {
+        setStatus("error");
+        return;
+      }
 
-    if (mode === "verifyEmail" && oobCode) {
-      applyActionCode(auth, oobCode)
-        .then(() => setStatus("success"))
-        .catch(() => setStatus("error"));
-    } else {
-      setStatus("error");
-    }
+      try {
+        // Verify the token
+        const result = await verifyToken(token);
+
+        if (!result.valid) {
+          setStatus("error");
+          return;
+        }
+
+        // Update user's emailVerified status in Firestore
+        const userDocRef = doc(db, "users", result.userId);
+        await updateDoc(userDocRef, {
+          emailVerified: true,
+          updatedAt: new Date().toISOString(),
+        });
+
+        // Also update Firebase Auth emailVerified status if user is logged in
+        if (auth.currentUser && auth.currentUser.uid === result.userId) {
+          await auth.currentUser.reload();
+        }
+
+        setStatus("success");
+      } catch (error) {
+        console.error("Verification error:", error);
+        setStatus("error");
+      }
+    };
+
+    verifyEmailToken();
   }, []);
 
   const getContent = () => {
@@ -29,8 +55,8 @@ const VerifyEmail = () => {
       case "verifying":
         return (
           <>
-            <Loader2 className="animate-spin text-sky-600 mx-auto mb-6" size={60} />
-            <h1 className="text-3xl font-bold text-sky-700 mb-4">Verifying your email...</h1>
+            <Loader2 className="animate-spin text-primary mx-auto mb-6" size={60} />
+            <h1 className="text-3xl font-bold text-primary mb-4">Verifying your email...</h1>
             <p className="text-gray-700 text-lg">Please wait a moment while we confirm your verification.</p>
           </>
         );

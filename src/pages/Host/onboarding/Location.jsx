@@ -7,7 +7,7 @@ import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
 import markerIcon from 'leaflet/dist/images/marker-icon.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 import { useOnboardingAutoSave, useOnboardingNavigation } from './hooks/useOnboardingAutoSave';
-import { db } from '@/lib/firebase';
+import { db, auth } from '@/lib/firebase';
 import { doc, updateDoc, getDoc } from 'firebase/firestore';
 import OnboardingHeader from './components/OnboardingHeader';
 import OnboardingFooter from './components/OnboardingFooter';
@@ -779,9 +779,77 @@ const Location = () => {
     }
   };
 
-  const handleSaveAndExit = () => {
-    // TODO: Implement save and exit logic
-    alert('Save & exit clicked');
+  // Helper function to normalize location data
+  const normalizeLocationData = (input) => {
+    if (!input) return {};
+    
+    return {
+      country: input.country || 'Philippines',
+      province: input.province || '',
+      city: input.city || '',
+      barangay: input.barangay || input.suburb || input.village || input.neighbourhood || '',
+      street: input.street || input.road || '',
+      building: input.building || '',
+      unit: input.unit || '',
+      zipCode: input.zipCode || input.postcode || '',
+      latitude: input.latitude || null,
+      longitude: input.longitude || null
+    };
+  };
+
+  const handleSaveAndExit = async () => {
+    if (!auth.currentUser) {
+      alert('Please log in to save your progress');
+      return;
+    }
+    
+    try {
+      console.log('📍 Location: Save & Exit clicked');
+      console.log('Current selectedLocation:', selectedLocation);
+      console.log('Current position:', position);
+      
+      // Build location data from current state
+      const currentLocationData = normalizeLocationData({
+        ...selectedLocation,
+        latitude: position[0],
+        longitude: position[1]
+      });
+      
+      // Update context with current location data
+      if (actions.updateLocationData) {
+        actions.updateLocationData(currentLocationData);
+      }
+      
+      // Set current step before saving
+      if (actions.setCurrentStep) {
+        actions.setCurrentStep('location');
+      }
+      
+      // Save location data to Firebase
+      let draftIdToUse;
+      try {
+        draftIdToUse = await ensureDraftAndSave(currentLocationData, 'location');
+        console.log('📍 Location: ✅ Saved locationData to Firebase on Save & Exit');
+      } catch (saveError) {
+        console.error('📍 Location: Error saving to Firebase on Save & Exit:', saveError);
+        alert('Error saving progress: ' + saveError.message);
+        return;
+      }
+      
+      // Update sessionStorage before Save & Exit navigation
+      updateSessionStorageBeforeNav('location');
+      
+      // Navigate to listings tab
+      navigate('/host/listings', { 
+        state: { 
+          message: 'Draft saved successfully!',
+          draftSaved: true 
+        }
+      });
+    } catch (error) {
+      console.error('Error saving and exiting:', error);
+      alert('Error saving progress: ' + error.message);
+    }
   };
 
   const handleMarkerDragEnd = async (e) => {
@@ -1280,7 +1348,7 @@ const Location = () => {
 
   return (
   <div className="min-h-screen bg-white flex flex-col" style={{ overflow: showAddressForm ? 'auto' : 'hidden', minHeight: '100vh' }}>
-      <OnboardingHeader />
+      <OnboardingHeader customSaveAndExit={handleSaveAndExit} />
       
       {!showAddressForm ? (
         // Map Search View

@@ -3,7 +3,7 @@ import OnboardingHeader from './components/OnboardingHeader';
 import OnboardingFooter from './components/OnboardingFooter';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
-import { db } from '@/lib/firebase';
+import { db, auth } from '@/lib/firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { Home, Building2, TreePine } from 'lucide-react';
 
@@ -99,39 +99,159 @@ const PropertyDetails = () => {
     setSaveError(null);
   };
 
-  // Save only current page fields when clicking Next
+  // Save only currentStep and lastModified when clicking Next (no data saved)
   const handleNext = async () => {
-    if (!draftRef) return;
+    setIsLoading(true);
+    setSaveError(null);
+    
     try {
-      await updateDoc(draftRef, {
-        currentStep: 'propertystructure',
-        lastModified: new Date(),
-      });
-      navigate('/pages/propertystructure', { state: { draftId } });
+      // Update context with current propertyType (for in-memory use only)
+      actions.updatePropertyType(selectedType);
+      
+      // Ensure we have a draftId
+      let draftIdToUse = draftId || state?.draftId;
+      if (!draftIdToUse && state.user?.uid) {
+        try {
+          const { getUserDrafts } = await import('@/pages/Host/services/draftService');
+          const drafts = await getUserDrafts();
+          if (drafts.length > 0) {
+            draftIdToUse = drafts[0].id;
+            if (actions.setDraftId) {
+              actions.setDraftId(draftIdToUse);
+            }
+          } else {
+            // Create new draft with minimal data
+            const { saveDraft } = await import('@/pages/Host/services/draftService');
+            const newDraftData = {
+              currentStep: 'propertystructure',
+              category: state.category || 'accommodation',
+              data: {}
+            };
+            draftIdToUse = await saveDraft(newDraftData, null);
+            if (actions.setDraftId) {
+              actions.setDraftId(draftIdToUse);
+            }
+          }
+        } catch (error) {
+          console.error('Error creating/finding draft:', error);
+        }
+      }
+      
+      if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
+        const draftRefToUse = doc(db, 'onboardingDrafts', draftIdToUse);
+        const docSnap = await getDoc(draftRefToUse);
+        
+        if (docSnap.exists()) {
+          // Only update currentStep and lastModified (no data saved)
+          await updateDoc(draftRefToUse, {
+            currentStep: 'propertystructure',
+            lastModified: new Date(),
+          });
+          console.log('📍 PropertyDetails: ✅ Updated currentStep to propertystructure (no data saved)');
+        } else {
+          // Create new draft with minimal data
+          const { saveDraft } = await import('@/pages/Host/services/draftService');
+          const newDraftData = {
+            currentStep: 'propertystructure',
+            category: state.category || 'accommodation',
+            data: {}
+          };
+          draftIdToUse = await saveDraft(newDraftData, draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        }
+      }
+      
+      navigate('/pages/propertystructure', { state: { draftId: draftIdToUse || draftId } });
     } catch (error) {
       console.error('Error saving draft:', error);
       setSaveError('Failed to save progress. Continuing anyway...');
-      setTimeout(() => navigate('/pages/propertystructure', { state: { draftId } }), 1000);
+      setTimeout(() => navigate('/pages/propertystructure', { state: { draftId: draftIdToUse || draftId } }), 1000);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Save & Exit: only update lastModified, do not touch other fields
+  // Save & Exit: only update currentStep and lastModified (no data saved)
   const handleSaveAndExit = async () => {
-    if (!draftRef) return;
+    if (!auth.currentUser) {
+      alert('Please log in to save your progress');
+      return;
+    }
+    
     setIsLoading(true);
     setSaveError(null);
     try {
-      await updateDoc(draftRef, {
-        currentStep: 'propertystructure',
-        lastModified: new Date(),
+      // Update context with current propertyType (for in-memory use only)
+      if (selectedType) {
+        actions.updatePropertyType(selectedType);
+      }
+      
+      // Ensure we have a draftId
+      let draftIdToUse = draftId || state?.draftId;
+      if (!draftIdToUse && state.user?.uid) {
+        try {
+          const { getUserDrafts, saveDraft } = await import('@/pages/Host/services/draftService');
+          const drafts = await getUserDrafts();
+          if (drafts.length > 0) {
+            draftIdToUse = drafts[0].id;
+            if (actions.setDraftId) {
+              actions.setDraftId(draftIdToUse);
+            }
+          } else {
+            // Create new draft with minimal data
+            const newDraftData = {
+              currentStep: 'propertydetails',
+              category: state.category || 'accommodation',
+              data: {}
+            };
+            draftIdToUse = await saveDraft(newDraftData, null);
+            if (actions.setDraftId) {
+              actions.setDraftId(draftIdToUse);
+            }
+          }
+        } catch (error) {
+          console.error('Error creating/finding draft:', error);
+        }
+      }
+      
+      if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
+        const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
+        const docSnap = await getDoc(draftRef);
+        
+        if (docSnap.exists()) {
+          // Only update currentStep and lastModified (no data saved)
+          await updateDoc(draftRef, {
+            currentStep: 'propertydetails',
+            lastModified: new Date(),
+          });
+          console.log('📍 PropertyDetails: ✅ Updated currentStep to propertydetails on Save & Exit (no data saved)');
+        } else {
+          // Create new draft with minimal data
+          const { saveDraft } = await import('@/pages/Host/services/draftService');
+          const newDraftData = {
+            currentStep: 'propertydetails',
+            category: state.category || 'accommodation',
+            data: {}
+          };
+          draftIdToUse = await saveDraft(newDraftData, draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        }
+      }
+      
+      navigate('/host/listings', { 
+        state: { 
+          message: 'Draft saved successfully!',
+          draftSaved: true 
+        }
       });
-      setSaveError('Draft saved successfully.');
-      setTimeout(() => navigate('/host/hostdashboard'), 1500);
     } catch (error) {
       console.error('Error saving draft:', error);
       setSaveError(error.message);
+      alert('Failed to save progress: ' + error.message);
     } finally {
       setIsLoading(false);
     }
@@ -139,7 +259,7 @@ const PropertyDetails = () => {
 
   return (
     <div className="h-screen bg-white overflow-hidden">
-      <OnboardingHeader />
+      <OnboardingHeader customSaveAndExit={handleSaveAndExit} />
 
       {/* Main Content */}
       <main className="flex items-center justify-center h-[calc(100vh-136px)] gap-6 overflow-hidden pl-40 pr-4 pt-16">
@@ -206,6 +326,11 @@ const PropertyDetails = () => {
         canProceed={!isLoading}
         nextText={isLoading ? 'Saving...' : 'Next'}
       />
+      {saveError && (
+        <div className="fixed bottom-20 left-1/2 transform -translate-x-1/2 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded z-50">
+          {saveError}
+        </div>
+      )}
     </div>
   );
 };

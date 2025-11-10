@@ -233,7 +233,7 @@ const Description = () => {
       }
         
         // Navigate to dashboard
-        navigate('/host/hostdashboard', { 
+        navigate('/host/listings', { 
           state: { 
             message: 'Draft saved successfully!',
             draftSaved: true 
@@ -483,7 +483,7 @@ const Description = () => {
 
   return (
     <div className="min-h-screen bg-white">
-      <OnboardingHeader />
+      <OnboardingHeader customSaveAndExit={handleSaveAndExitClick} />
       <main className="pt-32 px-8 pb-32">
         <div className="space-y-6 max-w-6xl mx-auto">
           <div className="text-center mb-8">

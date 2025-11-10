@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import OnboardingHeader from './components/OnboardingHeader';
 import OnboardingFooter from './components/OnboardingFooter';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -26,6 +26,9 @@ const FinalDetails = () => {
   const [isBusinessHost, setIsBusinessHost] = useState(null);
   const [isEditMode, setIsEditMode] = useState(location.state?.isEditMode || false);
   const [listingId, setListingId] = useState(location.state?.listingId || null);
+  
+  // Ref to track initialization
+  const hasInitialized = useRef(false);
 
   const handleAddressChange = (field, value) => {
     setAddress(prev => ({
@@ -53,10 +56,87 @@ const FinalDetails = () => {
     }
   }, [location.state]);
 
-  // Initialize from context first (if available from OnboardingContext loadDraft)
+  // Load final details from Firebase when component mounts or draftId changes
   useEffect(() => {
-    if (state.finalDetails) {
-      console.log('📍 FinalDetails: Initializing from context:', state.finalDetails);
+    const loadFinalDetailsFromFirebase = async () => {
+      if (hasInitialized.current) {
+        return; // Already initialized
+      }
+
+      const draftIdToUse = location.state?.draftId || state?.draftId;
+      
+      // Skip if no draftId or temp draftId
+      if (!draftIdToUse || draftIdToUse.startsWith('temp_')) {
+        console.log('📍 FinalDetails: No valid draftId, skipping Firebase load');
+        return;
+      }
+
+      try {
+        console.log('📍 FinalDetails: Loading final details from Firebase with draftId:', draftIdToUse);
+        const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
+        const docSnap = await getDoc(draftRef);
+        
+        if (docSnap.exists()) {
+          const draftData = docSnap.data();
+          console.log('📍 FinalDetails: Draft data exists');
+          console.log('📍 FinalDetails: draftData.data:', draftData.data);
+          console.log('📍 FinalDetails: draftData.data?.finalDetails:', draftData.data?.finalDetails);
+          
+          // Check for publishedListingId to detect edit mode
+          if (draftData.publishedListingId) {
+            setIsEditMode(true);
+            setListingId(draftData.publishedListingId);
+            console.log('📍 FinalDetails: Detected edit mode from draft:', { isEditMode: true, listingId: draftData.publishedListingId });
+          }
+          
+          // Check nested data.finalDetails first (where we save it), then context
+          const savedFinalDetails = draftData.data?.finalDetails || state.finalDetails;
+          
+          if (savedFinalDetails) {
+            console.log('📍 FinalDetails: ✅ Found saved finalDetails:', savedFinalDetails);
+            
+            // Extract residentialAddress and isBusinessHost
+            if (savedFinalDetails.residentialAddress) {
+              console.log('📍 FinalDetails: Restoring residential address:', savedFinalDetails.residentialAddress);
+              setAddress(prev => ({
+                ...prev,
+                ...savedFinalDetails.residentialAddress
+              }));
+            }
+            
+            if (savedFinalDetails.isBusinessHost !== undefined) {
+              console.log('📍 FinalDetails: Restoring isBusinessHost:', savedFinalDetails.isBusinessHost);
+              setIsBusinessHost(savedFinalDetails.isBusinessHost);
+            }
+            
+            // Also update context if it's not set there yet or is different
+            if (!state.finalDetails || JSON.stringify(state.finalDetails) !== JSON.stringify(savedFinalDetails)) {
+              console.log('📍 FinalDetails: Updating context with saved finalDetails');
+              if (actions.updateFinalDetails) {
+                actions.updateFinalDetails(savedFinalDetails);
+              }
+            }
+            
+            hasInitialized.current = true;
+            return; // Exit early if we found it in Firebase
+          } else {
+            console.log('📍 FinalDetails: ⚠️ No finalDetails found in Firebase draft');
+          }
+        } else {
+          console.log('📍 FinalDetails: ⚠️ Draft document does not exist for draftId:', draftIdToUse);
+        }
+      } catch (error) {
+        console.error('📍 FinalDetails: ❌ Error loading final details from Firebase:', error);
+      }
+    };
+
+    loadFinalDetailsFromFirebase();
+  }, [location.state?.draftId, state?.draftId, state.finalDetails, actions]);
+
+  // Initialize from context as fallback (if available from OnboardingContext loadDraft)
+  useEffect(() => {
+    if (!hasInitialized.current && state.finalDetails) {
+      console.log('📍 FinalDetails: Initializing from context (fallback):', state.finalDetails);
       
       if (state.finalDetails.residentialAddress) {
         setAddress(prev => ({
@@ -68,58 +148,10 @@ const FinalDetails = () => {
       if (state.finalDetails.isBusinessHost !== undefined) {
         setIsBusinessHost(state.finalDetails.isBusinessHost);
       }
+      
+      hasInitialized.current = true;
     }
   }, [state.finalDetails]);
-
-  // Load draft data from Firebase when editing (if draftId exists and not in context)
-  useEffect(() => {
-    const loadDraftData = async () => {
-      const draftId = location.state?.draftId || state?.draftId;
-      // Skip if already loaded from context
-      if (!draftId || draftId.startsWith('temp_') || state.finalDetails) {
-        return;
-      }
-      
-      try {
-        console.log('📍 FinalDetails: Loading draft data from Firebase:', draftId);
-        const draftRef = doc(db, 'onboardingDrafts', draftId);
-        const draftSnap = await getDoc(draftRef);
-        
-        if (draftSnap.exists()) {
-          const draftData = draftSnap.data();
-          const data = draftData.data || {};
-          
-          // Check for publishedListingId to detect edit mode
-          if (draftData.publishedListingId) {
-            setIsEditMode(true);
-            setListingId(draftData.publishedListingId);
-            console.log('📍 FinalDetails: Detected edit mode from draft:', { isEditMode: true, listingId: draftData.publishedListingId });
-          }
-          
-          // Extract finalDetails from data.finalDetails
-          if (data.finalDetails) {
-            console.log('📍 FinalDetails: Found finalDetails in Firebase:', data.finalDetails);
-            
-            // Extract residentialAddress and isBusinessHost
-            if (data.finalDetails.residentialAddress) {
-              setAddress(prev => ({
-                ...prev,
-                ...data.finalDetails.residentialAddress
-              }));
-            }
-            
-            if (data.finalDetails.isBusinessHost !== undefined) {
-              setIsBusinessHost(data.finalDetails.isBusinessHost);
-            }
-          }
-        }
-      } catch (error) {
-        console.error('📍 FinalDetails: Error loading draft from Firebase:', error);
-      }
-    };
-    
-    loadDraftData();
-  }, [location.state?.draftId, state?.draftId, state.finalDetails]);
 
   const canProceed = address.street && address.city && address.province && isBusinessHost !== null;
 
@@ -149,8 +181,9 @@ const FinalDetails = () => {
         } else {
           // No drafts exist, create a new one
           console.log('📍 FinalDetails: No existing drafts, creating new draft');
+          const nextStep = targetRoute === '/pages/finaldetails' ? 'finaldetails' : 'completed';
           const newDraftData = {
-            currentStep: 'completed',
+            currentStep: nextStep,
             category: state.category || 'accommodation',
             data: {
               finalDetails: finalDetailsData
@@ -176,18 +209,20 @@ const FinalDetails = () => {
         
         if (docSnap.exists()) {
           // Update existing document - save finalDetails under data.finalDetails and currentStep
+          const nextStep = targetRoute === '/pages/finaldetails' ? 'finaldetails' : 'completed';
           await updateDoc(draftRef, {
             'data.finalDetails': finalDetailsData,
-            currentStep: 'completed',
+            currentStep: nextStep,
             lastModified: new Date()
           });
-          console.log('📍 FinalDetails: ✅ Saved finalDetails to data.finalDetails and currentStep to Firebase:', draftIdToUse, '- finalDetails:', finalDetailsData, ', currentStep: completed');
+          console.log('📍 FinalDetails: ✅ Saved finalDetails to data.finalDetails and currentStep to Firebase:', draftIdToUse, '- finalDetails:', finalDetailsData, ', currentStep:', nextStep);
         } else {
           // Document doesn't exist, create it
           console.log('📍 FinalDetails: Document not found, creating new one');
           const { saveDraft } = await import('@/pages/Host/services/draftService');
+          const nextStep = targetRoute === '/pages/finaldetails' ? 'finaldetails' : 'completed';
           const newDraftData = {
-            currentStep: 'completed',
+            currentStep: nextStep,
             category: state.category || 'accommodation',
             data: {
               finalDetails: finalDetailsData
@@ -252,7 +287,7 @@ const FinalDetails = () => {
       // Update sessionStorage before Save & Exit navigation
       updateSessionStorageBeforeNav('finaldetails');
       
-      navigate('/host/hostdashboard', { 
+      navigate('/host/listings', { 
         state: { 
           message: 'Draft saved successfully!',
           draftSaved: true 
@@ -269,7 +304,7 @@ const FinalDetails = () => {
 
   return (
     <div className="min-h-screen bg-white">
-      <OnboardingHeader />
+      <OnboardingHeader customSaveAndExit={handleSaveAndExitClick} />
       <main className="pt-20 px-8 pb-32">
         <div className="mb-12">
           <h2 className="text-lg font-medium text-gray-900 mb-2">
@@ -517,7 +552,7 @@ const FinalDetails = () => {
                                 if (actions.setCurrentStep) {
                                   actions.setCurrentStep('payment');
                                 }
-                                navigate('/host/hostdashboard', {
+                                navigate('/host/listings', {
                                   state: {
                                     message: 'Listing updated successfully!',
                                     listingUpdated: true,
