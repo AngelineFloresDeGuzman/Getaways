@@ -20,6 +20,7 @@ import { validateCoupon } from '@/pages/Host/services/couponService';
 import { startConversation, getHostIdFromListing } from '@/pages/Guest/services/messagingService';
 import { getListingReviews } from '@/pages/Guest/services/reviewService';
 import { toast } from '@/components/ui/sonner';
+import SimilarListings from '@/components/SimilarListings';
 import { MapContainer, TileLayer, Marker } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
@@ -1689,6 +1690,16 @@ const AccommodationDetail = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Similar Listings */}
+      {accommodation && (
+        <SimilarListings 
+          listingId={accommodation.id} 
+          category={accommodation.category || 'accommodation'}
+          title="Similar Accommodations"
+          limit={6}
+        />
       )}
 
       <Footer />

@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { useOnboarding } from "@/pages/Host/contexts/OnboardingContext";
 import { db } from "@/lib/firebase";
 import { doc, updateDoc, getDoc } from "firebase/firestore";
+import { createListing } from "@/pages/Host/services/listing";
 import { Plus, ChevronRight, GraduationCap, Sparkles, X, Award, Facebook, Instagram, Trash2, ChevronDown, Search, Camera, Upload, Clock, ChevronLeft, BookOpen, User, MapPin, Image, DollarSign, Clipboard, Building } from "lucide-react";
 import { MapContainer, TileLayer, Marker, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
@@ -61,8 +62,36 @@ const ExperienceDetails = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { state, actions } = useOnboarding();
-  const [currentStep, setCurrentStep] = useState(1);
-  const [yearsOfExperience, setYearsOfExperience] = useState(10);
+  // Initialize currentStep from draft if available, otherwise default to 1
+  const [currentStep, setCurrentStep] = useState(() => {
+    // ALWAYS prioritize currentStepNumber from location state first (most immediate)
+    // This ensures navigation with step numbers works correctly
+    if (location.state?.currentStepNumber !== undefined && location.state?.currentStepNumber !== null) {
+      console.log("✅ ExperienceDetails: Initializing currentStep from location.state:", location.state.currentStepNumber);
+      return location.state.currentStepNumber;
+    }
+    // If no location state step number, check if we have a draftId - if yes, we'll load from draft
+    const draftId = location.state?.draftId || state.draftId;
+    if (draftId) {
+      // We'll load it in useEffect, but initialize to null to show loading
+      // The loading condition will check for location.state.currentStepNumber before showing loading
+      console.log("⚠️ ExperienceDetails: Initializing currentStep to null (will load from draft)");
+      return null;
+    }
+    // Default to step 1 if nothing else
+    console.log("✅ ExperienceDetails: Initializing currentStep to 1 (default)");
+    return 1;
+  });
+  // Initialize state - check if we have a draftId to determine if we should use defaults or null
+  const draftIdOnMount = location.state?.draftId || state.draftId;
+  const [yearsOfExperience, setYearsOfExperience] = useState(() => {
+    // Initialize to null if we have a draftId so we can load from draft
+    // Otherwise default to 10 to ensure the UI always shows a number
+    if (draftIdOnMount) {
+      return null; // Will be loaded from draft
+    }
+    return 10;
+  });
   const [mainCategory, setMainCategory] = useState(null);
   
   // Modal states
@@ -72,10 +101,10 @@ const ExperienceDetails = () => {
   const [showAddProfileModal, setShowAddProfileModal] = useState(false);
   const [showAddressModal, setShowAddressModal] = useState(false);
   
-  // Qualification data
-  const [introTitle, setIntroTitle] = useState("");
-  const [expertise, setExpertise] = useState("");
-  const [recognition, setRecognition] = useState("");
+  // Qualification data - initialize to null if we have a draftId so we can load from draft
+  const [introTitle, setIntroTitle] = useState(draftIdOnMount ? null : "");
+  const [expertise, setExpertise] = useState(draftIdOnMount ? null : "");
+  const [recognition, setRecognition] = useState(draftIdOnMount ? null : "");
   
   // Social media profiles
   const [profiles, setProfiles] = useState([]);
@@ -100,6 +129,7 @@ const ExperienceDetails = () => {
   const [addressSearch, setAddressSearch] = useState("");
   const [addressSuggestions, setAddressSuggestions] = useState([]);
   const [isLoadingAddress, setIsLoadingAddress] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   
   // Location confirmation fields
   const [confirmCountry, setConfirmCountry] = useState("Philippines");
@@ -133,6 +163,8 @@ const ExperienceDetails = () => {
   const [itemDescription, setItemDescription] = useState("");
   const [itemDuration, setItemDuration] = useState("60");
   const [itemDurationMinutes, setItemDurationMinutes] = useState(60);
+  const [isEditingDuration, setIsEditingDuration] = useState(false);
+  const [tempDurationValue, setTempDurationValue] = useState("60");
   const [itemImage, setItemImage] = useState("");
   const [availablePhotos, setAvailablePhotos] = useState([]);
   const itineraryImageInputRef = useRef(null);
@@ -160,19 +192,91 @@ const ExperienceDetails = () => {
   const [experienceTitle, setExperienceTitle] = useState("");
   const [experienceDescription, setExperienceDescription] = useState("");
   const [showCreateOwnModal, setShowCreateOwnModal] = useState(false);
+  const [showDiscountModal, setShowDiscountModal] = useState(false);
+  const [customDiscountName, setCustomDiscountName] = useState("");
+  const [customDiscountDescription, setCustomDiscountDescription] = useState("");
+  const [customDiscountValue, setCustomDiscountValue] = useState("");
   
   // Refs for address search
   const addressSearchTimeoutRef = useRef(null);
   const addressAbortControllerRef = useRef(null);
+  
+  // Ref to track if data has been loaded to prevent infinite loops
+  const hasLoadedDataRef = useRef(false);
+  const lastDraftIdRef = useRef(null);
+  const isMountedRef = useRef(true);
+  const hasSetCurrentStepRef = useRef(false);
+  
+  // Ref to track the current yearsOfExperience value to avoid stale closures
+  // Initialize to null if we have a draftId, otherwise 10
+  const yearsOfExperienceRef = useRef(draftIdOnMount ? null : 10);
+  
+  // Update ref whenever yearsOfExperience changes
+  useEffect(() => {
+    yearsOfExperienceRef.current = yearsOfExperience;
+    console.log("🔄 yearsOfExperience state updated to:", yearsOfExperience, "ref updated to:", yearsOfExperienceRef.current);
+  }, [yearsOfExperience]);
+  
 
   const totalSteps = 16;
 
-  // Ensure progress bar shows correct step
+  // Reset refs when component mounts - always reset on mount to ensure fresh load
   useEffect(() => {
-    if (actions?.setCurrentStep) {
-      actions.setCurrentStep("experience-details");
+    isMountedRef.current = true;
+    console.log("🔄 ExperienceDetails: Component mounted, resetting all loading flags");
+    // Always reset on mount to ensure we load data fresh
+    hasLoadedDataRef.current = false;
+    lastDraftIdRef.current = null;
+    hasSetCurrentStepRef.current = false;
+    
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []); // Empty dependency array - only run on mount
+
+  // Get current step name for progress tracking
+  const getCurrentStepName = (stepNumber) => {
+    const stepNameMap = {
+      1: "experience-years-of-experience",
+      2: "experience-qualifications",
+      3: "experience-online-profiles",
+      4: "experience-residential-address",
+      5: "experience-meeting-address",
+      6: "experience-photos",
+      7: "experience-itinerary",
+      8: "experience-max-guests",
+      9: "experience-price-per-guest",
+      10: "experience-private-group-minimum",
+      11: "experience-review-pricing",
+      12: "experience-discounts",
+      13: "experience-transportation",
+      14: "experience-title-description-preview",
+      15: "experience-create-title-description",
+      16: "experience-submit-listing",
+    };
+    return stepNameMap[stepNumber] || "experience-years-of-experience";
+  };
+
+  // Set currentStep from location.state if available (immediate, before data loads)
+  useEffect(() => {
+    if (location.state?.currentStepNumber !== undefined && location.state?.currentStepNumber !== null) {
+      if (currentStep === null || currentStep !== location.state.currentStepNumber) {
+        console.log("✅ ExperienceDetails: Setting currentStep from location.state immediately:", location.state.currentStepNumber);
+        setCurrentStep(location.state.currentStepNumber);
+        hasSetCurrentStepRef.current = true;
+      }
     }
-  }, [actions]);
+  }, [location.state?.currentStepNumber]);
+
+  // Ensure progress bar shows correct step based on currentStep number
+  useEffect(() => {
+    // Use displayStep to ensure we always have a valid step
+    const stepToUse = currentStep !== null ? currentStep : (location.state?.currentStepNumber ?? 1);
+    if (actions?.setCurrentStep) {
+      const stepName = getCurrentStepName(stepToUse);
+      actions.setCurrentStep(stepName);
+    }
+  }, [actions, currentStep, location.state?.currentStepNumber]);
 
   // Load main category from location state or draft
   useEffect(() => {
@@ -180,20 +284,30 @@ const ExperienceDetails = () => {
       const categoryFromState = location.state?.experienceCategory;
       if (categoryFromState) {
         setMainCategory(categoryFromState);
-      } else {
+        return;
+      }
+      
         const draftId = state.draftId || location.state?.draftId;
         if (draftId) {
           try {
             const draftRef = doc(db, "onboardingDrafts", draftId);
             const draftSnap = await getDoc(draftRef);
-            if (draftSnap.exists() && draftSnap.data().data?.experienceCategory) {
-              setMainCategory(draftSnap.data().data.experienceCategory);
+          if (draftSnap.exists()) {
+            const data = draftSnap.data().data || {};
+            if (data.experienceCategory) {
+              setMainCategory(data.experienceCategory);
             }
+            // If no category found, it will be loaded in loadQualificationData
+            // Don't set default here to avoid overriding actual data
+          }
+          // If draft doesn't exist, don't set default - wait for loadQualificationData
           } catch (error) {
             console.error("Error loading experience category from draft:", error);
+          // On error, don't set default - let loadQualificationData handle it
           }
         }
-      }
+      // If no draftId and no categoryFromState, don't set anything
+      // The page will show loading until data is loaded or a timeout
     };
     loadMainCategory();
   }, [location.state?.experienceCategory, state.draftId, location.state?.draftId]);
@@ -202,44 +316,198 @@ const ExperienceDetails = () => {
   useEffect(() => {
     const loadQualificationData = async () => {
       const draftId = state.draftId || location.state?.draftId;
-      if (draftId) {
+      
+      // Priority 1: If we have currentStepNumber in location state, use it immediately (don't wait for draft load)
+      if (location.state?.currentStepNumber !== undefined && location.state?.currentStepNumber !== null) {
+        if (currentStep !== location.state.currentStepNumber) {
+          console.log("✅ ExperienceDetails: Setting currentStep from location.state (priority):", location.state.currentStepNumber);
+          setCurrentStep(location.state.currentStepNumber);
+          hasSetCurrentStepRef.current = true;
+        }
+      }
+      
+      console.log("🔍 ExperienceDetails: Loading qualification data from draft, draftId:", draftId, "currentStepNumber from location:", location.state?.currentStepNumber);
+      
+      // Prevent loading if we've already loaded this draftId or if there's no draftId
+      if (!draftId) {
+        console.warn("⚠️ ExperienceDetails: No draftId available, setting defaults");
+        // If no draftId, set defaults to allow page to render (only once)
+        if (!mainCategory) {
+          setMainCategory("art-and-design");
+        }
+        // Use location.state.currentStepNumber if available, otherwise default to 1
+        const stepToUse = location.state?.currentStepNumber ?? 1;
+        if (!hasSetCurrentStepRef.current && currentStep === null) {
+          setCurrentStep(stepToUse);
+          hasSetCurrentStepRef.current = true;
+        }
+        if (yearsOfExperience === null) {
+          setYearsOfExperience(10);
+          yearsOfExperienceRef.current = 10;
+        }
+        return;
+      }
+      
+      // Only skip if we've already loaded THIS exact draftId
+      // Check if we're in default/unloaded state:
+      // - If introTitle/expertise/recognition are null (not yet loaded) OR
+      // - If we're on step 1 with default yearsOfExperience and no other data
+      const isUnloadedState = (introTitle === null || expertise === null || recognition === null || yearsOfExperience === null) ||
+                              (currentStep === 1 && yearsOfExperience === 10 && (!introTitle || introTitle === "") && (!expertise || expertise === "") && (!recognition || recognition === ""));
+      
+      // Only skip if we've loaded this draftId AND we're not in unloaded state
+      // IMPORTANT: Don't reload when currentStep changes - data persists in state across steps
+      // Only reload when draftId changes or data hasn't been loaded yet
+      if (hasLoadedDataRef.current && lastDraftIdRef.current === draftId && !isUnloadedState) {
+        console.log("⏭️ ExperienceDetails: Data already loaded for this draftId, skipping reload");
+        console.log("  Current values:", { currentStep, mainCategory, yearsOfExperience, introTitle, expertise, recognition });
+        return;
+      }
+      
+      // Always reset flags if:
+      // 1. Different draftId
+      // 2. Haven't loaded yet
+      // 3. We're in unloaded state (means we need to load)
+      if (lastDraftIdRef.current !== draftId || !hasLoadedDataRef.current || isUnloadedState) {
+        console.log("🔄 ExperienceDetails: Resetting loading flags", {
+          lastDraftId: lastDraftIdRef.current,
+          currentDraftId: draftId,
+          hasLoaded: hasLoadedDataRef.current,
+          isUnloadedState,
+          currentStep,
+          introTitle,
+          expertise,
+          recognition
+        });
+        hasLoadedDataRef.current = false;
+        hasSetCurrentStepRef.current = false;
+      }
+      
         try {
           const draftRef = doc(db, "onboardingDrafts", draftId);
           const draftSnap = await getDoc(draftRef);
           if (draftSnap.exists()) {
             const data = draftSnap.data().data || {};
-            if (data.introTitle) setIntroTitle(data.introTitle);
-            if (data.expertise) setExpertise(data.expertise);
-            if (data.recognition) setRecognition(data.recognition);
-            if (data.yearsOfExperience) setYearsOfExperience(data.yearsOfExperience);
-            if (data.profiles && Array.isArray(data.profiles)) {
+          console.log("📦 ExperienceDetails: Draft data loaded:", {
+            keys: Object.keys(data),
+            introTitle: data.introTitle,
+            expertise: data.expertise,
+            recognition: data.recognition,
+            yearsOfExperience: data.yearsOfExperience,
+            yearsOfExperienceType: typeof data.yearsOfExperience,
+            currentStepNumber: data.currentStepNumber,
+            profiles: data.profiles,
+            city: data.city,
+            streetAddress: data.streetAddress
+          });
+          
+          // Debug: Check if yearsOfExperience exists in the data object
+          if ('yearsOfExperience' in data) {
+            console.log("✅ yearsOfExperience found in draft data:", data.yearsOfExperience, "type:", typeof data.yearsOfExperience);
+          } else {
+            console.error("❌ yearsOfExperience NOT found in draft data! Available keys:", Object.keys(data));
+          }
+          
+          // Load mainCategory from draft data FIRST (before marking as loaded)
+          if (!mainCategory && data.experienceCategory) {
+            console.log("✅ ExperienceDetails: Loading experienceCategory from draft:", data.experienceCategory);
+            setMainCategory(data.experienceCategory);
+          } else if (!mainCategory) {
+            // If still no category, set a default to prevent infinite loading
+            console.warn("⚠️ ExperienceDetails: No experienceCategory found, using default");
+            setMainCategory("art-and-design");
+          }
+          
+          // Load currentStepNumber FIRST to restore the exact step
+          // Priority: location.state > draft data > default (1)
+          let stepToSet = null;
+          if (location.state?.currentStepNumber !== undefined && location.state?.currentStepNumber !== null) {
+            stepToSet = location.state.currentStepNumber;
+            console.log("✅ ExperienceDetails: Using currentStepNumber from location.state:", stepToSet);
+          } else if (data.currentStepNumber !== undefined && data.currentStepNumber !== null) {
+            stepToSet = data.currentStepNumber;
+            console.log("✅ ExperienceDetails: Loading currentStepNumber from draft:", stepToSet);
+          } else {
+            stepToSet = 1;
+            console.log("⚠️ ExperienceDetails: No currentStepNumber found, defaulting to step 1");
+          }
+          
+          // Only set if we haven't set it yet or if it's different
+          if (!hasSetCurrentStepRef.current || currentStep !== stepToSet) {
+            setCurrentStep(stepToSet);
+              hasSetCurrentStepRef.current = true;
+          }
+          
+          // Load all form data - use !== undefined to include empty strings and falsy values
+            // Always set these values, even if they're empty strings or 0, to override defaults
+            console.log("📥 Loading form data from draft:", {
+              introTitle: data.introTitle,
+              expertise: data.expertise,
+              recognition: data.recognition,
+              yearsOfExperience: data.yearsOfExperience
+            });
+            
+            if (data.introTitle !== undefined) {
+              console.log("  → Setting introTitle:", data.introTitle);
+              setIntroTitle(data.introTitle || "");
+            } else if (introTitle === null) {
+              // If data doesn't exist and we initialized to null, set to empty string
+              setIntroTitle("");
+            }
+            if (data.expertise !== undefined) {
+              console.log("  → Setting expertise:", data.expertise);
+              setExpertise(data.expertise || "");
+            } else if (expertise === null) {
+              setExpertise("");
+            }
+            if (data.recognition !== undefined) {
+              console.log("  → Setting recognition:", data.recognition);
+              setRecognition(data.recognition || "");
+            } else if (recognition === null) {
+              setRecognition("");
+            }
+            // Always check for yearsOfExperience in the data
+            if (data.yearsOfExperience !== undefined && data.yearsOfExperience !== null) {
+              // Even if it's 0, use the saved value (0 is a valid value)
+              console.log("  → Setting yearsOfExperience from draft:", data.yearsOfExperience, "(was:", yearsOfExperience, ", ref was:", yearsOfExperienceRef.current, ")");
+              setYearsOfExperience(data.yearsOfExperience);
+              // Also update the ref immediately to ensure it's in sync
+              yearsOfExperienceRef.current = data.yearsOfExperience;
+              console.log("  → Updated ref to:", yearsOfExperienceRef.current);
+            } else if (data.yearsOfExperience === undefined || data.yearsOfExperience === null) {
+              console.warn("  ⚠️ yearsOfExperience is undefined/null in draft data, setting default to 10");
+              // If no saved value, set to default 10
+              setYearsOfExperience(10);
+              yearsOfExperienceRef.current = 10;
+            }
+            if (data.profiles !== undefined && Array.isArray(data.profiles)) {
               setProfiles(data.profiles);
             }
-            if (data.country) setCountry(data.country);
+            if (data.country !== undefined) setCountry(data.country);
             if (data.unit !== undefined) setUnit(data.unit);
             if (data.buildingName !== undefined) setBuildingName(data.buildingName);
-            if (data.streetAddress) setStreetAddress(data.streetAddress);
+            if (data.streetAddress !== undefined) setStreetAddress(data.streetAddress);
             if (data.barangay !== undefined) setBarangay(data.barangay);
-            if (data.city) setCity(data.city);
-            if (data.zipCode) setZipCode(data.zipCode);
-            if (data.province) setProvince(data.province);
+            if (data.city !== undefined) setCity(data.city);
+            if (data.zipCode !== undefined) setZipCode(data.zipCode);
+            if (data.province !== undefined) setProvince(data.province);
             if (data.isBusinessHosting !== undefined) setIsBusinessHosting(data.isBusinessHosting);
-            if (data.meetingAddress) setMeetingAddress(data.meetingAddress);
-            if (data.confirmCountry) setConfirmCountry(data.confirmCountry);
+            if (data.meetingAddress !== undefined) setMeetingAddress(data.meetingAddress);
+            if (data.confirmCountry !== undefined) setConfirmCountry(data.confirmCountry);
             if (data.confirmUnit !== undefined) setConfirmUnit(data.confirmUnit);
             if (data.confirmBuildingName !== undefined) setConfirmBuildingName(data.confirmBuildingName);
-            if (data.confirmStreetAddress) setConfirmStreetAddress(data.confirmStreetAddress);
+            if (data.confirmStreetAddress !== undefined) setConfirmStreetAddress(data.confirmStreetAddress);
             if (data.confirmBarangay !== undefined) setConfirmBarangay(data.confirmBarangay);
-            if (data.confirmCity) setConfirmCity(data.confirmCity);
-            if (data.confirmZipCode) setConfirmZipCode(data.confirmZipCode);
-            if (data.confirmProvince) setConfirmProvince(data.confirmProvince);
-            if (data.locationName) setLocationName(data.locationName);
-            if (data.showConfirmLocation) setShowConfirmLocation(data.showConfirmLocation);
-            if (data.mapLat && data.mapLng) {
+            if (data.confirmCity !== undefined) setConfirmCity(data.confirmCity);
+            if (data.confirmZipCode !== undefined) setConfirmZipCode(data.confirmZipCode);
+            if (data.confirmProvince !== undefined) setConfirmProvince(data.confirmProvince);
+            if (data.locationName !== undefined) setLocationName(data.locationName);
+            if (data.showConfirmLocation !== undefined) setShowConfirmLocation(data.showConfirmLocation);
+            if (data.mapLat !== undefined && data.mapLng !== undefined) {
               setMapPosition([data.mapLat, data.mapLng]);
             }
-            if (data.showMap) setShowMap(data.showMap);
-            if (data.photos && Array.isArray(data.photos)) {
+            if (data.showMap !== undefined) setShowMap(data.showMap);
+            if (data.photos !== undefined && Array.isArray(data.photos)) {
               // Ensure photos have url property for display
               const photosWithUrl = data.photos.map(photo => ({
                 ...photo,
@@ -248,43 +516,93 @@ const ExperienceDetails = () => {
               setPhotos(photosWithUrl);
               setAvailablePhotos(photosWithUrl);
             }
-            if (data.itineraryItems && Array.isArray(data.itineraryItems)) {
+            if (data.itineraryItems !== undefined && Array.isArray(data.itineraryItems)) {
               setItineraryItems(data.itineraryItems);
             }
             if (data.maxGuests !== undefined) {
               setMaxGuests(data.maxGuests);
             }
             if (data.pricePerGuest !== undefined) {
-              setPricePerGuest(data.pricePerGuest);
+              // Convert to string if it's a number (Firestore might store it as a number)
+              setPricePerGuest(String(data.pricePerGuest || ""));
             }
             if (data.privateGroupMinimum !== undefined) {
               setPrivateGroupMinimum(data.privateGroupMinimum);
             }
-            if (data.discounts && Array.isArray(data.discounts)) {
+            if (data.discounts !== undefined && Array.isArray(data.discounts)) {
               setDiscounts(data.discounts);
             }
             if (data.willTransportGuests !== undefined) {
               setWillTransportGuests(data.willTransportGuests);
             }
-            if (data.transportationTypes && Array.isArray(data.transportationTypes)) {
+            if (data.transportationTypes !== undefined && Array.isArray(data.transportationTypes)) {
               setTransportationTypes(data.transportationTypes);
             }
             if (data.termsAgreed !== undefined) {
               setTermsAgreed(data.termsAgreed);
             }
             if (data.experienceTitle !== undefined) {
-              setExperienceTitle(data.experienceTitle);
+              setExperienceTitle(data.experienceTitle || "");
             }
             if (data.experienceDescription !== undefined) {
-              setExperienceDescription(data.experienceDescription);
+              setExperienceDescription(data.experienceDescription || "");
+            }
+            
+            console.log("✅ ExperienceDetails: All form data loaded from draft", {
+              introTitle: data.introTitle,
+              expertise: data.expertise,
+              recognition: data.recognition,
+              yearsOfExperience: data.yearsOfExperience,
+              currentStepNumber: data.currentStepNumber,
+              profilesCount: data.profiles?.length || 0
+            });
+            
+            // Mark as loaded AFTER all state updates are queued
+            // Use setTimeout to ensure React has processed all state updates
+            setTimeout(() => {
+              hasLoadedDataRef.current = true;
+              lastDraftIdRef.current = draftId;
+              console.log("✅ ExperienceDetails: Marked as loaded after all state updates, draftId:", draftId);
+            }, 100);
+            
+            console.log("✅ ExperienceDetails: All data loaded from draft");
+          } else {
+            console.warn("⚠️ ExperienceDetails: Draft does not exist");
+            hasLoadedDataRef.current = true; // Mark as attempted even if draft doesn't exist
+            lastDraftIdRef.current = draftId;
+            // Set defaults to prevent infinite loading
+            if (!mainCategory) {
+              setMainCategory("art-and-design");
+            }
+            if (!hasSetCurrentStepRef.current && currentStep === null) {
+              setCurrentStep(1);
+              hasSetCurrentStepRef.current = true;
             }
           }
         } catch (error) {
-          console.error("Error loading qualification data from draft:", error);
+          console.error("❌ Error loading qualification data from draft:", error);
+          hasLoadedDataRef.current = true; // Mark as attempted even on error
+          lastDraftIdRef.current = draftId;
+          // Set defaults to prevent infinite loading
+          if (!mainCategory) {
+            setMainCategory("art-and-design");
+          }
+          if (!hasSetCurrentStepRef.current && currentStep === null) {
+            setCurrentStep(1);
+            hasSetCurrentStepRef.current = true;
         }
       }
     };
     loadQualificationData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.draftId, location.state?.draftId]); // Only reload when draftId changes, not when currentStep changes
+  
+  // Reset loading flag when draftId changes
+  useEffect(() => {
+    const draftId = state.draftId || location.state?.draftId;
+    if (draftId !== lastDraftIdRef.current) {
+      hasLoadedDataRef.current = false;
+    }
   }, [state.draftId, location.state?.draftId]);
 
   // Category display names
@@ -298,26 +616,106 @@ const ExperienceDetails = () => {
 
   const categoryName = mainCategory ? categoryDisplayNames[mainCategory] || mainCategory : "";
 
-  const handleDecrement = () => {
+  const handleDecrement = async () => {
     if (yearsOfExperience > 0) {
-      setYearsOfExperience(yearsOfExperience - 1);
+      const newValue = yearsOfExperience - 1;
+      console.log("📉 Decrementing yearsOfExperience from", yearsOfExperience, "to", newValue);
+      setYearsOfExperience(newValue);
+      // Save with the new value directly to avoid state update timing issues
+      await saveQualificationData(newValue);
     }
   };
 
-  const handleIncrement = () => {
-    setYearsOfExperience(yearsOfExperience + 1);
+  const handleIncrement = async () => {
+    const newValue = yearsOfExperience + 1;
+    console.log("📈 Incrementing yearsOfExperience from", yearsOfExperience, "to", newValue);
+    setYearsOfExperience(newValue);
+    // Save with the new value directly to avoid state update timing issues
+    await saveQualificationData(newValue);
   };
 
-  const saveQualificationData = async () => {
-    const draftId = state.draftId || location.state?.draftId;
+  const saveQualificationData = async (overrideYearsOfExperience = null) => {
+    let draftId = state.draftId || location.state?.draftId;
+    
+    // Use override value if provided, otherwise use ref (most up-to-date) or state as fallback
+    // This ensures we save the correct value even if state hasn't updated yet
+    const yearsToSave = overrideYearsOfExperience !== null 
+      ? overrideYearsOfExperience 
+      : (yearsOfExperienceRef.current !== undefined ? yearsOfExperienceRef.current : yearsOfExperience);
+    
+    console.log("💾 saveQualificationData called:", {
+      overrideValue: overrideYearsOfExperience,
+      refValue: yearsOfExperienceRef.current,
+      stateValue: yearsOfExperience,
+      willSave: yearsToSave
+    });
+    
+    // If no draftId exists, try to find an existing experience draft first
+    if (!draftId) {
+      try {
+        const { auth } = await import("@/lib/firebase");
+        const currentUser = auth.currentUser;
+        if (!currentUser) {
+          console.warn("⚠️ ExperienceDetails: User not authenticated, cannot create draft");
+          return;
+        }
+        
+        // Try to find an existing experience draft for this user
+        const { getUserDrafts } = await import("@/pages/Host/services/draftService");
+        const drafts = await getUserDrafts();
+        const experienceDraft = drafts.find(d => 
+          d.category === "experience" && 
+          (d.currentStep === "experience-details" || 
+           d.currentStep === "experience-listing-summary" ||
+           d.currentStep === "experience-location" ||
+           d.currentStep === "experience-subcategory-selection" ||
+           d.currentStep === "experience-category-selection" ||
+           d.data?.experienceCategory)
+        );
+        
+        if (experienceDraft) {
+          draftId = experienceDraft.id;
+          console.log("✅ ExperienceDetails: Found existing experience draft:", draftId);
+          
+          // Update state with found draftId
+          if (actions?.setDraftId) {
+            actions.setDraftId(draftId);
+          }
+        } else {
+          // No existing draft found, create a new one
+          const { saveDraft } = await import("@/pages/Host/services/draftService");
+          const newDraftData = {
+            currentStep: "experience-details",
+            category: "experience",
+            data: {
+              experienceCategory: mainCategory || "art-and-design",
+              currentStepNumber: currentStep || 1,
+            }
+          };
+          draftId = await saveDraft(newDraftData, null);
+          console.log("✅ ExperienceDetails: Created new draft:", draftId);
+          
+          // Update state with new draftId
+          if (actions?.setDraftId) {
+            actions.setDraftId(draftId);
+          }
+        }
+      } catch (error) {
+        console.error("❌ ExperienceDetails: Error finding/creating draft:", error);
+        throw error;
+      }
+    }
+    
     if (draftId) {
       try {
         const draftRef = doc(db, "onboardingDrafts", draftId);
-        await updateDoc(draftRef, {
+        
+        // Build update object with all form data
+        const updateData = {
           "data.introTitle": introTitle,
           "data.expertise": expertise,
           "data.recognition": recognition,
-          "data.yearsOfExperience": yearsOfExperience,
+          "data.yearsOfExperience": yearsToSave,
           "data.profiles": profiles,
           "data.country": country,
           "data.unit": unit,
@@ -342,7 +740,25 @@ const ExperienceDetails = () => {
           "data.mapLat": mapPosition[0],
           "data.mapLng": mapPosition[1],
           "data.showMap": showMap,
-          "data.photos": photos,
+          "data.photos": photos.map(photo => {
+            // Save photo data with base64 for listing creation
+            // Remove blob URLs (they can't be serialized), but keep base64
+            const photoData = {
+              id: photo.id,
+              name: photo.name,
+            };
+            // Only include URL if it's a real URL (not a blob URL)
+            if (photo.url && !photo.url.startsWith('blob:')) {
+              photoData.url = photo.url;
+            }
+            // Include base64 if available (needed for listing creation)
+            // Firebase Firestore has a 1MB document size limit, but we'll include base64
+            // and let Firebase handle size limits (it will error if too large)
+            if (photo.base64) {
+              photoData.base64 = photo.base64;
+            }
+            return photoData;
+          }),
           "data.itineraryItems": itineraryItems.map(item => ({
             ...item,
             description: item.description || '',
@@ -357,12 +773,63 @@ const ExperienceDetails = () => {
           "data.termsAgreed": termsAgreed,
           "data.experienceTitle": experienceTitle,
           "data.experienceDescription": experienceDescription,
+          "data.experienceCategory": mainCategory || displayCategory || "art-and-design",
+          "data.currentStepNumber": currentStep !== null && currentStep !== undefined ? currentStep : (location.state?.currentStepNumber ?? displayStep ?? 1),
           currentStep: "experience-details",
+          category: "experience",
           lastModified: new Date(),
+        };
+        
+        console.log("💾 About to save to Firebase:", {
+          yearsOfExperience: yearsToSave,
+          yearsOfExperienceState: yearsOfExperience,
+          overrideValue: overrideYearsOfExperience,
+          introTitle: introTitle?.substring(0, 50) || "(empty)",
+          expertise: expertise?.substring(0, 50) || "(empty)",
+          recognition: recognition?.substring(0, 50) || "(empty)",
+          currentStep
         });
+        
+        // Save to Firebase - await ensures save completes before continuing
+        await updateDoc(draftRef, updateData);
+        
+        // Verify the save by reading back from Firebase
+        const verifySnap = await getDoc(draftRef);
+        if (verifySnap.exists()) {
+          const savedData = verifySnap.data().data || {};
+          console.log("✅ ExperienceDetails: Draft saved successfully to Firebase on step", currentStep, "draftId:", draftId);
+          console.log("💾 Saved data includes:", {
+            introTitle: introTitle?.substring(0, 50) || "(empty)",
+            expertise: expertise?.substring(0, 50) || "(empty)",
+            recognition: recognition?.substring(0, 50) || "(empty)",
+            yearsOfExperience: yearsToSave,
+            profilesCount: profiles?.length || 0,
+            photosCount: photos?.length || 0,
+            currentStepNumber: currentStep,
+            meetingAddress: meetingAddress?.substring(0, 50) || "(empty)",
+            pricePerGuest: pricePerGuest || "(empty)",
+            discountsCount: discounts?.length || 0
+          });
+          console.log("✅ Firebase save verified - data confirmed in Firebase:", {
+            savedYearsOfExperience: savedData.yearsOfExperience,
+            savedCurrentStep: savedData.currentStepNumber,
+            savedIntroTitle: savedData.introTitle?.substring(0, 30) || "(empty)"
+          });
+        } else {
+          console.error("❌ ExperienceDetails: Save verification failed - document not found after save!");
+        }
       } catch (error) {
-        console.error("Error saving qualification data:", error);
+        console.error("❌ ExperienceDetails: Error saving qualification data:", error);
+        console.error("Error details:", {
+          draftId,
+          errorMessage: error.message,
+          errorCode: error.code
+        });
+        throw error; // Re-throw to allow callers to handle errors
       }
+    } else {
+      console.error("❌ ExperienceDetails: No draftId available to save data");
+      throw new Error("No draft ID available. Cannot save data.");
     }
   };
 
@@ -793,14 +1260,65 @@ const ExperienceDetails = () => {
     }
   };
 
-  const handleDecrementDuration = () => {
+  const handleDecrementDuration = async () => {
     if (itemDurationMinutes > 1) {
-      setItemDurationMinutes(itemDurationMinutes - 1);
+      const newValue = itemDurationMinutes - 1;
+      setItemDurationMinutes(newValue);
+      setTempDurationValue(newValue.toString());
+      // Save to Firebase when duration changes - await to ensure save completes
+      try {
+        await saveQualificationData();
+        console.log("✅ Duration decremented and saved to Firebase:", newValue);
+      } catch (error) {
+        console.error("❌ Error saving duration change:", error);
+        alert("Failed to save duration change. Please try again.");
+      }
     }
   };
 
-  const handleIncrementDuration = () => {
-    setItemDurationMinutes(itemDurationMinutes + 1);
+  const handleIncrementDuration = async () => {
+    const newValue = itemDurationMinutes + 1;
+    setItemDurationMinutes(newValue);
+    setTempDurationValue(newValue.toString());
+    // Save to Firebase when duration changes - await to ensure save completes
+    try {
+      await saveQualificationData();
+      console.log("✅ Duration incremented and saved to Firebase:", newValue);
+    } catch (error) {
+      console.error("❌ Error saving duration change:", error);
+      alert("Failed to save duration change. Please try again.");
+    }
+  };
+
+  const handleDurationClick = () => {
+    setIsEditingDuration(true);
+    setTempDurationValue(itemDurationMinutes.toString());
+  };
+
+  const handleDurationBlur = async () => {
+    const value = parseInt(tempDurationValue) || 1;
+    const finalValue = value < 1 ? 1 : value;
+    setItemDurationMinutes(finalValue);
+    setTempDurationValue(finalValue.toString());
+    setIsEditingDuration(false);
+    // Save to Firebase when duration changes - await to ensure save completes
+    try {
+      await saveQualificationData();
+      console.log("✅ Duration edited and saved to Firebase:", finalValue);
+    } catch (error) {
+      console.error("❌ Error saving duration change:", error);
+      alert("Failed to save duration change. Please try again.");
+    }
+  };
+
+  const handleDurationKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleDurationBlur();
+    } else if (e.key === 'Escape') {
+      setTempDurationValue(itemDurationMinutes.toString());
+      setIsEditingDuration(false);
+    }
   };
 
   const handleSelectPhotoFromGallery = (photo) => {
@@ -877,6 +1395,14 @@ const ExperienceDetails = () => {
 
   const handleSaveAndExit = async () => {
     console.log("🚀 ExperienceDetails handleSaveAndExit called");
+    console.log("📊 Current state values before save:", {
+      yearsOfExperience,
+      yearsOfExperienceRef: yearsOfExperienceRef.current,
+      introTitle,
+      expertise,
+      recognition,
+      currentStep
+    });
     try {
       const { auth } = await import("@/lib/firebase");
       const currentUser = auth.currentUser;
@@ -886,15 +1412,21 @@ const ExperienceDetails = () => {
         return;
       }
 
-      console.log("💾 Saving qualification data...");
-      await saveQualificationData();
+      console.log("💾 Saving qualification data with current values...");
+      // Use the ref value to ensure we have the most up-to-date value
+      const currentYearsValue = yearsOfExperienceRef.current !== undefined ? yearsOfExperienceRef.current : yearsOfExperience;
+      console.log("💾 Using yearsOfExperience value:", currentYearsValue, "(from ref:", yearsOfExperienceRef.current, ", from state:", yearsOfExperience, ")");
+      await saveQualificationData(currentYearsValue);
       console.log("✅ Data saved, navigating to listings page...");
+
+      // Get the updated draftId after saving (in case it was created)
+      const updatedDraftId = state.draftId || location.state?.draftId;
 
       // Navigate to listings page with state to scroll to saved drafts section
       navigate("/host/listings", {
         state: {
           scrollToDrafts: true,
-          draftId: state.draftId || location.state?.draftId,
+          draftId: updatedDraftId,
           message: "Draft saved successfully!",
         },
       });
@@ -906,7 +1438,10 @@ const ExperienceDetails = () => {
   };
 
   const handleNext = async () => {
-    // Always save before any navigation or action
+    try {
+      // Always save before any navigation or action - this ensures all current data is saved to Firebase
+      // Same functionality as Save & Exit
+      console.log("💾 handleNext: Saving data before navigation, currentStep:", currentStep);
     await saveQualificationData();
     
     // If on Step 13, set termsAgreed to true when clicking Next (which acts as "I agree")
@@ -915,8 +1450,11 @@ const ExperienceDetails = () => {
       await saveQualificationData(); // Save again after setting termsAgreed
     }
     
+    // Use the actual currentStep state, not displayStep
+    const actualCurrentStep = currentStep !== null ? currentStep : (location.state?.currentStepNumber ?? 1);
+    
     // If on Step 15, open the modal only if title/description don't exist yet
-    if (currentStep === 15) {
+    if (actualCurrentStep === 15) {
       if (experienceTitle.trim().length === 0 || experienceDescription.trim().length === 0) {
         setShowCreateOwnModal(true);
         return; // Already saved above
@@ -925,28 +1463,48 @@ const ExperienceDetails = () => {
     }
     
     // If on Step 16, submit the listing
-    if (currentStep === 16) {
+    if (actualCurrentStep === 16) {
       await handleSubmitListing();
       return; // handleSubmitListing already saves
     }
 
     // Navigate to next step
-    if (currentStep < totalSteps) {
-      setCurrentStep(currentStep + 1);
+    if (actualCurrentStep < totalSteps) {
+        const nextStep = actualCurrentStep + 1;
+        setCurrentStep(nextStep);
+        // Save again after moving to next step to update currentStepNumber in Firebase
+        // This ensures the draft knows which step we're on, same as Save & Exit
+        console.log("💾 handleNext: Saving after moving to step", nextStep);
+        await saveQualificationData();
     } else {
-      // All steps completed, navigate to next major page
-      const draftId = state.draftId || location.state?.draftId;
-      navigate("/pages/experience-details", {
-        state: {
-          draftId,
-          category: "experience",
-          experienceCategory: mainCategory,
-        },
+        // This should never execute since step 16 is handled above
+        // But if it does, save and stay on current step
+        console.warn("⚠️ ExperienceDetails: Reached else block in handleNext, this shouldn't happen");
+        await saveQualificationData();
+      }
+    } catch (error) {
+      console.error("❌ Error in handleNext:", error);
+      console.error("❌ Error details:", {
+        message: error.message,
+        stack: error.stack,
+        currentStep: currentStep !== null ? currentStep : (location.state?.currentStepNumber ?? 1),
+        photosCount: photos?.length || 0,
+        draftId: state.draftId || location.state?.draftId,
+        photosSample: photos?.slice(0, 2).map(p => ({
+          id: p.id,
+          name: p.name,
+          hasUrl: !!p.url,
+          urlType: p.url?.startsWith('blob:') ? 'blob' : 'regular',
+          hasBase64: !!p.base64,
+          base64Length: p.base64?.length || 0
+        }))
       });
+      alert("Failed to save progress: " + (error.message || "Unknown error. Please try again."));
     }
   };
 
   const handleBack = async () => {
+    try {
     // Always save before going back
     await saveQualificationData();
     
@@ -957,26 +1515,206 @@ const ExperienceDetails = () => {
         experienceCategory: mainCategory,
       },
     });
+    } catch (error) {
+      console.error("❌ Error in handleBack:", error);
+      alert("Failed to save progress. Please try again.");
+    }
   };
 
   const handlePreviousStep = async () => {
-    // Always save before going to previous step
+    try {
+      // Always save before going to previous step - this ensures all current data is saved to Firebase
+      const actualCurrentStep = currentStep !== null ? currentStep : (location.state?.currentStepNumber ?? 1);
+      console.log("💾 handlePreviousStep: Saving data before going back, currentStep:", actualCurrentStep);
     await saveQualificationData();
-    setCurrentStep(currentStep - 1);
+      const previousStep = actualCurrentStep - 1;
+      setCurrentStep(previousStep);
+      // Save again after moving to previous step to update currentStepNumber in Firebase
+      // This ensures the draft knows which step we're on, same as Save & Exit
+      console.log("💾 handlePreviousStep: Saving after moving to step", previousStep);
+      await saveQualificationData();
+      // Note: The useEffect will automatically reload data when currentStep changes
+      // because we added currentStep to the dependency array, ensuring saved values are displayed
+    } catch (error) {
+      console.error("❌ Error in handlePreviousStep:", error);
+      alert("Failed to save progress. Please try again.");
+    }
+  };
+
+  const handleSaveTitleAndDescription = async () => {
+    try {
+      // Validate that both fields have content
+      if (experienceTitle.trim().length === 0 || experienceDescription.trim().length === 0) {
+        alert("Please enter both a title and description.");
+        return;
+      }
+
+      // Save to Firebase
+      console.log("💾 Saving title and description:", {
+        title: experienceTitle.substring(0, 50),
+        description: experienceDescription.substring(0, 100)
+      });
+      await saveQualificationData();
+      
+      // Close the modal
+      setShowCreateOwnModal(false);
+      
+      console.log("✅ Title and description saved successfully");
+    } catch (error) {
+      console.error("❌ Error saving title and description:", error);
+      alert("Failed to save title and description. Please try again.");
+    }
   };
 
   // Handle submit listing
   const handleSubmitListing = async () => {
-    await saveQualificationData();
-    // TODO: Submit the listing to backend
-    // For now, navigate to a success page or back to dashboard
-    const draftId = state.draftId || location.state?.draftId;
+    try {
+      setIsLoading(true);
+      const draftId = state.draftId || location.state?.draftId;
+      
+      if (!draftId) {
+        console.error("❌ No draftId available");
+        alert("Error: No draft found. Please start over.");
+        return;
+      }
+
+      // Save all current data to draft first
+      await saveQualificationData();
+      
+      // Get draft data
+      const draftRef = doc(db, "onboardingDrafts", draftId);
+      const draftSnap = await getDoc(draftRef);
+      
+      if (!draftSnap.exists()) {
+        console.error("❌ Draft not found");
+        alert("Error: Draft not found. Please start over.");
+        return;
+      }
+
+      const draftData = draftSnap.data();
+      const data = draftData.data || {};
+      
+      // Prepare location data
+      const locationData = {
+        country: data.confirmCountry || data.country || "Philippines",
+        province: data.confirmProvince || data.province || "",
+        city: data.confirmCity || data.city || "",
+        barangay: data.confirmBarangay || data.barangay || "",
+        streetAddress: data.confirmStreetAddress || data.streetAddress || "",
+        unit: data.confirmUnit || data.unit || "",
+        buildingName: data.confirmBuildingName || data.buildingName || "",
+        zipCode: data.confirmZipCode || data.zipCode || "",
+        locationName: data.locationName || "",
+        lat: data.mapLat || null,
+        lng: data.mapLng || null,
+      };
+      
+      // Prepare meeting address/location
+      const meetingAddressData = {
+        address: data.meetingAddress || "",
+        country: data.confirmCountry || data.country || "Philippines",
+        province: data.confirmProvince || data.province || "",
+        city: data.confirmCity || data.city || "",
+        streetAddress: data.confirmStreetAddress || data.streetAddress || "",
+        lat: data.mapLat || null,
+        lng: data.mapLng || null,
+      };
+      
+      // Prepare pricing data
+      const pricingData = {
+        pricePerGuest: parseFloat(data.pricePerGuest || 0),
+        privateGroupMinimum: parseFloat(data.privateGroupMinimum || 0),
+      };
+      
+      // Prepare listing data
+      const listingData = {
+        category: "experience",
+        title: data.experienceTitle || "Untitled Experience",
+        description: data.experienceDescription || "",
+        descriptionHighlights: [],
+        location: locationData,
+        photos: data.photos || [],
+        pricing: pricingData,
+        // Experience-specific fields
+        experienceCategory: data.experienceCategory || mainCategory || "art-and-design",
+        experienceSubcategory: data.experienceSubcategory || location.state?.experienceSubcategory || null,
+        yearsOfExperience: data.yearsOfExperience || 10,
+        introTitle: data.introTitle || "",
+        expertise: data.expertise || "",
+        recognition: data.recognition || "",
+        profiles: data.profiles || [],
+        residentialAddress: {
+          country: data.country || "Philippines",
+          province: data.province || "",
+          city: data.city || "",
+          barangay: data.barangay || "",
+          streetAddress: data.streetAddress || "",
+          unit: data.unit || "",
+          buildingName: data.buildingName || "",
+          zipCode: data.zipCode || "",
+        },
+        meetingAddress: meetingAddressData,
+        meetingLocationData: {
+          lat: data.mapLat || null,
+          lng: data.mapLng || null,
+          address: data.meetingAddress || "",
+        },
+        itineraryItems: data.itineraryItems || [],
+        maxGuests: data.maxGuests || 1,
+        pricePerGuest: data.pricePerGuest || null,
+        privateGroupMinimum: data.privateGroupMinimum || null,
+        experienceDiscounts: data.discounts || [],
+        willTransportGuests: data.willTransportGuests !== undefined ? data.willTransportGuests : null,
+        transportationTypes: data.transportationTypes || [],
+        termsAgreed: data.termsAgreed !== undefined ? data.termsAgreed : false,
+        experienceTitle: data.experienceTitle || "",
+        experienceDescription: data.experienceDescription || "",
+        // Use photos from state (which have base64) instead of draft (which were sanitized)
+        // This ensures photos are included in the listing
+        photos: photos.length > 0 ? photos : (data.photos || []),
+      };
+      
+      // Check if listing already exists (for updates)
+      const existingListingId = draftData.publishedListingId || null;
+      
+      // Create or update listing
+      console.log("📝 Creating experience listing...", {
+        existingListingId,
+        title: listingData.title,
+        category: listingData.category,
+        photosCount: listingData.photos.length,
+        photosFromState: photos.length,
+        photosFromDraft: data.photos?.length || 0,
+        firstPhotoHasBase64: listingData.photos[0]?.base64 ? true : false,
+        firstPhotoHasUrl: listingData.photos[0]?.url ? true : false,
+        firstPhotoKeys: listingData.photos[0] ? Object.keys(listingData.photos[0]) : [],
+      });
+      
+      const listingId = await createListing(listingData, existingListingId);
+      console.log("✅ Experience listing created/updated:", listingId);
+      
+      // Update draft with publishedListingId and mark as published
+      await updateDoc(draftRef, {
+        publishedListingId: listingId,
+        published: true,
+        status: "published",
+        lastModified: new Date(),
+      });
+      
+      // Navigate to listings page
       navigate("/host/listings", {
       state: {
         draftId,
+          listingId,
         submitted: true,
       },
     });
+    } catch (error) {
+      console.error("❌ Error submitting experience listing:", error);
+      alert("Failed to submit listing: " + error.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // Social media platforms
@@ -1023,8 +1761,10 @@ const ExperienceDetails = () => {
   };
 
   // Render content based on current step
+  // Use displayStep to ensure we always render the correct step even if currentStep is null
   const renderStepContent = () => {
-    switch (currentStep) {
+    const stepToRender = currentStep !== null ? currentStep : (location.state?.currentStepNumber ?? 1);
+    switch (stepToRender) {
       case 1:
         return (
           <div className="flex flex-col items-center justify-center min-h-[60vh]">
@@ -1040,7 +1780,7 @@ const ExperienceDetails = () => {
                 <span className="text-2xl font-light text-gray-600">−</span>
               </button>
               <div className="text-6xl md:text-7xl font-bold text-gray-900 min-w-[120px] text-center">
-                {yearsOfExperience}
+                {yearsOfExperience ?? 10}
               </div>
               <button
                 onClick={handleIncrement}
@@ -2304,17 +3044,43 @@ const ExperienceDetails = () => {
                           <div className="flex items-center gap-8 mb-4">
                             <button
                               onClick={handleDecrementDuration}
-                              disabled={itemDurationMinutes <= 1}
+                              disabled={itemDurationMinutes <= 1 || isEditingDuration}
                               className="w-12 h-12 rounded-full border-2 border-gray-300 flex items-center justify-center hover:border-gray-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                               <span className="text-2xl font-light text-gray-600">−</span>
                             </button>
-                            <div className="text-7xl font-bold text-gray-900 min-w-[120px] text-center">
-                              {itemDurationMinutes}
-                            </div>
+                            {isEditingDuration ? (
+                              <input
+                                type="number"
+                                value={tempDurationValue}
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  // Allow empty string while typing
+                                  if (value === '' || /^\d+$/.test(value)) {
+                                    setTempDurationValue(value);
+                                  }
+                                }}
+                                onBlur={handleDurationBlur}
+                                onKeyDown={handleDurationKeyDown}
+                                onClick={(e) => e.target.select()}
+                                min="1"
+                                autoFocus
+                                className="text-7xl font-bold text-gray-900 min-w-[120px] text-center border-none outline-none bg-transparent focus:ring-2 focus:ring-primary rounded-lg px-2 cursor-text"
+                                style={{ WebkitAppearance: 'none', MozAppearance: 'textfield' }}
+                              />
+                            ) : (
+                              <div 
+                                onClick={handleDurationClick}
+                                className="text-7xl font-bold text-gray-900 min-w-[120px] text-center cursor-text hover:bg-gray-50 rounded-lg px-2 transition-colors"
+                                title="Click to edit"
+                              >
+                                {itemDurationMinutes}
+                              </div>
+                            )}
                             <button
                               onClick={handleIncrementDuration}
-                              className="w-12 h-12 rounded-full border-2 border-gray-300 flex items-center justify-center hover:border-gray-400 transition-colors"
+                              disabled={isEditingDuration}
+                              className="w-12 h-12 rounded-full border-2 border-gray-300 flex items-center justify-center hover:border-gray-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                               <span className="text-2xl font-light text-gray-600">+</span>
                             </button>
@@ -2703,10 +3469,32 @@ const ExperienceDetails = () => {
                 )}
               </div>
 
+              {/* Custom Discounts */}
+              {discounts.filter(d => d.type === 'custom').map((discount) => (
+                <div key={discount.id} className="bg-white border border-gray-200 rounded-lg p-6 flex items-center justify-between">
+                  <div className="flex-1">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-1">{discount.name}</h3>
+                    <p className="text-sm text-gray-600">{discount.description}</p>
+                    {discount.value !== undefined && (
+                      <p className="text-xs text-gray-500 mt-1">{discount.value}% off</p>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => {
+                      setDiscounts(discounts.filter(d => d.id !== discount.id));
+                      saveQualificationData();
+                    }}
+                    className="text-gray-400 hover:text-red-600 transition-colors"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              ))}
+
               {/* Add discount */}
               <div className="bg-white border border-gray-200 rounded-lg p-6 flex items-center justify-between hover:border-gray-300 transition-colors cursor-pointer"
                 onClick={() => {
-                  // Add custom discount logic here
+                  setShowDiscountModal(true);
                 }}
               >
                 <div className="flex-1">
@@ -2720,6 +3508,104 @@ const ExperienceDetails = () => {
             <p className="text-sm text-gray-600 text-center">
               We'll only apply one discount per booking, using the one with the biggest savings for guests.
             </p>
+
+            {/* Custom Discount Modal */}
+            {showDiscountModal && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setShowDiscountModal(false)}>
+                <div className="bg-white rounded-lg max-w-md w-full shadow-2xl border border-gray-200" onClick={(e) => e.stopPropagation()}>
+                  <div className="p-6 border-b flex items-center justify-between">
+                    <h2 className="text-2xl font-bold text-gray-900">Add custom discount</h2>
+                    <button
+                      onClick={() => {
+                        setShowDiscountModal(false);
+                        setCustomDiscountName("");
+                        setCustomDiscountDescription("");
+                        setCustomDiscountValue("");
+                      }}
+                      className="text-gray-400 hover:text-gray-600 transition-colors"
+                    >
+                      <X className="w-6 h-6" />
+                    </button>
+                  </div>
+                  <div className="p-6 space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Discount name
+                      </label>
+                      <input
+                        type="text"
+                        value={customDiscountName}
+                        onChange={(e) => setCustomDiscountName(e.target.value)}
+                        placeholder="e.g., Weekend special"
+                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-primary transition-colors text-lg"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Description
+                      </label>
+                      <textarea
+                        value={customDiscountDescription}
+                        onChange={(e) => setCustomDiscountDescription(e.target.value)}
+                        placeholder="Describe your discount..."
+                        rows={3}
+                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-primary transition-colors text-lg resize-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Discount percentage (%)
+                      </label>
+                      <input
+                        type="number"
+                        value={customDiscountValue}
+                        onChange={(e) => setCustomDiscountValue(e.target.value)}
+                        placeholder="0"
+                        min="0"
+                        max="100"
+                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-primary transition-colors text-lg"
+                      />
+                    </div>
+                  </div>
+                  <div className="p-6 border-t flex items-center justify-end gap-3">
+                    <button
+                      onClick={() => {
+                        setShowDiscountModal(false);
+                        setCustomDiscountName("");
+                        setCustomDiscountDescription("");
+                        setCustomDiscountValue("");
+                      }}
+                      className="px-6 py-2.5 text-gray-700 hover:text-gray-900 transition-colors text-sm font-medium"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (customDiscountName.trim() && customDiscountValue.trim() && !isNaN(parseFloat(customDiscountValue)) && parseFloat(customDiscountValue) >= 0 && parseFloat(customDiscountValue) <= 100) {
+                          const newDiscount = {
+                            id: Date.now(),
+                            type: 'custom',
+                            name: customDiscountName.trim(),
+                            description: customDiscountDescription.trim() || 'Custom discount',
+                            value: parseFloat(customDiscountValue)
+                          };
+                          setDiscounts([...discounts, newDiscount]);
+                          saveQualificationData();
+                          setShowDiscountModal(false);
+                          setCustomDiscountName("");
+                          setCustomDiscountDescription("");
+                          setCustomDiscountValue("");
+                        }
+                      }}
+                      disabled={!customDiscountName.trim() || !customDiscountValue.trim() || isNaN(parseFloat(customDiscountValue)) || parseFloat(customDiscountValue) < 0 || parseFloat(customDiscountValue) > 100}
+                      className="px-6 py-2.5 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Add
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         );
       case 13:
@@ -2798,7 +3684,7 @@ const ExperienceDetails = () => {
             {/* Terms and Conditions */}
             <div className="mb-8 space-y-4 text-sm text-gray-700">
               <p>
-                You have read, understand, and agree to the <a href="#" className="text-gray-900 underline hover:text-gray-700">experiences terms</a>, <a href="#" className="text-gray-900 underline hover:text-gray-700">host cancellation policy</a> for experiences and services, and <a href="#" className="text-gray-900 underline hover:text-gray-700">cancellation policies</a> for experiences and services. You also acknowledge the <a href="#" className="text-gray-900 underline hover:text-gray-700">privacy policy</a>.
+                You have read, understand, and agree to the <a href="/host/policies#experience" className="text-gray-900 underline hover:text-primary">experiences terms</a>, <a href="/host/policies#cancellation" className="text-gray-900 underline hover:text-primary">host cancellation policy</a> for experiences and services, and <a href="/host/policies#cancellation" className="text-gray-900 underline hover:text-primary">cancellation policies</a> for experiences and services. You also acknowledge the <a href="/host/policies#privacy" className="text-gray-900 underline hover:text-primary">privacy policy</a>.
               </p>
               <p>
                 By selecting "I agree", you authorize Getaways to conduct <a href="#" className="text-gray-900 underline hover:text-gray-700">quality and standards checks</a> and you attest that you and third parties used in experiences and services will maintain all necessary licenses, authorizations, and customary commercial liability insurance.
@@ -3161,13 +4047,31 @@ const ExperienceDetails = () => {
       default:
         return (
           <div className="flex flex-col items-center justify-center min-h-[60vh]">
-            <p className="text-gray-600">Step {currentStep} content coming soon...</p>
+            <p className="text-gray-600">Step {stepToRender} content coming soon...</p>
           </div>
         );
     }
   };
 
-  if (!mainCategory) {
+  // Ensure currentStep is never null when we render
+  // If it's null but we have a step from location, use that
+  const displayStep = currentStep !== null ? currentStep : (location.state?.currentStepNumber ?? 1);
+  
+  // Ensure mainCategory has a value - use location.state first, then state, then default
+  // This prevents blank pages when resuming drafts
+  const displayCategory = mainCategory || location.state?.experienceCategory || "art-and-design";
+  
+  // Show loading only if we truly don't have any data and no step number from location
+  // If we have a step number from location, we can render with defaults
+  const hasStepFromLocation = location.state?.currentStepNumber !== undefined && location.state?.currentStepNumber !== null;
+  const hasCategoryFromLocation = location.state?.experienceCategory !== undefined;
+  const hasDraftId = state.draftId || location.state?.draftId;
+  
+  // Only show loading if we don't have a step number AND we're waiting for initial data load
+  // If we have a step number from location, render immediately (data will load in background)
+  const shouldShowLoading = !hasStepFromLocation && currentStep === null && !hasDraftId;
+  
+  if (shouldShowLoading) {
     return (
       <div className="h-screen bg-white flex items-center justify-center">
         <div className="text-center">
@@ -3176,14 +4080,20 @@ const ExperienceDetails = () => {
       </div>
     );
   }
+  
+  // If we have a step from location but currentStep is still null, set it
+  // This ensures the component works correctly when navigating with step number
+  if (hasStepFromLocation && currentStep === null) {
+    // Don't set it here as it would cause re-render, but use displayStep which already handles it
+  }
 
   return (
     <div className="h-screen bg-white overflow-hidden">
       {/* Header with Sidebar Navigation (via OnboardingHeader) */}
       <OnboardingHeader 
         showProgress={false} 
-        currentStepNameOverride="experience-details"
-        experienceCurrentStep={currentStep}
+        currentStepNameOverride={getCurrentStepName(displayStep)}
+        experienceCurrentStep={displayStep}
         onExperienceStepChange={setCurrentStep}
         customSaveAndExit={handleSaveAndExit}
       />
@@ -3191,43 +4101,43 @@ const ExperienceDetails = () => {
       {/* Main Content Area - accounting for fixed header (~57px header + circles extending below) */}
       <div className="flex flex-col bg-white pt-[85px] h-screen">
         {/* Main Content */}
-        <main className={`flex-1 overflow-y-auto px-8 ${currentStep === 2 ? 'py-2' : currentStep === 4 ? 'py-4 pb-32' : currentStep === 5 ? 'py-12 pb-32' : currentStep === 6 ? 'py-12 pb-32' : currentStep === 7 ? 'py-12 pb-32' : currentStep === 8 ? 'py-12 pb-32' : currentStep === 9 ? 'py-12 pb-32' : currentStep === 10 ? 'py-12 pb-32' : currentStep === 11 ? 'py-12 pb-32' : currentStep === 12 ? 'py-12 pb-32' : currentStep === 13 ? 'py-12 pb-32' : currentStep === 14 ? 'py-12 pb-32' : currentStep === 15 ? 'py-12 pb-32' : currentStep === 16 ? 'py-12 pb-32' : 'py-12'} ${currentStep === 2 || currentStep === 4 || currentStep === 5 || currentStep === 6 || currentStep === 7 || currentStep === 8 || currentStep === 9 || currentStep === 10 || currentStep === 11 || currentStep === 12 || currentStep === 13 || currentStep === 14 || currentStep === 15 || currentStep === 16 ? '' : 'flex items-center justify-center'}`}>
+        <main className={`flex-1 overflow-y-auto px-8 ${displayStep === 2 ? 'py-2' : displayStep === 4 ? 'py-4 pb-32' : displayStep === 5 ? 'py-12 pb-32' : displayStep === 6 ? 'py-12 pb-32' : displayStep === 7 ? 'py-12 pb-32' : displayStep === 8 ? 'py-12 pb-32' : displayStep === 9 ? 'py-12 pb-32' : displayStep === 10 ? 'py-12 pb-32' : displayStep === 11 ? 'py-12 pb-32' : displayStep === 12 ? 'py-12 pb-32' : displayStep === 13 ? 'py-12 pb-32' : displayStep === 14 ? 'py-12 pb-32' : displayStep === 15 ? 'py-12 pb-32' : displayStep === 16 ? 'py-12 pb-32' : 'py-12'} ${displayStep === 2 || displayStep === 4 || displayStep === 5 || displayStep === 6 || displayStep === 7 || displayStep === 8 || displayStep === 9 || displayStep === 10 || displayStep === 11 || displayStep === 12 || displayStep === 13 || displayStep === 14 || displayStep === 15 || displayStep === 16 ? '' : 'flex items-center justify-center'}`}>
           {renderStepContent()}
         </main>
 
         {/* Footer */}
         <OnboardingFooter
-          onBack={currentStep === 1 ? handleBack : currentStep === 3 ? handleSkip : currentStep === 10 ? handleSkip : handlePreviousStep}
+          onBack={displayStep === 1 ? handleBack : displayStep === 3 ? handleSkip : displayStep === 10 ? handleSkip : handlePreviousStep}
           onNext={handleNext}
-          backText={currentStep === 3 || currentStep === 10 ? "Skip" : "Back"}
-          nextText={currentStep === 13 ? "I agree" : currentStep === 15 ? (experienceTitle.trim().length > 0 && experienceDescription.trim().length > 0 ? "Next" : "Create your own") : currentStep === 16 ? "Submit for review" : "Next"}
+          backText={displayStep === 3 || displayStep === 10 ? "Skip" : "Back"}
+          nextText={displayStep === 13 ? "I agree" : displayStep === 15 ? (experienceTitle.trim().length > 0 && experienceDescription.trim().length > 0 ? "Next" : "Create your own") : displayStep === 16 ? "Submit for review" : "Next"}
           canProceed={
-            currentStep === 2 
+            displayStep === 2 
               ? (introTitle.trim().length > 0 && expertise.trim().length >= 150)
-              : currentStep === 3
-              ? false
-              : currentStep === 4
+              : displayStep === 3
+              ? true  // Profiles are optional, so always allow proceeding
+              : displayStep === 4
               ? (streetAddress.trim().length > 0 && city.trim().length > 0 && zipCode.trim().length > 0 && province.trim().length > 0)
-              : currentStep === 5
-              ? (meetingAddress.trim().length > 0 && showConfirmLocation && confirmStreetAddress.trim().length > 0 && confirmCity.trim().length > 0 && confirmZipCode.trim().length > 0 && confirmProvince.trim().length > 0)
-              : currentStep === 6
+              : displayStep === 5
+              ? (meetingAddress.trim().length > 0)  // Only require meetingAddress, confirm fields are optional
+              : displayStep === 6
               ? (photos.length >= 5)
-              : currentStep === 9
-              ? (pricePerGuest.trim().length > 0 && !isNaN(parseFloat(pricePerGuest)) && parseFloat(pricePerGuest) > 0)
-              : currentStep === 10
+              : displayStep === 9
+              ? (String(pricePerGuest || "").trim().length > 0 && !isNaN(parseFloat(pricePerGuest)) && parseFloat(pricePerGuest) > 0)
+              : displayStep === 10
               ? (privateGroupMinimum.trim().length > 0 && !isNaN(parseFloat(privateGroupMinimum)) && parseFloat(privateGroupMinimum) >= 1200 && (!pricePerGuest || parseFloat(privateGroupMinimum) >= parseFloat(pricePerGuest)))
-              : currentStep === 13
+              : displayStep === 13
               ? (willTransportGuests !== null && (willTransportGuests === false || (willTransportGuests === true && transportationTypes.length > 0)))
-              : currentStep === 15
-              ? (experienceTitle.trim().length > 0 && experienceDescription.trim().length > 0)
-              : currentStep === 16
+              : displayStep === 15
+              ? true  // Always allow clicking - if no title/description, it opens the modal; if they exist, proceed to next step
+              : displayStep === 16
               ? true
               : true
           }
         />
         
         {/* Terms Disclaimer for Step 16 */}
-        {currentStep === 16 && (
+        {displayStep === 16 && (
           <div className="fixed bottom-16 left-0 right-0 bg-white border-t border-gray-200 z-30 px-6 py-3">
             <p className="text-xs text-gray-600 text-center">
               By submitting, I agree to the <a href="#" className="text-gray-900 underline hover:text-gray-700">Experiences terms</a> and attest all details are accurate, including any suggested content.
@@ -3288,8 +4198,9 @@ const ExperienceDetails = () => {
                   id="experience-description"
                   value={experienceDescription}
                   onChange={(e) => {
-                    if (e.target.value.length <= 200) {
-                      setExperienceDescription(e.target.value);
+                    const value = e.target.value;
+                    if (value.length <= 200) {
+                      setExperienceDescription(value);
                     }
                   }}
                   rows={6}

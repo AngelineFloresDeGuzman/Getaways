@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import Navigation from '@/components/Navigation';
 import Footer from '@/components/Footer';
 import Loading from '@/components/Loading';
+import Recommendations from '@/components/Recommendations';
 import { Search, MapPin, Calendar, Users, Filter, Share2, Star, X } from 'lucide-react';
 import FavoriteButton from '@/components/FavoriteButton';
 import SearchBar from '@/components/SearchBar';
@@ -24,6 +25,7 @@ const Accommodations = () => {
     const [accommodations, setAccommodations] = useState([]);
     const [filteredAccommodations, setFilteredAccommodations] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [sortBy, setSortBy] = useState('recommended');
     
     // Search filters from URL
     const [filters, setFilters] = useState({
@@ -252,18 +254,39 @@ const Accommodations = () => {
     useEffect(() => {
         let filtered = [...accommodations];
 
-        // Filter by location
+        // Filter by location - improved matching
         if (filters.location) {
-            const locationLower = filters.location.toLowerCase();
+            const locationLower = filters.location.toLowerCase().trim();
+            // Split search term to check individual parts (e.g., "Manila, Metro Manila" -> ["manila", "metro manila"])
+            const searchParts = locationLower.split(',').map(part => part.trim()).filter(Boolean);
+            
             filtered = filtered.filter(acc => {
                 const accLocation = (acc.location || '').toLowerCase();
                 const city = (acc.locationData?.city || '').toLowerCase();
                 const province = (acc.locationData?.province || '').toLowerCase();
                 const country = (acc.locationData?.country || '').toLowerCase();
-                return accLocation.includes(locationLower) || 
-                       city.includes(locationLower) || 
-                       province.includes(locationLower) ||
-                       country.includes(locationLower);
+                const barangay = (acc.locationData?.barangay || '').toLowerCase();
+                
+                // Create a combined location string for matching
+                const combinedLocation = [
+                    barangay,
+                    city,
+                    province,
+                    country,
+                    accLocation
+                ].filter(Boolean).join(', ').toLowerCase();
+                
+                // Check if search term matches the combined location
+                if (combinedLocation.includes(locationLower)) {
+                    return true;
+                }
+                
+                // Also check if any part of the search matches any part of the location
+                // This handles cases like searching "Manila" when location is "Manila, Metro Manila"
+                const locationParts = combinedLocation.split(',').map(part => part.trim());
+                return searchParts.some(searchPart => 
+                    locationParts.some(locPart => locPart.includes(searchPart) || searchPart.includes(locPart))
+                );
             });
         }
 
@@ -291,8 +314,31 @@ const Accommodations = () => {
             // In a real implementation, you'd query unavailable dates from bookings
         }
 
-        setFilteredAccommodations(filtered);
-    }, [accommodations, filters]);
+        // Apply sorting
+        let sorted = [...filtered];
+        switch (sortBy) {
+            case 'price-low':
+                sorted.sort((a, b) => (a.price || 0) - (b.price || 0));
+                break;
+            case 'price-high':
+                sorted.sort((a, b) => (b.price || 0) - (a.price || 0));
+                break;
+            case 'rating-high':
+                sorted.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+                break;
+            case 'recommended':
+            default:
+                // Sort by published date (newest first) as recommended
+                sorted.sort((a, b) => {
+                    const aDate = a.publishedAt?.toDate ? a.publishedAt.toDate() : new Date(0);
+                    const bDate = b.publishedAt?.toDate ? b.publishedAt.toDate() : new Date(0);
+                    return bDate - aDate;
+                });
+                break;
+        }
+
+        setFilteredAccommodations(sorted);
+    }, [accommodations, filters, sortBy]);
 
     const handleRequireLogin = () => setShowLoginModal(true);
 
@@ -365,11 +411,11 @@ const Accommodations = () => {
 
             {/* Hero Section */}
             <section className="pt-36 pb-12 px-6 bg-gradient-to-br from-primary/20 to-secondary/20">
-                <div className="max-w-7xl mx-auto">
+                <div className="max-w-7xl mx-auto text-center">
                     <h1 className="font-heading text-4xl md:text-6xl font-bold text-foreground mb-6 animate-fade-in">
-                        Find Your Perfect Stay
+                        Find Your Perfect <span className="text-primary">Accommodations</span>
                     </h1>
-                    <p className="font-body text-xl text-muted-foreground max-w-2xl animate-fade-in">
+                    <p className="font-body text-xl text-muted-foreground max-w-2xl mx-auto animate-fade-in">
                         Discover unique accommodations from cozy cabins to luxury villas
                     </p>
                 </div>
@@ -390,11 +436,15 @@ const Accommodations = () => {
                             {loading ? 'Loading...' : `${filteredAccommodations.length} accommodations found`}
                             {filters.location && ` in ${filters.location}`}
                         </p>
-                        <select className="p-2 border border-border rounded-lg bg-background text-foreground">
-                            <option>Sort by: Recommended</option>
-                            <option>Price: Low to High</option>
-                            <option>Price: High to Low</option>
-                            <option>Rating: High to Low</option>
+                        <select 
+                            value={sortBy}
+                            onChange={(e) => setSortBy(e.target.value)}
+                            className="p-2 border border-border rounded-lg bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                        >
+                            <option value="recommended">Sort by: Recommended</option>
+                            <option value="price-low">Price: Low to High</option>
+                            <option value="price-high">Price: High to Low</option>
+                            <option value="rating-high">Rating: High to Low</option>
                         </select>
                     </div>
 
@@ -537,6 +587,14 @@ const Accommodations = () => {
                     </div>
                 </div>
             </section>
+
+            {/* Recommendations Section */}
+            <Recommendations 
+              title="Recommended Accommodations for You" 
+              showTitle={true} 
+              limit={12}
+              category="accommodation"
+            />
 
             <Footer />
 

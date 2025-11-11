@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import Navigation from '@/components/Navigation';
 import Footer from '@/components/Footer';
 import { ArrowLeft, ChevronRight, CreditCard, MessageSquare, User, CheckCircle2, Camera, X, CheckCircle, AlertCircle, ExternalLink } from 'lucide-react';
@@ -889,7 +889,7 @@ const BookingRequest = () => {
                   <p className="text-sm font-medium text-foreground mb-1">Free cancellation</p>
                   <p className="text-xs text-muted-foreground">
                     Cancel before {chargeDate ? format(chargeDate, 'MMM d') : 'check-in date'} for a full refund.{' '}
-                    <button className="text-primary hover:underline">Full policy</button>
+                    <Link to="/guest/policies#cancellation" className="text-primary hover:underline">View cancellation policy</Link>
                   </p>
                 </div>
 

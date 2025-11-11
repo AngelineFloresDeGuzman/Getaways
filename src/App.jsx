@@ -32,6 +32,10 @@ import ExperienceSubcategorySelection from "./pages/Host/onboarding/ExperienceSu
 import ExperienceLocation from "./pages/Host/onboarding/ExperienceLocation";
 import ExperienceListingSummary from "./pages/Host/onboarding/ExperienceListingSummary";
 import ExperienceDetails from "./pages/Host/onboarding/ExperienceDetails";
+import ExperienceYearsOfExperience from "./pages/Host/onboarding/ExperienceYearsOfExperience";
+import ExperienceQualifications from "./pages/Host/onboarding/ExperienceQualifications";
+import ExperienceMaxGuests from "./pages/Host/onboarding/ExperienceMaxGuests";
+import ExperiencePricePerGuest from "./pages/Host/onboarding/ExperiencePricePerGuest";
 import ServiceCategorySelection from "./pages/Host/onboarding/ServiceCategorySelection";
 import ServiceLocation from "./pages/Host/onboarding/ServiceLocation";
 import ServiceYearsOfExperience from "./pages/Host/onboarding/ServiceYearsOfExperience";
@@ -88,6 +92,8 @@ import Refer from "./pages/Common/Refer";
 import Languages from "./pages/Common/Languages";
 import Help from "./pages/Common/Help";
 import Notifications from "./pages/Guest/Notifications";
+import GuestPolicies from "./pages/Guest/Policies";
+import HostPolicies from "./pages/Host/Policies";
 
 const queryClient = new QueryClient();
 
@@ -142,6 +148,8 @@ const App = () => {
             <Route path="/languages" element={<Languages />} />
             <Route path="/help" element={<Help />} />
             <Route path="/notifications" element={<Notifications darkMode={darkMode} setDarkMode={setDarkMode} />} />
+            <Route path="/guest/policies" element={<GuestPolicies />} />
+            <Route path="/host/policies" element={<HostPolicies />} />
             <Route path="/admin/admindashboard" element={<AdminDashboard darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/accountsettings" element={<AccountSettings darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/ewallet" element={<EWallet />} />
@@ -156,6 +164,10 @@ const App = () => {
                   <Route path="experience-location" element={<ExperienceLocation />} />
                   <Route path="experience-listing-summary" element={<ExperienceListingSummary />} />
                   <Route path="experience-details" element={<ExperienceDetails />} />
+                  <Route path="experience-years-of-experience" element={<ExperienceYearsOfExperience />} />
+                  <Route path="experience-qualifications" element={<ExperienceQualifications />} />
+                  <Route path="experience-max-guests" element={<ExperienceMaxGuests />} />
+                  <Route path="experience-price-per-guest" element={<ExperiencePricePerGuest />} />
                   <Route path="service-category-selection" element={<ServiceCategorySelection />} />
                   <Route path="service-location" element={<ServiceLocation />} />
                   <Route path="service-years-of-experience" element={<ServiceYearsOfExperience />} />

@@ -123,22 +123,38 @@ const ExperienceLocation = () => {
     }
   }, [actions]);
 
-  // Load main category from location state or draft
+  // Store subcategory from location state or draft for saving
+  const [savedSubcategory, setSavedSubcategory] = useState(null);
+
+  // Load main category and subcategory from location state or draft
   useEffect(() => {
     const loadMainCategory = async () => {
       // First try location state
       const categoryFromState = location.state?.experienceCategory;
+      const subcategoryFromState = location.state?.experienceSubcategory;
+      
       if (categoryFromState) {
         setMainCategory(categoryFromState);
-      } else {
-        // Try to load from draft
+      }
+      if (subcategoryFromState) {
+        setSavedSubcategory(subcategoryFromState);
+      }
+      
+      // If not in state, try to load from draft
+      if ((!categoryFromState || !subcategoryFromState) && (state.draftId || location.state?.draftId)) {
         const draftId = state.draftId || location.state?.draftId;
         if (draftId) {
           try {
             const draftRef = doc(db, "onboardingDrafts", draftId);
             const draftSnap = await getDoc(draftRef);
-            if (draftSnap.exists() && draftSnap.data().data?.experienceCategory) {
-              setMainCategory(draftSnap.data().data.experienceCategory);
+            if (draftSnap.exists()) {
+              const data = draftSnap.data().data || {};
+              if (!categoryFromState && data.experienceCategory) {
+                setMainCategory(data.experienceCategory);
+              }
+              if (!subcategoryFromState && data.experienceSubcategory) {
+                setSavedSubcategory(data.experienceSubcategory);
+              }
             }
           } catch (error) {
             console.error("Error loading experience category from draft:", error);
@@ -147,22 +163,38 @@ const ExperienceLocation = () => {
       }
     };
     loadMainCategory();
-  }, [location.state?.experienceCategory, state.draftId, location.state?.draftId]);
+  }, [location.state?.experienceCategory, location.state?.experienceSubcategory, state.draftId, location.state?.draftId]);
 
   // Load saved city from draft if available (when resuming editing)
   useEffect(() => {
     const loadCity = async () => {
       const draftId = state.draftId || location.state?.draftId;
+      console.log("🔍 ExperienceLocation: Loading city from draft, draftId:", draftId);
       if (draftId) {
         try {
           const draftRef = doc(db, "onboardingDrafts", draftId);
           const draftSnap = await getDoc(draftRef);
-          if (draftSnap.exists() && draftSnap.data().data?.experienceCity) {
-            setCity(draftSnap.data().data.experienceCity);
+          if (draftSnap.exists()) {
+            const data = draftSnap.data().data || {};
+            console.log("📦 ExperienceLocation: Draft data:", data);
+            if (data.experienceCity) {
+              console.log("✅ ExperienceLocation: Setting city:", data.experienceCity);
+              setCity(data.experienceCity);
+            } else {
+              console.warn("⚠️ ExperienceLocation: No experienceCity in draft data");
+            }
+            // Also load subcategory if not in location state
+            if (!location.state?.experienceSubcategory && data.experienceSubcategory) {
+              console.log("✅ ExperienceLocation: Also found subcategory in draft:", data.experienceSubcategory);
+            }
+          } else {
+            console.warn("⚠️ ExperienceLocation: Draft does not exist");
           }
         } catch (error) {
-          console.error("Error loading experience city from draft:", error);
+          console.error("❌ Error loading experience city from draft:", error);
         }
+      } else {
+        console.warn("⚠️ ExperienceLocation: No draftId available");
       }
     };
     loadCity();
@@ -171,32 +203,84 @@ const ExperienceLocation = () => {
   const handleNext = async () => {
     if (!city.trim() || !mainCategory) return;
 
-    const draftId = state.draftId || location.state?.draftId;
+    let draftId = state.draftId || location.state?.draftId;
 
-    // Update context
-    if (actions.setCurrentStep) {
-      actions.setCurrentStep("experience-listing-summary");
+    // Create draft if it doesn't exist
+    if (!draftId) {
+      try {
+        const { auth } = await import("@/lib/firebase");
+        const currentUser = auth.currentUser;
+        if (!currentUser) {
+          console.warn("⚠️ ExperienceLocation: User not authenticated, cannot create draft");
+          return;
+        }
+        
+        const { saveDraft } = await import("@/pages/Host/services/draftService");
+        const draftData = {
+          experienceCategory: mainCategory,
+          experienceCity: city.trim(),
+        };
+        
+        // Only include experienceSubcategory if it has a value
+        const subcategory = location.state?.experienceSubcategory || savedSubcategory;
+        if (subcategory) {
+          draftData.experienceSubcategory = subcategory;
+        }
+        
+        const newDraftData = {
+          currentStep: "experience-location",
+          category: "experience",
+          data: draftData
+        };
+        draftId = await saveDraft(newDraftData, null);
+        console.log("✅ ExperienceLocation: Created new draft:", draftId);
+        
+        // Update state with new draftId
+        if (actions?.setDraftId) {
+          actions.setDraftId(draftId);
+        }
+      } catch (error) {
+        console.error("❌ ExperienceLocation: Error creating draft:", error);
+        return;
+      }
     }
 
-    // Update Firebase draft
+    // Save current step and data
     if (draftId) {
       try {
         const draftRef = doc(db, "onboardingDrafts", draftId);
-        await updateDoc(draftRef, {
-          currentStep: "experience-listing-summary",
+        // Get subcategory from state or saved value
+        const subcategory = location.state?.experienceSubcategory || savedSubcategory;
+        
+        // Build update object, only including defined values
+        const updateData = {
+          currentStep: "experience-location", // Save CURRENT step
+          "data.experienceCategory": mainCategory,
           "data.experienceCity": city.trim(),
           lastModified: new Date(),
-        });
+        };
+        
+        // Only include experienceSubcategory if it has a defined value
+        if (subcategory !== undefined && subcategory !== null) {
+          updateData["data.experienceSubcategory"] = subcategory;
+        }
+        
+        await updateDoc(draftRef, updateData);
         console.log("✅ Updated experience city in draft");
       } catch (error) {
         console.error("Error updating draft:", error);
       }
     }
 
+    // Update context for next step
+    if (actions.setCurrentStep) {
+      actions.setCurrentStep("experience-listing-summary");
+    }
+
     // Navigate to listing summary page
     navigate("/pages/experience-listing-summary", {
       state: {
-        draftId,
+        draftId: draftId, // Pass the potentially newly created draftId
         category: "experience",
         experienceCategory: mainCategory,
         experienceSubcategory: location.state?.experienceSubcategory,
@@ -213,6 +297,97 @@ const ExperienceLocation = () => {
         experienceCategory: mainCategory,
       },
     });
+  };
+
+  const handleSaveAndExit = async () => {
+    console.log("🚀 ExperienceLocation handleSaveAndExit called");
+    try {
+      const { auth } = await import("@/lib/firebase");
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        alert("Please log in to save your progress.");
+        navigate("/login");
+        return;
+      }
+
+      let draftId = state.draftId || location.state?.draftId;
+
+      // Create draft if it doesn't exist
+      if (!draftId) {
+        try {
+        const { saveDraft } = await import("@/pages/Host/services/draftService");
+        const draftData = {
+          experienceCategory: mainCategory,
+          experienceCity: city.trim(),
+        };
+        
+        // Only include experienceSubcategory if it has a value
+        const subcategory = location.state?.experienceSubcategory || savedSubcategory;
+        if (subcategory) {
+          draftData.experienceSubcategory = subcategory;
+        }
+        
+        const newDraftData = {
+          currentStep: "experience-location",
+          category: "experience",
+          data: draftData
+        };
+        draftId = await saveDraft(newDraftData, null);
+          console.log("✅ ExperienceLocation: Created new draft:", draftId);
+          
+          // Update state with new draftId
+          if (actions?.setDraftId) {
+            actions.setDraftId(draftId);
+          }
+        } catch (error) {
+          console.error("❌ ExperienceLocation: Error creating draft:", error);
+          alert("Failed to create draft. Please try again.");
+          return;
+        }
+      }
+
+      // Save current step and data
+      if (draftId) {
+        try {
+          const draftRef = doc(db, "onboardingDrafts", draftId);
+          // Get subcategory from state or saved value
+          const subcategory = location.state?.experienceSubcategory || savedSubcategory;
+          
+          // Build update object, only including defined values
+          const updateData = {
+            currentStep: "experience-location",
+            "data.experienceCategory": mainCategory,
+            "data.experienceCity": city.trim(),
+            lastModified: new Date(),
+          };
+          
+          // Only include experienceSubcategory if it has a defined value
+          if (subcategory !== undefined && subcategory !== null) {
+            updateData["data.experienceSubcategory"] = subcategory;
+          }
+          
+          await updateDoc(draftRef, updateData);
+          console.log("✅ ExperienceLocation: Draft saved successfully");
+        } catch (error) {
+          console.error("❌ Error saving draft:", error);
+          alert("Failed to save draft. Please try again.");
+          return;
+        }
+      }
+
+      // Navigate to listings page
+      navigate("/host/listings", {
+        state: {
+          scrollToDrafts: true,
+          draftId: draftId,
+          message: "Draft saved successfully!",
+        },
+      });
+      console.log("✅ Navigation to listings page initiated");
+    } catch (error) {
+      console.error("❌ Error in handleSaveAndExit:", error);
+      alert("Failed to save. Please try again.");
+    }
   };
 
   const handleInputClick = () => {
@@ -484,7 +659,11 @@ const ExperienceLocation = () => {
 
   return (
     <div className="h-screen bg-white flex flex-col overflow-hidden">
-      <OnboardingHeader showProgress={true} currentStepNameOverride="experience-location" />
+      <OnboardingHeader 
+        showProgress={true} 
+        currentStepNameOverride="experience-location"
+        customSaveAndExit={handleSaveAndExit}
+      />
 
       <main className="flex-1 flex items-center justify-center overflow-y-auto py-20 pt-32 pb-24">
         <div className="w-full max-w-6xl px-6">

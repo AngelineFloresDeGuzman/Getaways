@@ -111,26 +111,88 @@ const ServiceOnlineProfiles = () => {
     }
   };
 
-  const handleNext = async () => {
-    const draftId = state.draftId || location.state?.draftId;
+  const saveServiceData = async () => {
+    let draftId = state.draftId || location.state?.draftId;
 
-    // Update context
-    if (actions.setCurrentStep) {
-      actions.setCurrentStep("service-address");
+    // If no draftId exists, create a new draft first
+    if (!draftId) {
+      try {
+        const { auth } = await import("@/lib/firebase");
+        const currentUser = auth.currentUser;
+        if (!currentUser) {
+          console.warn("⚠️ ServiceOnlineProfiles: User not authenticated, cannot create draft");
+          return null;
+        }
+        
+        const { saveDraft } = await import("@/pages/Host/services/draftService");
+        const newDraftData = {
+          currentStep: "service-online-profiles",
+          category: "service",
+          data: {
+            serviceProfiles: profiles,
+          }
+        };
+        draftId = await saveDraft(newDraftData, null);
+        console.log("✅ ServiceOnlineProfiles: Created new draft:", draftId);
+        
+        // Update state with new draftId
+        if (actions?.setDraftId) {
+          actions.setDraftId(draftId);
+        }
+      } catch (error) {
+        console.error("❌ ServiceOnlineProfiles: Error creating draft:", error);
+        throw error;
+      }
     }
-
-    // Update Firebase draft
+    
     if (draftId) {
       try {
         const draftRef = doc(db, "onboardingDrafts", draftId);
         await updateDoc(draftRef, {
-          currentStep: "service-address",
+          currentStep: "service-online-profiles", // Save CURRENT step, not next step
+          "data.serviceProfiles": profiles,
           lastModified: new Date(),
         });
-        console.log("✅ Updated service online profiles step in draft");
+        console.log("✅ ServiceOnlineProfiles: Draft saved successfully");
       } catch (error) {
-        console.error("Error updating draft:", error);
+        console.error("❌ ServiceOnlineProfiles: Error saving data:", error);
+        throw error;
       }
+    }
+    
+    return draftId;
+  };
+
+  const handleSaveAndExit = async () => {
+    try {
+      const { auth } = await import("@/lib/firebase");
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        alert("Please log in to save your progress.");
+        navigate("/login");
+        return;
+      }
+
+      await saveServiceData();
+      navigate("/host/listings", {
+        state: {
+          scrollToDrafts: true,
+          message: "Draft saved successfully!",
+        },
+      });
+    } catch (error) {
+      console.error("❌ Error saving draft:", error);
+      alert("Failed to save. Please try again.");
+    }
+  };
+
+  const handleNext = async () => {
+    try {
+      const draftId = await saveServiceData();
+
+      // Update context
+      if (actions.setCurrentStep) {
+        actions.setCurrentStep("service-address");
     }
 
     // Navigate to address page
@@ -147,6 +209,10 @@ const ServiceOnlineProfiles = () => {
         serviceProfiles: profiles,
       },
     });
+    } catch (error) {
+      console.error("❌ Error in handleNext:", error);
+      alert("Failed to save progress. Please try again.");
+    }
   };
 
   const handleSkip = async () => {
@@ -168,7 +234,11 @@ const ServiceOnlineProfiles = () => {
 
   return (
     <div className="h-screen bg-white flex flex-col overflow-hidden">
-      <OnboardingHeader showProgress={true} currentStepNameOverride="service-online-profiles" />
+      <OnboardingHeader 
+        showProgress={true} 
+        currentStepNameOverride="service-online-profiles"
+        customSaveAndExit={handleSaveAndExit}
+      />
 
       <main className="flex-1 flex items-center justify-center overflow-y-auto py-20 pt-32 pb-24">
         <div className="w-full max-w-4xl px-6">

@@ -276,39 +276,104 @@ const ServiceCategorySelection = () => {
     setSelectedCategory(categoryId);
   };
 
-  const handleNext = async () => {
-    if (!selectedCategory) return;
-
-    const draftId = state.draftId || location.state?.draftId;
+  const saveServiceData = async () => {
+    let draftId = state.draftId || location.state?.draftId;
     
-    // Update context
-    if (actions.setCurrentStep) {
-      actions.setCurrentStep("service-location");
+    // If no draftId exists, create a new draft first
+    if (!draftId) {
+      try {
+        const { auth } = await import("@/lib/firebase");
+        const currentUser = auth.currentUser;
+        if (!currentUser) {
+          console.warn("⚠️ ServiceCategorySelection: User not authenticated, cannot create draft");
+          return null;
+        }
+        
+        const { saveDraft } = await import("@/pages/Host/services/draftService");
+        const newDraftData = {
+          currentStep: "service-category-selection",
+          category: "service",
+          data: {
+            serviceCategory: selectedCategory,
+          }
+        };
+        draftId = await saveDraft(newDraftData, null);
+        console.log("✅ ServiceCategorySelection: Created new draft:", draftId);
+        
+        // Update state with new draftId
+        if (actions?.setDraftId) {
+          actions.setDraftId(draftId);
+        }
+      } catch (error) {
+        console.error("❌ ServiceCategorySelection: Error creating draft:", error);
+        throw error;
+      }
     }
-
-    // Update Firebase draft
+    
     if (draftId) {
       try {
         const draftRef = doc(db, "onboardingDrafts", draftId);
         await updateDoc(draftRef, {
-          currentStep: "service-location",
+          currentStep: "service-category-selection", // Save CURRENT step, not next step
           "data.serviceCategory": selectedCategory,
           lastModified: new Date(),
         });
-        console.log("✅ Updated service category in draft");
+        console.log("✅ ServiceCategorySelection: Draft saved successfully");
       } catch (error) {
-        console.error("Error updating draft:", error);
+        console.error("❌ ServiceCategorySelection: Error saving qualification data:", error);
+        throw error;
       }
     }
+    
+    return draftId;
+  };
 
-    // Navigate to location page
-    navigate("/pages/service-location", { 
-      state: { 
-        draftId,
-        category: "service",
-        serviceCategory: selectedCategory
-      } 
-    });
+  const handleSaveAndExit = async () => {
+    try {
+      const { auth } = await import("@/lib/firebase");
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        alert("Please log in to save your progress.");
+        navigate("/login");
+        return;
+      }
+
+      await saveServiceData();
+      navigate("/host/listings", {
+        state: {
+          scrollToDrafts: true,
+          message: "Draft saved successfully!",
+        },
+      });
+    } catch (error) {
+      console.error("❌ Error saving draft:", error);
+      alert("Failed to save. Please try again.");
+    }
+  };
+
+  const handleNext = async () => {
+    if (!selectedCategory) return;
+
+    try {
+      const draftId = await saveServiceData();
+      
+      // Update context
+      if (actions.setCurrentStep) {
+        actions.setCurrentStep("service-location");
+      }
+
+      // Navigate to location page
+      navigate("/pages/service-location", { 
+        state: { 
+          draftId,
+          category: "service",
+          serviceCategory: selectedCategory
+        } 
+      });
+    } catch (error) {
+      console.error("❌ Error in handleNext:", error);
+      alert("Failed to save progress. Please try again.");
+    }
   };
 
   const handleBack = () => {
@@ -317,7 +382,11 @@ const ServiceCategorySelection = () => {
 
   return (
     <div className="h-screen bg-white flex flex-col overflow-hidden">
-      <OnboardingHeader showProgress={true} currentStepNameOverride="service-category-selection" />
+      <OnboardingHeader 
+        showProgress={true} 
+        currentStepNameOverride="service-category-selection"
+        customSaveAndExit={handleSaveAndExit}
+      />
 
       <main className="flex-1 flex items-center justify-center overflow-y-auto py-20 pt-32 pb-24">
         <div className="w-full max-w-5xl px-6">

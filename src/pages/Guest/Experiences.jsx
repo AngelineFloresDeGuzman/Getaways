@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from "react";
-import { experiences } from './sharedData';
 import { useNavigate, useSearchParams } from "react-router-dom";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
+import Loading from "@/components/Loading";
 import SearchBar from "@/components/SearchBar";
+import Recommendations from "@/components/Recommendations";
 import { Mountain, Clock, MapPin, Star, Share2, Users, X } from "lucide-react";
 import FavoriteButton from "@/components/FavoriteButton";
-import { auth } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
+import { collection, query, where, getDocs, orderBy } from "firebase/firestore";
 import LogIn from "@/pages/Auth/LogIn";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faXTwitter, faFacebookF, faInstagram, faFacebookMessenger } from "@fortawesome/free-brands-svg-icons";
@@ -19,7 +21,11 @@ const Experiences = () => {
   const [activeShare, setActiveShare] = useState(null);
   const [copied, setCopied] = useState(false);
   const [favoriteItems, setFavoriteItems] = useState([]);
+  const [experiences, setExperiences] = useState([]);
+  const [filteredExperiences, setFilteredExperiences] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState("All Experiences");
+  const [sortBy, setSortBy] = useState('recommended');
   const [filters, setFilters] = useState({
     location: searchParams.get('location') || '',
     when: searchParams.get('when') || '',
@@ -54,6 +60,119 @@ const Experiences = () => {
     }
   }, [user]);
 
+  // Load experiences from Firestore
+  useEffect(() => {
+    const loadExperiences = async () => {
+      try {
+        setLoading(true);
+        console.log('📦 Experiences: Loading published listings...');
+        
+        // Query listings collection for active experiences
+        const listingsRef = collection(db, 'listings');
+        
+        // Try with orderBy first, fallback without if index missing
+        let querySnapshot;
+        try {
+          const q = query(
+            listingsRef,
+            where('category', '==', 'experience'),
+            where('status', '==', 'active'),
+            orderBy('publishedAt', 'desc')
+          );
+          querySnapshot = await getDocs(q);
+        } catch (indexError) {
+          console.warn('⚠️ Index error (expected on first use), trying without orderBy:', indexError.message);
+          try {
+            // Fallback: query without orderBy
+            const q = query(
+              listingsRef,
+              where('category', '==', 'experience'),
+              where('status', '==', 'active')
+            );
+            querySnapshot = await getDocs(q);
+          } catch (indexError2) {
+            console.warn('⚠️ Index error for status filter, querying by category only:', indexError2.message);
+            // Final fallback: query by category only, filter status in JavaScript
+            const q = query(
+              listingsRef,
+              where('category', '==', 'experience')
+            );
+            querySnapshot = await getDocs(q);
+          }
+        }
+        
+        // Map all experiences with Firestore data
+        const allExperiencesData = querySnapshot.docs.map(doc => {
+          const data = doc.data();
+          const locationData = data.locationData || {};
+          const photosData = data.photos || [];
+          
+          // Format location display
+          const location = data.location || 
+            (locationData.city && locationData.province 
+              ? `${locationData.city}, ${locationData.province}`
+              : locationData.city || locationData.country || 'No location');
+          
+          // Get main price
+          const price = data.price || 0;
+          
+          // Get image
+          const image = (() => {
+            const firstPhoto = photosData[0];
+            if (firstPhoto?.base64) return firstPhoto.base64;
+            if (firstPhoto?.url) return firstPhoto.url;
+            if (data.image) return data.image;
+            return "fallback.jpg";
+          })();
+          
+          return {
+            id: doc.id,
+            title: data.title || 'Untitled Experience',
+            description: data.description || '',
+            location: location,
+            locationData: locationData,
+            price: price,
+            rating: data.rating || 0,
+            reviews: data.reviews || 0,
+            image: image,
+            category: data.experienceCategory || data.category || 'Experience',
+            host: data.ownerName || data.ownerEmail?.split('@')[0] || 'Host',
+            duration: data.duration || data.experienceDuration || '2 hours',
+            groupSize: data.maxParticipants || data.maxGuests || 'Up to 10',
+            maxParticipants: data.maxParticipants || data.maxGuests || 10,
+            status: data.status,
+            publishedAt: data.publishedAt,
+            createdAt: data.createdAt
+          };
+        });
+        
+        // Filter by status if we had to query without status filter
+        const experiencesData = allExperiencesData.filter(exp => exp.status === 'active');
+        
+        // Sort manually if orderBy failed
+        if (experiencesData.length > 0) {
+          experiencesData.sort((a, b) => {
+            const aDate = a.publishedAt?.toDate ? a.publishedAt.toDate() : new Date(0);
+            const bDate = b.publishedAt?.toDate ? b.publishedAt.toDate() : new Date(0);
+            return bDate - aDate; // Descending
+          });
+        }
+        
+        console.log('✅ Experiences: Loaded', experiencesData.length, 'listings');
+        setExperiences(experiencesData);
+        setFilteredExperiences(experiencesData);
+      } catch (error) {
+        console.error('❌ Error loading experiences:', error);
+        setExperiences([]);
+        setFilteredExperiences([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadExperiences();
+  }, []);
+
 
   const toggleFavorite = (item, type) => {
     if (!user) {
@@ -85,33 +204,87 @@ const Experiences = () => {
     });
   }, [searchParams]);
 
-  const categories = ["All Experiences", "Adventure", "Cultural", "Food & Drink", "Nature", "Art & History", "Sports", "Workshops"];
+  // Extract unique categories from loaded experiences
+  const categories = ["All Experiences", ...new Set(experiences.map(exp => exp.category).filter(Boolean))];
 
-  const filteredExperiences = experiences.filter(exp => {
+  // Update filtered experiences when filters or category changes
+  useEffect(() => {
+    let filtered = [...experiences];
+    
     // Filter by category
-    if (selectedCategory !== "All Experiences" && exp.category !== selectedCategory) {
-      return false;
+    if (selectedCategory !== "All Experiences") {
+      filtered = filtered.filter(exp => exp.category === selectedCategory);
     }
     
-    // Filter by location
+    // Filter by location - improved matching
     if (filters.location) {
-      const locationLower = filters.location.toLowerCase();
-      const expLocation = (exp.location || '').toLowerCase();
-      if (!expLocation.includes(locationLower)) {
-        return false;
-      }
+      const locationLower = filters.location.toLowerCase().trim();
+      // Split search term to check individual parts
+      const searchParts = locationLower.split(',').map(part => part.trim()).filter(Boolean);
+      
+      filtered = filtered.filter(exp => {
+        const expLocation = (exp.location || '').toLowerCase();
+        const city = (exp.locationData?.city || '').toLowerCase();
+        const province = (exp.locationData?.province || '').toLowerCase();
+        const country = (exp.locationData?.country || '').toLowerCase();
+        
+        // Create a combined location string for matching
+        const combinedLocation = [
+          city,
+          province,
+          country,
+          expLocation
+        ].filter(Boolean).join(', ').toLowerCase();
+        
+        // Check if search term matches the combined location
+        if (combinedLocation.includes(locationLower)) {
+          return true;
+        }
+        
+        // Also check if any part of the search matches any part of the location
+        const locationParts = combinedLocation.split(',').map(part => part.trim());
+        return searchParts.some(searchPart => 
+          locationParts.some(locPart => locPart.includes(searchPart) || searchPart.includes(locPart))
+        );
+      });
     }
     
     // Filter by guests (if experience has maxParticipants)
-    if (filters.guests && exp.maxParticipants) {
+    if (filters.guests) {
       const guestCount = parseInt(filters.guests, 10);
-      if (exp.maxParticipants < guestCount) {
-        return false;
-      }
+      filtered = filtered.filter(exp => {
+        if (exp.maxParticipants) {
+          return exp.maxParticipants >= guestCount;
+        }
+        return true;
+      });
     }
     
-    return true;
-  });
+    // Apply sorting
+    let sorted = [...filtered];
+    switch (sortBy) {
+      case 'price-low':
+        sorted.sort((a, b) => (a.price || 0) - (b.price || 0));
+        break;
+      case 'price-high':
+        sorted.sort((a, b) => (b.price || 0) - (a.price || 0));
+        break;
+      case 'rating-high':
+        sorted.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+        break;
+      case 'recommended':
+      default:
+        // Sort by published date (newest first) as recommended
+        sorted.sort((a, b) => {
+          const aDate = a.publishedAt?.toDate ? a.publishedAt.toDate() : new Date(0);
+          const bDate = b.publishedAt?.toDate ? b.publishedAt.toDate() : new Date(0);
+          return bDate - aDate;
+        });
+        break;
+    }
+    
+    setFilteredExperiences(sorted);
+  }, [experiences, selectedCategory, filters, sortBy]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -119,13 +292,13 @@ const Experiences = () => {
 
       {/* Header */}
       <section className="pt-36 pb-12 px-6 bg-gradient-to-br from-muted/20 to-primary/10">
-        <div className="max-w-7xl mx-auto">
+        <div className="max-w-7xl mx-auto text-center">
           <div className="mb-4 animate-fade-in">
             <h1 className="font-heading text-4xl md:text-6xl font-bold text-foreground">
-              Unique Experiences
+              Unique <span className="text-primary">Experiences</span>
             </h1>
           </div>
-          <p className="font-body text-xl text-muted-foreground max-w-2xl animate-fade-in">
+          <p className="font-body text-xl text-muted-foreground max-w-2xl mx-auto animate-fade-in">
             Discover unforgettable activities and local adventures crafted by passionate hosts
           </p>
         </div>
@@ -142,16 +315,24 @@ const Experiences = () => {
       {/* Experience Cards */}
       <section className="py-12 px-6">
         <div className="max-w-7xl mx-auto">
-          <div className="flex items-center justify-between mb-8">
-            <p className="font-body text-muted-foreground">
-              {filteredExperiences.length} experiences available
-              {filters.location && ` in ${filters.location}`}
-            </p>
-            <select className="p-2 border border-border rounded-lg bg-background text-foreground">
-              <option>Sort by: Recommended</option>
-              <option>Price: Low to High</option>
-              <option>Price: High to Low</option>
-              <option>Rating: High to Low</option>
+          {loading ? (
+            <Loading message="Loading experiences..." />
+          ) : (
+            <>
+              <div className="flex items-center justify-between mb-8">
+                <p className="font-body text-muted-foreground">
+                  {filteredExperiences.length} experiences available
+                  {filters.location && ` in ${filters.location}`}
+                </p>
+            <select 
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="p-2 border border-border rounded-lg bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <option value="recommended">Sort by: Recommended</option>
+              <option value="price-low">Price: Low to High</option>
+              <option value="price-high">Price: High to Low</option>
+              <option value="rating-high">Rating: High to Low</option>
             </select>
           </div>
 
@@ -240,7 +421,7 @@ const Experiences = () => {
                   <div className="flex items-center justify-between">
                     <div>
                       <span className="font-heading text-2xl font-bold text-foreground">
-                        ${experience.price}
+                        ₱{experience.price.toLocaleString()}
                       </span>
                       <span className="font-body text-muted-foreground"> / person</span>
                     </div>
@@ -251,11 +432,31 @@ const Experiences = () => {
             ))}
           </div>
 
-          <div className="text-center mt-12">
-            <button className="btn-outline px-8 py-3">Load More Experiences</button>
-          </div>
+              {filteredExperiences.length === 0 && !loading && (
+                <div className="text-center py-12">
+                  <Mountain className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+                  <h3 className="text-xl font-semibold text-foreground mb-2">No experiences found</h3>
+                  <p className="text-muted-foreground">Try adjusting your filters or check back later.</p>
+                </div>
+              )}
+
+              {filteredExperiences.length > 0 && (
+                <div className="text-center mt-12">
+                  <button className="btn-outline px-8 py-3">Load More Experiences</button>
+                </div>
+              )}
+            </>
+          )}
         </div>
       </section>
+
+      {/* Recommendations Section */}
+      <Recommendations 
+        title="Recommended Experiences for You" 
+        showTitle={true} 
+        limit={12}
+        category="experience"
+      />
 
       <Footer />
 

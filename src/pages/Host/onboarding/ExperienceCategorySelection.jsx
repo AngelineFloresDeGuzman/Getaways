@@ -129,17 +129,29 @@ const ExperienceCategorySelection = () => {
   useEffect(() => {
     const loadCategory = async () => {
       const draftId = state.draftId || location.state?.draftId;
+      console.log("🔍 ExperienceCategorySelection: Loading category from draft, draftId:", draftId);
       if (draftId) {
         try {
           const { getDoc } = await import('firebase/firestore');
           const draftRef = doc(db, "onboardingDrafts", draftId);
           const draftSnap = await getDoc(draftRef);
-          if (draftSnap.exists() && draftSnap.data().data?.experienceCategory) {
-            setSelectedCategory(draftSnap.data().data.experienceCategory);
+          if (draftSnap.exists()) {
+            const data = draftSnap.data().data || {};
+            console.log("📦 ExperienceCategorySelection: Draft data:", data);
+            if (data.experienceCategory) {
+              console.log("✅ ExperienceCategorySelection: Setting selected category:", data.experienceCategory);
+              setSelectedCategory(data.experienceCategory);
+            } else {
+              console.warn("⚠️ ExperienceCategorySelection: No experienceCategory in draft data");
+            }
+          } else {
+            console.warn("⚠️ ExperienceCategorySelection: Draft does not exist");
           }
         } catch (error) {
-          console.error("Error loading experience category from draft:", error);
+          console.error("❌ Error loading experience category from draft:", error);
         }
+      } else {
+        console.warn("⚠️ ExperienceCategorySelection: No draftId available");
       }
     };
     loadCategory();
@@ -152,19 +164,45 @@ const ExperienceCategorySelection = () => {
   const handleNext = async () => {
     if (!selectedCategory) return;
 
-    const draftId = state.draftId || location.state?.draftId;
+    let draftId = state.draftId || location.state?.draftId;
     
-    // Update context
-    if (actions.setCurrentStep) {
-      actions.setCurrentStep("experience-details");
+    // Create draft if it doesn't exist
+    if (!draftId) {
+      try {
+        const { auth } = await import("@/lib/firebase");
+        const currentUser = auth.currentUser;
+        if (!currentUser) {
+          console.warn("⚠️ ExperienceCategorySelection: User not authenticated, cannot create draft");
+          return;
+        }
+        
+        const { saveDraft } = await import("@/pages/Host/services/draftService");
+        const newDraftData = {
+          currentStep: "experience-category-selection",
+          category: "experience",
+          data: {
+            experienceCategory: selectedCategory,
+          }
+        };
+        draftId = await saveDraft(newDraftData, null);
+        console.log("✅ ExperienceCategorySelection: Created new draft:", draftId);
+        
+        // Update state with new draftId
+        if (actions?.setDraftId) {
+          actions.setDraftId(draftId);
+        }
+      } catch (error) {
+        console.error("❌ ExperienceCategorySelection: Error creating draft:", error);
+        return;
+      }
     }
-
-    // Update Firebase draft
+    
+    // Save current step and data
     if (draftId) {
       try {
         const draftRef = doc(db, "onboardingDrafts", draftId);
         await updateDoc(draftRef, {
-          currentStep: "experience-details",
+          currentStep: "experience-category-selection", // Save CURRENT step
           "data.experienceCategory": selectedCategory,
           lastModified: new Date(),
         });
@@ -173,11 +211,16 @@ const ExperienceCategorySelection = () => {
         console.error("Error updating draft:", error);
       }
     }
+    
+    // Update context for next step
+    if (actions.setCurrentStep) {
+      actions.setCurrentStep("experience-subcategory-selection");
+    }
 
     // Navigate to subcategory selection page
     navigate("/pages/experience-subcategory-selection", { 
       state: { 
-        draftId,
+        draftId: draftId, // Pass the potentially newly created draftId
         category: "experience",
         experienceCategory: selectedCategory
       } 
@@ -188,9 +231,83 @@ const ExperienceCategorySelection = () => {
       navigate("/host/listings");
   };
 
+  const handleSaveAndExit = async () => {
+    console.log("🚀 ExperienceCategorySelection handleSaveAndExit called");
+    try {
+      const { auth } = await import("@/lib/firebase");
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        alert("Please log in to save your progress.");
+        navigate("/login");
+        return;
+      }
+
+      let draftId = state.draftId || location.state?.draftId;
+      
+      // Create draft if it doesn't exist
+      if (!draftId) {
+        try {
+          const { saveDraft } = await import("@/pages/Host/services/draftService");
+          const newDraftData = {
+            currentStep: "experience-category-selection",
+            category: "experience",
+            data: {
+              experienceCategory: selectedCategory,
+            }
+          };
+          draftId = await saveDraft(newDraftData, null);
+          console.log("✅ ExperienceCategorySelection: Created new draft:", draftId);
+          
+          // Update state with new draftId
+          if (actions?.setDraftId) {
+            actions.setDraftId(draftId);
+          }
+        } catch (error) {
+          console.error("❌ ExperienceCategorySelection: Error creating draft:", error);
+          alert("Failed to create draft. Please try again.");
+          return;
+        }
+      }
+      
+      // Save current step and data
+      if (draftId) {
+        try {
+          const draftRef = doc(db, "onboardingDrafts", draftId);
+          await updateDoc(draftRef, {
+            currentStep: "experience-category-selection",
+            "data.experienceCategory": selectedCategory,
+            lastModified: new Date(),
+          });
+          console.log("✅ ExperienceCategorySelection: Draft saved successfully");
+        } catch (error) {
+          console.error("❌ Error saving draft:", error);
+          alert("Failed to save draft. Please try again.");
+          return;
+        }
+      }
+
+      // Navigate to listings page
+      navigate("/host/listings", {
+        state: {
+          scrollToDrafts: true,
+          draftId: draftId,
+          message: "Draft saved successfully!",
+        },
+      });
+      console.log("✅ Navigation to listings page initiated");
+    } catch (error) {
+      console.error("❌ Error in handleSaveAndExit:", error);
+      alert("Failed to save. Please try again.");
+    }
+  };
+
   return (
     <div className="h-screen bg-white flex flex-col overflow-hidden">
-      <OnboardingHeader showProgress={true} currentStepNameOverride="experience-category-selection" />
+      <OnboardingHeader 
+        showProgress={true} 
+        currentStepNameOverride="experience-category-selection"
+        customSaveAndExit={handleSaveAndExit}
+      />
 
       <main className="flex-1 flex items-center justify-center overflow-y-auto py-20 pt-32 pb-24">
         <div className="w-full max-w-5xl px-6">

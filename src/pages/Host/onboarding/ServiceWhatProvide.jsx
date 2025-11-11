@@ -167,30 +167,18 @@ const ServiceWhatProvide = () => {
   };
 
   const handleNext = async () => {
-    const draftId = state.draftId || location.state?.draftId;
-
-    if (!draftId) {
-      console.error("No draftId found");
-      alert("Error: No draft found. Please start over.");
-      return;
-    }
-
-    // Set agreedToTerms to true when user clicks "I agree"
-    setAgreedToTerms(true);
-
-    // Update Firebase draft with current answers
     try {
-      const draftRef = doc(db, "onboardingDrafts", draftId);
-      await updateDoc(draftRef, {
-        "data.serviceNationalPark": nationalPark,
-        "data.serviceTransportingGuests": transportingGuests,
-        "data.serviceAgreedToTerms": true,
-        lastModified: new Date(),
-      });
-      console.log("✅ Updated service what provide step in draft");
-    } catch (error) {
-      console.error("Error updating draft:", error);
-    }
+      // Set agreedToTerms to true when user clicks "I agree"
+      setAgreedToTerms(true);
+      
+      // Save data first (this will create draft if needed)
+      const draftId = await saveServiceData();
+      
+      if (!draftId) {
+        console.error("No draftId found");
+        alert("Error: Failed to save draft. Please try again.");
+        return;
+      }
 
     // Check payment status
     if (auth.currentUser) {
@@ -269,6 +257,10 @@ const ServiceWhatProvide = () => {
         serviceAgreedToTerms: true,
       },
     });
+    } catch (error) {
+      console.error("❌ Error in handleNext:", error);
+      alert("Failed to save progress. Please try again.");
+    }
   };
 
   const handleBack = () => {
@@ -285,9 +277,42 @@ const ServiceWhatProvide = () => {
   // and both questions are answered
   const canProceed = nationalPark !== null && transportingGuests !== null;
 
-  // Handle Save & Exit
-  const handleSaveAndExit = async () => {
-    const draftId = state.draftId || location.state?.draftId;
+  const saveServiceData = async () => {
+    let draftId = state.draftId || location.state?.draftId;
+    
+    // If no draftId exists, create a new draft first
+    if (!draftId) {
+      try {
+        const { auth } = await import("@/lib/firebase");
+        const currentUser = auth.currentUser;
+        if (!currentUser) {
+          console.warn("⚠️ ServiceWhatProvide: User not authenticated, cannot create draft");
+          return null;
+        }
+        
+        const { saveDraft } = await import("@/pages/Host/services/draftService");
+        const newDraftData = {
+          currentStep: "service-what-provide",
+          category: "service",
+          data: {
+            serviceNationalPark: nationalPark !== null ? nationalPark : undefined,
+            serviceTransportingGuests: transportingGuests !== null ? transportingGuests : undefined,
+            serviceAgreedToTerms: agreedToTerms,
+          }
+        };
+        draftId = await saveDraft(newDraftData, null);
+        console.log("✅ ServiceWhatProvide: Created new draft:", draftId);
+        
+        // Update state with new draftId
+        if (actions?.setDraftId) {
+          actions.setDraftId(draftId);
+        }
+      } catch (error) {
+        console.error("❌ ServiceWhatProvide: Error creating draft:", error);
+        throw error;
+      }
+    }
+    
     if (draftId) {
       try {
         const draftRef = doc(db, "onboardingDrafts", draftId);
@@ -297,12 +322,38 @@ const ServiceWhatProvide = () => {
           "data.serviceAgreedToTerms": agreedToTerms,
           lastModified: new Date(),
         });
-        console.log("✅ Saved service what provide to Firebase");
+        console.log("✅ ServiceWhatProvide: Draft saved successfully");
       } catch (error) {
-        console.error("Error saving data:", error);
+        console.error("❌ ServiceWhatProvide: Error saving data:", error);
+        throw error;
       }
     }
-      navigate("/host/listings");
+    
+    return draftId;
+  };
+
+  // Handle Save & Exit
+  const handleSaveAndExit = async () => {
+    try {
+      const { auth } = await import("@/lib/firebase");
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        alert("Please log in to save your progress.");
+        navigate("/login");
+        return;
+      }
+
+      await saveServiceData();
+      navigate("/host/listings", {
+        state: {
+          scrollToDrafts: true,
+          message: "Draft saved successfully!",
+        },
+      });
+    } catch (error) {
+      console.error("❌ Error saving draft:", error);
+      alert("Failed to save. Please try again.");
+    }
   };
 
   return (
@@ -391,10 +442,10 @@ const ServiceWhatProvide = () => {
                 <div className="space-y-4 text-gray-700 leading-relaxed">
                   <p>
                     You have read, understand, and agree to the{' '}
-                    <a href="#" className="font-bold text-gray-900 hover:text-primary underline">services terms</a>,{' '}
-                    <a href="#" className="font-bold text-gray-900 hover:text-primary underline">host cancellation policy</a> for services and experiences, and{' '}
-                    <a href="#" className="font-bold text-gray-900 hover:text-primary underline">cancellation policies</a> for services and experiences. You also acknowledge the{' '}
-                    <a href="#" className="font-bold text-gray-900 hover:text-primary underline">privacy policy</a>.
+                    <a href="/host/policies#service" className="font-bold text-gray-900 hover:text-primary underline">services terms</a>,{' '}
+                    <a href="/host/policies#cancellation" className="font-bold text-gray-900 hover:text-primary underline">host cancellation policy</a> for services and experiences, and{' '}
+                    <a href="/host/policies#cancellation" className="font-bold text-gray-900 hover:text-primary underline">cancellation policies</a> for services and experiences. You also acknowledge the{' '}
+                    <a href="/host/policies#privacy" className="font-bold text-gray-900 hover:text-primary underline">privacy policy</a>.
                   </p>
                   
                   <p>

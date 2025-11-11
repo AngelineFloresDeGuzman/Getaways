@@ -108,6 +108,38 @@ export const createListing = async (listingData, existingListingId = null) => {
     listingDoc.serviceNationalPark = listingData.serviceNationalPark !== undefined ? listingData.serviceNationalPark : null;
     listingDoc.serviceTransportingGuests = listingData.serviceTransportingGuests !== undefined ? listingData.serviceTransportingGuests : null;
     listingDoc.serviceAgreedToTerms = listingData.serviceAgreedToTerms !== undefined ? listingData.serviceAgreedToTerms : false;
+  } else if (category === 'experience') {
+    // Experience-specific fields
+    listingDoc.experienceCategory = listingData.experienceCategory || null;
+    listingDoc.experienceSubcategory = listingData.experienceSubcategory || null;
+    listingDoc.yearsOfExperience = listingData.yearsOfExperience || null;
+    listingDoc.introTitle = listingData.introTitle || null;
+    listingDoc.expertise = listingData.expertise || null;
+    listingDoc.recognition = listingData.recognition || null;
+    listingDoc.profiles = listingData.profiles || [];
+    listingDoc.residentialAddress = listingData.residentialAddress || {};
+    listingDoc.meetingAddress = listingData.meetingAddress || {};
+    listingDoc.meetingLocationData = listingData.meetingLocationData || {};
+    listingDoc.itineraryItems = listingData.itineraryItems || [];
+    listingDoc.maxGuests = listingData.maxGuests || 1;
+    listingDoc.pricePerGuest = listingData.pricePerGuest || null;
+    listingDoc.privateGroupMinimum = listingData.privateGroupMinimum || null;
+    listingDoc.experienceDiscounts = listingData.experienceDiscounts || listingData.discounts || [];
+    listingDoc.willTransportGuests = listingData.willTransportGuests !== undefined ? listingData.willTransportGuests : null;
+    listingDoc.transportationTypes = listingData.transportationTypes || [];
+    listingDoc.termsAgreed = listingData.termsAgreed !== undefined ? listingData.termsAgreed : false;
+    listingDoc.experienceTitle = listingData.experienceTitle || listingData.title || '';
+    listingDoc.experienceDescription = listingData.experienceDescription || listingData.description || '';
+    
+    // Pricing for experiences
+    listingDoc.pricing = {
+      pricePerGuest: listingData.pricePerGuest || 0,
+      privateGroupMinimum: listingData.privateGroupMinimum || 0,
+      ...pricing
+    };
+    
+    // Update price field for display
+    listingDoc.price = listingData.pricePerGuest || pricing.pricePerGuest || 0;
   } else {
     // Accommodation-specific fields
     listingDoc.propertyBasics = listingData.propertyBasics || {};

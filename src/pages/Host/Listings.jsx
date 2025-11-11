@@ -254,8 +254,68 @@ const HostListings = () => {
     }
   };
 
-  // Calculate progress percentage based on current step
-  const calculateProgress = (currentStep) => {
+  // Calculate progress percentage based on current step and category
+  const calculateProgress = (currentStep, category, currentStepNumber = null) => {
+    // For service category
+    if (category === 'service') {
+      const serviceStepOrder = [
+        'hostingsteps', 'service-category-selection', 'service-location', 
+        'service-years-of-experience', 'service-qualifications', 'service-online-profiles',
+        'service-title', 'service-what-provide', 'service-address', 'service-where-provide',
+        'service-photos', 'create-your-offerings', 'your-offerings', 'service-description'
+      ];
+      const currentIndex = serviceStepOrder.indexOf(currentStep);
+      if (currentIndex === -1) return 0;
+      return Math.round(((currentIndex + 1) / serviceStepOrder.length) * 100);
+    }
+    
+    // For experience category with step names
+    if (category === 'experience') {
+      const experienceStepOrder = [
+        'hostingsteps', 'experience-category-selection', 'experience-subcategory-selection',
+        'experience-location', 'experience-listing-summary', 'experience-details'
+      ];
+      const currentIndex = experienceStepOrder.indexOf(currentStep);
+      
+      // For experience-details, use currentStepNumber if available for more accurate progress
+      // IMPORTANT: Only use currentStepNumber when currentStep is 'experience-details'
+      if (currentStep === 'experience-details' && currentStepNumber !== null && currentStepNumber !== undefined) {
+        // experience-details is the last main step, so base progress is 80% (4/5 main steps)
+        // Then add progress within the 16 steps: (currentStepNumber / 16) * 20%
+        const baseProgress = 80; // 4 out of 5 main steps completed
+        const stepProgress = (currentStepNumber / 16) * 20; // Remaining 20% for the 16 steps
+        return Math.round(baseProgress + stepProgress);
+      }
+      
+      // If step not found in the order, return 0
+      if (currentIndex === -1) {
+        return 0;
+      }
+      
+      // For experience-listing-summary, it's step 5 out of 6 (but experience-details has 16 sub-steps)
+      // So it should be approximately 80% (4/5 main steps, with experience-details being the 5th)
+      if (currentStep === 'experience-listing-summary') {
+        return 80; // 4 out of 5 main steps completed (experience-details is the 5th with 16 sub-steps)
+      }
+      
+      // For other steps, calculate normally but account for experience-details being a multi-step page
+      // Steps before experience-listing-summary: 0-80%
+      // experience-listing-summary: 80%
+      // experience-details: 80-100% (based on currentStepNumber - handled above)
+      if (currentIndex < 4) {
+        // Steps 0-3: 0%, 20%, 40%, 60%
+        // hostingsteps (index 0) = 0%, experience-category-selection (index 1) = 20%, etc.
+        return Math.round((currentIndex / 4) * 80);
+      }
+      // For experience-listing-summary (index 4), return 80%
+      if (currentIndex === 4) {
+        return 80;
+      }
+      // For experience-details (index 5), should be handled above, but fallback to 80%
+      return 80;
+    }
+    
+    // For accommodation category (default)
     const stepOrder = [
       'hostingsteps', 'propertydetails', 'propertystructure', 'privacytype', 'location',
       'locationconfirmation', 'propertybasics', 'makeitstandout', 'amenities',
@@ -322,7 +382,9 @@ const HostListings = () => {
         const propertyStructure = data.propertyStructure || null;
         const serviceCategory = data.serviceCategory || null;
         const currentStep = draft.currentStep || 'hostingsteps';
-        const progress = calculateProgress(currentStep);
+        // category is already declared above (line 318)
+        const currentStepNumber = draft.data?.currentStepNumber || null;
+        const progress = calculateProgress(currentStep, category, currentStepNumber);
         
         let lastModifiedFormatted = '';
         if (draft.lastModified) {
@@ -542,6 +604,17 @@ const HostListings = () => {
         existingDraft = { id: draftsSnapshot.docs[0].id, ...draftsSnapshot.docs[0].data() };
         draftId = existingDraft.id;
         console.log('📝 Found existing draft for editing:', draftId);
+        
+        // If editing an experience listing, update the draft to point to experience-details with step 16
+        if (listing.category === 'experience') {
+          const draftRef = doc(db, 'onboardingDrafts', draftId);
+          await updateDoc(draftRef, {
+            currentStep: 'experience-details',
+            'data.currentStepNumber': 16,
+            lastModified: serverTimestamp(),
+          });
+          console.log('✅ Updated existing experience draft to step 16 (review/edit step)');
+        }
       } else {
         // Get the listing data from Firestore
         const listingRef = doc(db, 'listings', listing.id);
@@ -587,6 +660,54 @@ const HostListings = () => {
           };
           editRoute = '/pages/service-what-provide';
           currentStep = 'service-what-provide';
+        } else if (category === 'experience') {
+          // Experience-specific data collection
+          draftDataObject = {
+            category: 'experience',
+            experienceCategory: listingData.experienceCategory || 'art-and-design',
+            experienceSubcategory: listingData.experienceSubcategory || null,
+            experienceTitle: listingData.experienceTitle || listingData.title || '',
+            experienceDescription: listingData.experienceDescription || listingData.description || '',
+            yearsOfExperience: listingData.yearsOfExperience || 10,
+            introTitle: listingData.introTitle || '',
+            expertise: listingData.expertise || '',
+            recognition: listingData.recognition || '',
+            profiles: listingData.profiles || [],
+            country: listingData.residentialAddress?.country || listingData.locationData?.country || 'Philippines',
+            province: listingData.residentialAddress?.province || listingData.locationData?.province || '',
+            city: listingData.residentialAddress?.city || listingData.locationData?.city || '',
+            barangay: listingData.residentialAddress?.barangay || listingData.locationData?.barangay || '',
+            streetAddress: listingData.residentialAddress?.streetAddress || listingData.locationData?.streetAddress || '',
+            unit: listingData.residentialAddress?.unit || listingData.locationData?.unit || '',
+            buildingName: listingData.residentialAddress?.buildingName || listingData.locationData?.buildingName || '',
+            zipCode: listingData.residentialAddress?.zipCode || listingData.locationData?.zipCode || '',
+            meetingAddress: listingData.meetingAddress?.address || listingData.meetingLocationData?.address || '',
+            confirmCountry: listingData.meetingAddress?.country || listingData.locationData?.country || 'Philippines',
+            confirmProvince: listingData.meetingAddress?.province || listingData.locationData?.province || '',
+            confirmCity: listingData.meetingAddress?.city || listingData.locationData?.city || '',
+            confirmBarangay: listingData.locationData?.barangay || '',
+            confirmStreetAddress: listingData.locationData?.streetAddress || '',
+            confirmUnit: listingData.locationData?.unit || '',
+            confirmBuildingName: listingData.locationData?.buildingName || '',
+            confirmZipCode: listingData.locationData?.zipCode || '',
+            locationName: listingData.locationData?.locationName || '',
+            mapLat: listingData.meetingLocationData?.lat || listingData.locationData?.lat || null,
+            mapLng: listingData.meetingLocationData?.lng || listingData.locationData?.lng || null,
+            photos: listingData.photos || [],
+            itineraryItems: listingData.itineraryItems || [],
+            maxGuests: listingData.maxGuests || 1,
+            pricePerGuest: listingData.pricePerGuest || null,
+            privateGroupMinimum: listingData.privateGroupMinimum || null,
+            discounts: listingData.experienceDiscounts || [],
+            willTransportGuests: listingData.willTransportGuests !== undefined ? listingData.willTransportGuests : null,
+            transportationTypes: listingData.transportationTypes || [],
+            termsAgreed: listingData.termsAgreed !== undefined ? listingData.termsAgreed : false,
+            currentStepNumber: 16, // Default to last step (submit listing) so user can review and edit
+          };
+          // Navigate to experience-details with step 16 (submit/review step) so user can review and edit
+          // Alternatively, could navigate to step 1 to go through all steps
+          editRoute = '/pages/experience-details';
+          currentStep = 'experience-details';
         } else {
           // Accommodation-specific data collection
           draftDataObject = {
@@ -643,16 +764,44 @@ const HostListings = () => {
       const editRoutes = {
         'service': '/pages/service-what-provide',
         'accommodation': '/pages/finaldetails',
-        'experience': '/pages/finaldetails', // Update if experience has different route
+        'experience': '/pages/experience-details', // Navigate to experience-details with step 16 for review/edit
       };
       
+      // Prepare navigation state based on category
+      const navigationState = {
+        draftId: draftId,
+        listingId: listing.id,
+        isEditMode: true,
+        category: listingCategory
+      };
+      
+      // Add experience-specific state if needed
+      // Use existingDraft data if available, otherwise get from listing
+      if (listingCategory === 'experience') {
+        let experienceData = null;
+        if (existingDraft && existingDraft.data) {
+          experienceData = existingDraft.data;
+        } else {
+          // Get listing data if we don't have it from existing draft
+          const listingRef = doc(db, 'listings', listing.id);
+          const listingSnap = await getDoc(listingRef);
+          if (listingSnap.exists()) {
+            experienceData = listingSnap.data();
+          }
+        }
+        
+        if (experienceData) {
+          navigationState.experienceCategory = experienceData.experienceCategory || 'art-and-design';
+          navigationState.experienceSubcategory = experienceData.experienceSubcategory || null;
+          navigationState.experienceCity = experienceData.locationData?.city || experienceData.location || '';
+          // Navigate to step 16 (submit/review step) so user can review all data and edit
+          // The draft data already has currentStepNumber: 16 set above
+          navigationState.currentStepNumber = 16;
+        }
+      }
+      
       navigate(editRoutes[listingCategory] || '/pages/finaldetails', { 
-        state: { 
-          draftId: draftId, 
-          listingId: listing.id, 
-          isEditMode: true,
-          category: listingCategory
-        } 
+        state: navigationState
       });
     } catch (error) {
       console.error('❌ Error preparing draft for editing:', error);
@@ -724,31 +873,220 @@ const HostListings = () => {
   };
 
   const handleContinueDraft = (draft) => {
-    const stepRoutes = {
-      'hostingsteps': '/pages/hostingsteps',
-      'propertydetails': '/pages/propertydetails',
-      'propertystructure': '/pages/propertystructure',
-      'privacytype': '/pages/privacytype',
-      'location': '/pages/location',
-      'locationconfirmation': '/pages/locationconfirmation',
-      'propertybasics': '/pages/propertybasics',
-      'makeitstandout': '/pages/makeitstandout',
-      'amenities': '/pages/amenities',
-      'photos': '/pages/photos',
-      'titledescription': '/pages/titledescription',
-      'description': '/pages/description',
-      'descriptiondetails': '/pages/descriptiondetails',
-      'finishsetup': '/pages/finishsetup',
-      'bookingsettings': '/pages/bookingsettings',
-      'guestselection': '/pages/guestselection',
-      'pricing': '/pages/pricing',
-      'weekendpricing': '/pages/weekendpricing',
-      'discounts': '/pages/discounts',
-      'safetydetails': '/pages/safetydetails',
-      'finaldetails': '/pages/finaldetails'
+    const category = draft.category || 'accommodation';
+    const currentStep = draft.currentStep || 'hostingsteps';
+    const draftData = draft.data || {};
+    const currentStepNumber = draftData.currentStepNumber;
+    
+    // Define routes based on category
+    let stepRoutes = {};
+    
+    if (category === 'experience') {
+      // Experience onboarding routes - include all individual step routes
+      stepRoutes = {
+        'hostingsteps': '/pages/hostingsteps',
+        'experience-category-selection': '/pages/experience-category-selection',
+        'experience-subcategory-selection': '/pages/experience-subcategory-selection',
+        'experience-location': '/pages/experience-location',
+        'experience-listing-summary': '/pages/experience-listing-summary',
+        'experience-years-of-experience': '/pages/experience-years-of-experience',
+        'experience-qualifications': '/pages/experience-qualifications',
+        'experience-online-profiles': '/pages/experience-details', // Still use experience-details for now
+        'experience-residential-address': '/pages/experience-details',
+        'experience-meeting-address': '/pages/experience-details',
+        'experience-photos': '/pages/experience-details',
+        'experience-itinerary': '/pages/experience-details',
+        'experience-max-guests': '/pages/experience-max-guests',
+        'experience-price-per-guest': '/pages/experience-price-per-guest',
+        'experience-private-group-minimum': '/pages/experience-details',
+        'experience-review-pricing': '/pages/experience-details',
+        'experience-discounts': '/pages/experience-details',
+        'experience-transportation': '/pages/experience-details',
+        'experience-title-description-preview': '/pages/experience-details',
+        'experience-create-title-description': '/pages/experience-details',
+        'experience-submit-listing': '/pages/experience-details',
+        'experience-details': '/pages/experience-details', // Fallback for old drafts
+        'finaldetails': '/pages/finaldetails'
+      };
+    } else if (category === 'service') {
+      // Service onboarding routes
+      stepRoutes = {
+        'hostingsteps': '/pages/hostingsteps',
+        'service-category-selection': '/pages/service-category-selection',
+        'service-location': '/pages/service-location',
+        'service-years-of-experience': '/pages/service-years-of-experience',
+        'service-qualifications': '/pages/service-qualifications',
+        'service-online-profiles': '/pages/service-online-profiles',
+        'service-title': '/pages/service-title',
+        'service-what-provide': '/pages/service-what-provide',
+        'service-address': '/pages/service-address',
+        'service-where-provide': '/pages/service-where-provide',
+        'service-photos': '/pages/service-photos',
+        'create-your-offerings': '/pages/create-your-offerings',
+        'your-offerings': '/pages/your-offerings',
+        'service-description': '/pages/service-description'
+      };
+    } else {
+      // Accommodation onboarding routes (default)
+      stepRoutes = {
+        'hostingsteps': '/pages/hostingsteps',
+        'propertydetails': '/pages/propertydetails',
+        'propertystructure': '/pages/propertystructure',
+        'privacytype': '/pages/privacytype',
+        'location': '/pages/location',
+        'locationconfirmation': '/pages/locationconfirmation',
+        'propertybasics': '/pages/propertybasics',
+        'makeitstandout': '/pages/makeitstandout',
+        'amenities': '/pages/amenities',
+        'photos': '/pages/photos',
+        'titledescription': '/pages/titledescription',
+        'description': '/pages/description',
+        'descriptiondetails': '/pages/descriptiondetails',
+        'finishsetup': '/pages/finishsetup',
+        'bookingsettings': '/pages/bookingsettings',
+        'guestselection': '/pages/guestselection',
+        'pricing': '/pages/pricing',
+        'weekendpricing': '/pages/weekendpricing',
+        'discounts': '/pages/discounts',
+        'safetydetails': '/pages/safetydetails',
+        'finaldetails': '/pages/finaldetails'
+      };
+    }
+    
+    // Get the route for the current step, with fallback
+    let route = stepRoutes[currentStep];
+    let stepNumberToPass = currentStepNumber;
+    
+    // Map step names to step numbers for experience steps that use experience-details
+    const experienceStepNameToNumber = {
+      'experience-years-of-experience': 1,
+      'experience-qualifications': 2,
+      'experience-online-profiles': 3,
+      'experience-residential-address': 4,
+      'experience-meeting-address': 5,
+      'experience-photos': 6,
+      'experience-itinerary': 7,
+      'experience-max-guests': 8,
+      'experience-price-per-guest': 9,
+      'experience-private-group-minimum': 10,
+      'experience-review-pricing': 11,
+      'experience-discounts': 12,
+      'experience-transportation': 13,
+      'experience-title-description-preview': 14,
+      'experience-create-title-description': 15,
+      'experience-submit-listing': 16,
     };
-    const route = stepRoutes[draft.currentStep] || '/pages/propertydetails';
-    navigate(route, { state: { draftId: draft.id } });
+    
+    // If currentStep is a step name (not experience-details), get the step number
+    if (category === 'experience' && experienceStepNameToNumber[currentStep] !== undefined) {
+      stepNumberToPass = experienceStepNameToNumber[currentStep];
+    }
+    
+    // Special handling for experience-details: check if we should navigate to individual step files
+    // If currentStep is experience-details but we have a specific step name, try that first
+    if (category === 'experience' && currentStep === 'experience-details' && currentStepNumber !== undefined && currentStepNumber !== null) {
+      // Map step number to step name
+      const stepNameMap = {
+        1: 'experience-years-of-experience',
+        2: 'experience-qualifications',
+        3: 'experience-online-profiles',
+        4: 'experience-residential-address',
+        5: 'experience-meeting-address',
+        6: 'experience-photos',
+        7: 'experience-itinerary',
+        8: 'experience-max-guests',
+        9: 'experience-price-per-guest',
+        10: 'experience-private-group-minimum',
+        11: 'experience-review-pricing',
+        12: 'experience-discounts',
+        13: 'experience-transportation',
+        14: 'experience-title-description-preview',
+        15: 'experience-create-title-description',
+        16: 'experience-submit-listing',
+      };
+      
+      const stepName = stepNameMap[currentStepNumber];
+      if (stepName && stepRoutes[stepName]) {
+        // If we have a separate file for this step, navigate there
+        // But for now, most steps still use experience-details, so we'll pass the step number
+        route = stepRoutes[stepName] || '/pages/experience-details';
+        // Keep the step number for navigation state
+        stepNumberToPass = currentStepNumber;
+      } else {
+        // Otherwise, navigate to experience-details with the step number
+        route = '/pages/experience-details';
+        stepNumberToPass = currentStepNumber;
+      }
+    }
+    
+    // If route is experience-details and we have a step name, get the step number
+    if (category === 'experience' && route === '/pages/experience-details' && stepNumberToPass === undefined && experienceStepNameToNumber[currentStep] !== undefined) {
+      stepNumberToPass = experienceStepNameToNumber[currentStep];
+    }
+    
+    // If route not found, use category-specific default
+    if (!route) {
+      if (category === 'experience') {
+        route = '/pages/experience-category-selection';
+      } else if (category === 'service') {
+        route = '/pages/service-category-selection';
+      } else {
+        route = '/pages/propertydetails';
+      }
+    }
+    
+    console.log('🔍 Continuing draft:', {
+      category,
+      currentStep,
+      currentStepNumber,
+      stepNumberToPass,
+      route,
+      draftId: draft.id,
+      hasStepNumber: stepNumberToPass !== undefined && stepNumberToPass !== null
+    });
+    
+    // Prepare navigation state
+    const navigationState = { 
+      draftId: draft.id,
+      category: category
+    };
+    
+    // For experience-details, always pass the step number if we have it
+    if (category === 'experience' && route === '/pages/experience-details' && stepNumberToPass !== undefined && stepNumberToPass !== null) {
+      navigationState.currentStepNumber = stepNumberToPass;
+      console.log('✅ Passing currentStepNumber to experience-details:', stepNumberToPass);
+      // Also pass experience category data if available
+      if (draftData.experienceCategory) {
+        navigationState.experienceCategory = draftData.experienceCategory;
+      }
+      if (draftData.experienceSubcategory) {
+        navigationState.experienceSubcategory = draftData.experienceSubcategory;
+      }
+      if (draftData.experienceCity) {
+        navigationState.experienceCity = draftData.experienceCity;
+      }
+    }
+    
+    // For individual step routes, also pass the experience category and step number if available
+    if (category === 'experience' && route !== '/pages/experience-details') {
+      if (draftData.experienceCategory) {
+        navigationState.experienceCategory = draftData.experienceCategory;
+      }
+      if (draftData.experienceSubcategory) {
+        navigationState.experienceSubcategory = draftData.experienceSubcategory;
+      }
+      if (draftData.experienceCity) {
+        navigationState.experienceCity = draftData.experienceCity;
+      }
+      // Pass step number for individual routes too (in case they need to redirect)
+      if (stepNumberToPass !== undefined && stepNumberToPass !== null) {
+        navigationState.currentStepNumber = stepNumberToPass;
+      }
+    }
+    
+    navigate(route, { 
+      state: navigationState
+    });
   };
 
   const handleDeleteDraft = async (draftId) => {

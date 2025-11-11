@@ -291,16 +291,33 @@ export default OnboardingHeader;
 const StepProgress = ({ currentStepName = 'hostingsteps' }) => {
   // Define the 3 main steps with their respective pages
   // Note: 'bathroomtypes' and 'occupancy' are part of Step 1 (only appear when privacyType === 'A room')
-  const stepGroups = {
+  
+  // Check if this is an experience onboarding flow
+  const isExperienceFlow = currentStepName.startsWith('experience-');
+  
+  // Define step groups for accommodations
+  const accommodationStepGroups = {
     1: ['hostingsteps', 'propertydetails', 'propertystructure', 'privacytype', 'location', 'locationconfirmation', 'propertybasics', 'bathroomtypes', 'occupancy'],
     2: ['makeitstandout', 'amenities', 'photos', 'titledescription', 'description', 'descriptiondetails'],
     3: ['finishsetup', 'bookingsettings', 'guestselection', 'pricing', 'weekendpricing', 'discounts', 'safetydetails', 'finaldetails', 'payment']
   };
+  
+  // Define step groups for experiences
+  const experienceStepGroups = {
+    1: ['experience-category-selection', 'experience-subcategory-selection', 'experience-location', 'experience-listing-summary'],
+    2: ['experience-years-of-experience', 'experience-qualifications', 'experience-online-profiles', 'experience-residential-address', 'experience-meeting-address', 'experience-photos', 'experience-itinerary', 'experience-max-guests', 'experience-price-per-guest'],
+    3: ['experience-private-group-minimum', 'experience-review-pricing', 'experience-discounts', 'experience-transportation', 'experience-title-description-preview', 'experience-create-title-description', 'experience-submit-listing']
+  };
+  
+  // Use appropriate step groups based on flow type
+  const stepGroups = isExperienceFlow ? experienceStepGroups : accommodationStepGroups;
 
   // Find which main step group the current page belongs to
   let currentMainStep = 1;
   let progressInStep = 0;
   
+  // For experience flow, use experience step groups
+  if (isExperienceFlow) {
   for (let step = 1; step <= 3; step++) {
     const pagesInStep = stepGroups[step];
     const pageIndex = pagesInStep.indexOf(currentStepName);
@@ -312,21 +329,32 @@ const StepProgress = ({ currentStepName = 'hostingsteps' }) => {
       break;
     }
   }
+  } else {
+    // For accommodations, use accommodation step groups
+    for (let step = 1; step <= 3; step++) {
+      const pagesInStep = stepGroups[step];
+      const pageIndex = pagesInStep.indexOf(currentStepName);
+      
+      if (pageIndex !== -1) {
+        currentMainStep = step;
+        // Calculate percentage progress within this step
+        progressInStep = ((pageIndex + 1) / pagesInStep.length) * 100;
+        break;
+      }
+    }
+  }
 
-  // HostingSteps should display as 0% for Step 1 (movement starts at propertydetails)
+  // Special handling for initial steps (should show 0%)
   const isHostingSteps = currentStepName === 'hostingsteps';
-  // Experience category selection should also display as 0% for Step 1
   const isExperienceCategorySelection = currentStepName === 'experience-category-selection';
-  // Service category selection should also display as 0% for Step 1
   const isServiceCategorySelection = currentStepName === 'service-category-selection';
-  // Experience subcategory selection is part of Step 1 for experiences
-  const isExperienceSubcategorySelection = currentStepName === 'experience-subcategory-selection';
+  
   if (isHostingSteps || isExperienceCategorySelection || isServiceCategorySelection) {
     currentMainStep = 1;
     progressInStep = 0;
   }
-  // For experience subcategory, show progress within Step 1
-  const isExperienceLocation = currentStepName === 'experience-location';
+  
+  // Service steps (keep existing logic for services)
   const isServiceLocation = currentStepName === 'service-location';
   const isServiceYearsOfExperience = currentStepName === 'service-years-of-experience';
   const isServiceQualifications = currentStepName === 'service-qualifications';
@@ -339,72 +367,47 @@ const StepProgress = ({ currentStepName = 'hostingsteps' }) => {
   const isCreateYourOfferings = currentStepName === 'create-your-offerings';
   const isServiceWhatProvide = currentStepName === 'service-what-provide';
   const isServiceDescription = currentStepName === 'service-description';
-  if (isExperienceSubcategorySelection) {
-    currentMainStep = 1;
-    // Calculate progress: category selection (0%) -> subcategory selection (50%) -> location (75%) -> next step (100%)
-    progressInStep = 50;
-  }
-  // For experience location, show progress within Step 1
-  const isExperienceListingSummary = currentStepName === 'experience-listing-summary';
-  if (isExperienceLocation) {
-    currentMainStep = 1;
-    progressInStep = 75;
-  }
-  // For service location, show progress within Step 1 (similar to experience location)
+  // Service steps progress (keep existing service logic - all in Step 1 for now)
   if (isServiceLocation) {
     currentMainStep = 1;
-    // Calculate progress: category selection (0%) -> location (50%) -> years of experience (75%) -> next step (100%)
     progressInStep = 50;
   }
-  // For service years of experience, show progress within Step 1
   if (isServiceYearsOfExperience) {
     currentMainStep = 1;
-    // Calculate progress: category selection (0%) -> location (50%) -> years of experience (75%) -> next step (100%)
     progressInStep = 75;
   }
-  // For service qualifications, show progress within Step 1
   if (isServiceQualifications) {
     currentMainStep = 1;
     progressInStep = 87.5;
   }
-  // For service online profiles, show progress within Step 1
   if (isServiceOnlineProfiles) {
     currentMainStep = 1;
     progressInStep = 95;
   }
-  // For service address, show progress within Step 1
   if (isServiceAddress) {
     currentMainStep = 1;
     progressInStep = 97.5;
   }
-  // For service where provide, show progress within Step 1
   if (isServiceWhereProvide) {
     currentMainStep = 1;
     progressInStep = 98.5;
   }
-  // For service photos, show progress within Step 1
   if (isServicePhotos) {
     currentMainStep = 1;
     progressInStep = 99;
   }
-  // For service title, show progress within Step 1
   if (isServiceTitle) {
     currentMainStep = 1;
     progressInStep = 99.5;
   }
-  // For service offerings, show progress within Step 1
   if (isServiceOfferings || isCreateYourOfferings) {
     currentMainStep = 1;
     progressInStep = 99.8;
   }
-  
-  // For service what provide, show progress within Step 1
   if (isServiceWhatProvide) {
     currentMainStep = 1;
     progressInStep = 99.85;
   }
-  
-  // For service description, show progress within Step 1
   if (isServiceDescription) {
     currentMainStep = 1;
     progressInStep = 99.9;
@@ -426,12 +429,7 @@ const StepProgress = ({ currentStepName = 'hostingsteps' }) => {
       isOfferingPricePerGuest || isOfferingPriceFixed || isOfferingMinimumPrice || 
       isOfferingReviewPricing || isOfferingDiscounts || isOfferingAvailability) {
     currentMainStep = 1;
-    progressInStep = 99.9; // Slightly higher than offerings list
-  }
-  // For experience listing summary, show 100% progress for Step 1 (ready to move to Step 2)
-  if (isExperienceListingSummary) {
-    currentMainStep = 1;
-    progressInStep = 100;
+    progressInStep = 99.9;
   }
 
   // Debug logging
@@ -448,8 +446,12 @@ const StepProgress = ({ currentStepName = 'hostingsteps' }) => {
   
   // Determine if we're navigating backward by comparing step indices
   const getStepIndex = (stepName) => {
+    // Determine which step groups to use based on step name
+    const stepNameStartsWithExperience = stepName.startsWith('experience-');
+    const stepGroupsToUse = stepNameStartsWithExperience ? experienceStepGroups : accommodationStepGroups;
+    
     for (let step = 1; step <= 3; step++) {
-      const pagesInStep = stepGroups[step];
+      const pagesInStep = stepGroupsToUse[step];
       const index = pagesInStep.indexOf(stepName);
       if (index !== -1) {
         return { mainStep: step, index };
@@ -496,23 +498,6 @@ const StepProgress = ({ currentStepName = 'hostingsteps' }) => {
           setDisplayedProgress(0);
           prevProgressRef.current = 0;
           sessionStorage.setItem(storageKey, '0');
-          sessionStorage.setItem(storageStepKey, String(currentMainStep));
-          sessionStorage.setItem(storagePrevStepKey, currentStepName);
-        });
-      });
-      return () => cancelAnimationFrame(id0);
-    }
-    
-    // For experience subcategory selection, animate to 50% progress
-    if (isExperienceSubcategorySelection) {
-      const lastVal = Number(sessionStorage.getItem(storageKey) || '0');
-      setDisplayedProgress(lastVal);
-      prevProgressRef.current = lastVal;
-      const id0 = requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          setDisplayedProgress(50);
-          prevProgressRef.current = 50;
-          sessionStorage.setItem(storageKey, '50');
           sessionStorage.setItem(storageStepKey, String(currentMainStep));
           sessionStorage.setItem(storagePrevStepKey, currentStepName);
         });
@@ -888,7 +873,7 @@ const StepProgress = ({ currentStepName = 'hostingsteps' }) => {
       });
     });
     return () => cancelAnimationFrame(id);
-  }, [currentStepName, progressInStep, currentMainStep, isHostingSteps, isExperienceCategorySelection, isServiceCategorySelection, isExperienceSubcategorySelection, isExperienceLocation, isServiceLocation, isServiceYearsOfExperience, isServiceQualifications, isServiceOnlineProfiles, isServiceWhereProvide, isServiceAddress, isServicePhotos, isServiceTitle, isServiceOfferings, isCreateYourOfferings, isServiceWhatProvide, isServiceDescription, isOfferingTitle, isOfferingPhoto, isOfferingGuests, isOfferingPrice, isOfferingPricePerGuest, isOfferingPriceFixed, isOfferingMinimumPrice, isOfferingReviewPricing, isOfferingDiscounts, isExperienceListingSummary, isNavigatingBackward, prevStepName]);
+  }, [currentStepName, progressInStep, currentMainStep, isHostingSteps, isExperienceCategorySelection, isServiceCategorySelection, isServiceLocation, isServiceYearsOfExperience, isServiceQualifications, isServiceOnlineProfiles, isServiceWhereProvide, isServiceAddress, isServicePhotos, isServiceTitle, isServiceOfferings, isCreateYourOfferings, isServiceWhatProvide, isServiceDescription, isOfferingTitle, isOfferingPhoto, isOfferingGuests, isOfferingPrice, isOfferingPricePerGuest, isOfferingPriceFixed, isOfferingMinimumPrice, isOfferingReviewPricing, isOfferingDiscounts, isNavigatingBackward, prevStepName, isExperienceFlow]);
 
   // Render three segments with progress
   return (

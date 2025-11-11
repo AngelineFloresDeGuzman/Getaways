@@ -69,24 +69,50 @@ const ServiceAddress = () => {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleNext = async () => {
-    if (!validateForm()) {
-      return;
+  const saveServiceData = async () => {
+    let draftId = state.draftId || location.state?.draftId;
+    
+    // If no draftId exists, create a new draft first
+    if (!draftId) {
+      try {
+        const { auth } = await import("@/lib/firebase");
+        const currentUser = auth.currentUser;
+        if (!currentUser) {
+          console.warn("⚠️ ServiceAddress: User not authenticated, cannot create draft");
+          return null;
+        }
+        
+        const { saveDraft } = await import("@/pages/Host/services/draftService");
+        const newDraftData = {
+          currentStep: "service-address",
+          category: "service",
+          data: {
+            serviceCountry: country,
+            serviceStreetAddress: streetAddress,
+            serviceUnit: unit,
+            serviceCity: city.trim(),
+            serviceState: stateTerritory.trim(),
+            serviceZipCode: zipCode.trim(),
+          }
+        };
+        draftId = await saveDraft(newDraftData, null);
+        console.log("✅ ServiceAddress: Created new draft:", draftId);
+        
+        // Update state with new draftId
+        if (actions?.setDraftId) {
+          actions.setDraftId(draftId);
+        }
+      } catch (error) {
+        console.error("❌ ServiceAddress: Error creating draft:", error);
+        throw error;
+      }
     }
-
-    const draftId = state.draftId || location.state?.draftId;
-
-    // Update context
-    if (actions.setCurrentStep) {
-      actions.setCurrentStep("service-where-provide");
-    }
-
-    // Update Firebase draft
+    
     if (draftId) {
       try {
         const draftRef = doc(db, "onboardingDrafts", draftId);
         await updateDoc(draftRef, {
-          currentStep: "service-where-provide",
+          currentStep: "service-address", // Save CURRENT step, not next step
           "data.serviceCountry": country,
           "data.serviceStreetAddress": streetAddress,
           "data.serviceUnit": unit,
@@ -95,32 +121,76 @@ const ServiceAddress = () => {
           "data.serviceZipCode": zipCode.trim(),
           lastModified: new Date(),
         });
-        console.log("✅ Updated service address in draft");
+        console.log("✅ ServiceAddress: Draft saved successfully");
       } catch (error) {
-        console.error("Error updating draft:", error);
+        console.error("❌ ServiceAddress: Error saving data:", error);
+        throw error;
       }
     }
+    
+    return draftId;
+  };
 
-    // Navigate to where provide page
-    navigate("/pages/service-where-provide", {
-      state: {
-        draftId,
-        category: "service",
-        serviceCategory: location.state?.serviceCategory,
-        serviceCity: location.state?.serviceCity,
-        serviceYearsOfExperience: location.state?.serviceYearsOfExperience,
-        serviceExperience: location.state?.serviceExperience,
-        serviceDegree: location.state?.serviceDegree,
-        serviceCareerHighlight: location.state?.serviceCareerHighlight,
-        serviceProfiles: location.state?.serviceProfiles,
-        serviceCountry: country,
-        serviceStreetAddress: streetAddress,
-        serviceUnit: unit,
-        serviceCity: city.trim(),
-        serviceState: stateTerritory.trim(),
-        serviceZipCode: zipCode.trim(),
-      },
-    });
+  const handleSaveAndExit = async () => {
+    try {
+      const { auth } = await import("@/lib/firebase");
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        alert("Please log in to save your progress.");
+        navigate("/login");
+        return;
+      }
+
+      await saveServiceData();
+      navigate("/host/listings", {
+        state: {
+          scrollToDrafts: true,
+          message: "Draft saved successfully!",
+        },
+      });
+    } catch (error) {
+      console.error("❌ Error saving draft:", error);
+      alert("Failed to save. Please try again.");
+    }
+  };
+
+  const handleNext = async () => {
+    if (!validateForm()) {
+      return;
+    }
+
+    try {
+      const draftId = await saveServiceData();
+
+      // Update context
+      if (actions.setCurrentStep) {
+        actions.setCurrentStep("service-where-provide");
+      }
+
+      // Navigate to where provide page
+      navigate("/pages/service-where-provide", {
+        state: {
+          draftId,
+          category: "service",
+          serviceCategory: location.state?.serviceCategory,
+          serviceCity: location.state?.serviceCity,
+          serviceYearsOfExperience: location.state?.serviceYearsOfExperience,
+          serviceExperience: location.state?.serviceExperience,
+          serviceDegree: location.state?.serviceDegree,
+          serviceCareerHighlight: location.state?.serviceCareerHighlight,
+          serviceProfiles: location.state?.serviceProfiles,
+          serviceCountry: country,
+          serviceStreetAddress: streetAddress,
+          serviceUnit: unit,
+          serviceCity: city.trim(),
+          serviceState: stateTerritory.trim(),
+          serviceZipCode: zipCode.trim(),
+        },
+      });
+    } catch (error) {
+      console.error("❌ Error in handleNext:", error);
+      alert("Failed to save progress. Please try again.");
+    }
   };
 
   const handleBack = () => {

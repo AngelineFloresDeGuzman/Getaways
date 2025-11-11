@@ -63,28 +63,67 @@ const ServiceTitle = () => {
     }
   };
 
-  const handleNext = async () => {
-    const draftId = state.draftId || location.state?.draftId;
+  const saveServiceData = async () => {
+    let draftId = state.draftId || location.state?.draftId;
 
-    // Update context
-    if (actions.setCurrentStep) {
-      actions.setCurrentStep("service-offerings");
+    // If no draftId exists, create a new draft first
+    if (!draftId) {
+      try {
+        const { auth } = await import("@/lib/firebase");
+        const currentUser = auth.currentUser;
+        if (!currentUser) {
+          console.warn("⚠️ ServiceTitle: User not authenticated, cannot create draft");
+          return null;
+        }
+        
+        const { saveDraft } = await import("@/pages/Host/services/draftService");
+        const newDraftData = {
+          currentStep: "service-title",
+          category: "service",
+          data: {
+            serviceTitle: title,
+            serviceExpertise: expertise,
+          }
+        };
+        draftId = await saveDraft(newDraftData, null);
+        console.log("✅ ServiceTitle: Created new draft:", draftId);
+        
+        // Update state with new draftId
+        if (actions?.setDraftId) {
+          actions.setDraftId(draftId);
+        }
+      } catch (error) {
+        console.error("❌ ServiceTitle: Error creating draft:", error);
+        throw error;
+      }
     }
-
-    // Update Firebase draft
+    
     if (draftId) {
       try {
         const draftRef = doc(db, "onboardingDrafts", draftId);
         await updateDoc(draftRef, {
           "data.serviceTitle": title,
           "data.serviceExpertise": expertise,
-          currentStep: "service-offerings",
+          currentStep: "service-title", // Save CURRENT step, not next step
           lastModified: new Date(),
         });
-        console.log("✅ Updated service title step in draft");
+        console.log("✅ ServiceTitle: Draft saved successfully");
       } catch (error) {
-        console.error("Error updating draft:", error);
+        console.error("❌ ServiceTitle: Error saving data:", error);
+        throw error;
       }
+    }
+    
+    return draftId;
+  };
+
+  const handleNext = async () => {
+    try {
+      const draftId = await saveServiceData();
+
+      // Update context
+      if (actions.setCurrentStep) {
+        actions.setCurrentStep("service-offerings");
     }
 
     // Navigate to next page (create-your-offerings)
@@ -112,6 +151,10 @@ const ServiceTitle = () => {
         serviceExpertise: expertise,
       },
     });
+    } catch (error) {
+      console.error("❌ Error in handleNext:", error);
+      alert("Failed to save progress. Please try again.");
+    }
   };
 
   const handleBack = () => {
@@ -142,21 +185,26 @@ const ServiceTitle = () => {
 
   // Handle Save & Exit
   const handleSaveAndExit = async () => {
-    const draftId = state.draftId || location.state?.draftId;
-    if (draftId) {
-      try {
-        const draftRef = doc(db, "onboardingDrafts", draftId);
-        await updateDoc(draftRef, {
-          "data.serviceTitle": title,
-          "data.serviceExpertise": expertise,
-          lastModified: new Date(),
-        });
-        console.log("✅ Saved service title to Firebase");
-      } catch (error) {
-        console.error("Error saving title:", error);
+    try {
+      const { auth } = await import("@/lib/firebase");
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        alert("Please log in to save your progress.");
+        navigate("/login");
+        return;
       }
+
+      await saveServiceData();
+      navigate("/host/listings", {
+        state: {
+          scrollToDrafts: true,
+          message: "Draft saved successfully!",
+        },
+      });
+      } catch (error) {
+      console.error("❌ Error saving draft:", error);
+      alert("Failed to save. Please try again.");
     }
-      navigate("/host/listings");
   };
 
   return (

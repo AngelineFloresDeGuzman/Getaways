@@ -89,39 +89,106 @@ const ServiceYearsOfExperience = () => {
     setYearsOfExperience(yearsOfExperience + 1);
   };
 
-  const handleNext = async () => {
-    const draftId = state.draftId || location.state?.draftId;
-
-    // Update context
-    if (actions.setCurrentStep) {
-      actions.setCurrentStep("service-qualifications");
+  const saveServiceData = async () => {
+    let draftId = state.draftId || location.state?.draftId;
+    
+    // If no draftId exists, create a new draft first
+    if (!draftId) {
+      try {
+        const { auth } = await import("@/lib/firebase");
+        const currentUser = auth.currentUser;
+        if (!currentUser) {
+          console.warn("⚠️ ServiceYearsOfExperience: User not authenticated, cannot create draft");
+          return null;
+        }
+        
+        const { saveDraft } = await import("@/pages/Host/services/draftService");
+        const newDraftData = {
+          currentStep: "service-years-of-experience",
+          category: "service",
+          data: {
+            serviceCategory: mainCategory,
+            serviceCity: location.state?.serviceCity,
+            serviceYearsOfExperience: yearsOfExperience,
+          }
+        };
+        draftId = await saveDraft(newDraftData, null);
+        console.log("✅ ServiceYearsOfExperience: Created new draft:", draftId);
+        
+        // Update state with new draftId
+        if (actions?.setDraftId) {
+          actions.setDraftId(draftId);
+        }
+      } catch (error) {
+        console.error("❌ ServiceYearsOfExperience: Error creating draft:", error);
+        throw error;
+      }
     }
-
-    // Update Firebase draft
+    
     if (draftId) {
       try {
         const draftRef = doc(db, "onboardingDrafts", draftId);
         await updateDoc(draftRef, {
-          currentStep: "service-qualifications",
+          currentStep: "service-years-of-experience", // Save CURRENT step, not next step
           "data.serviceYearsOfExperience": yearsOfExperience,
           lastModified: new Date(),
         });
-        console.log("✅ Updated service years of experience in draft");
+        console.log("✅ ServiceYearsOfExperience: Draft saved successfully");
       } catch (error) {
-        console.error("Error updating draft:", error);
+        console.error("❌ ServiceYearsOfExperience: Error saving data:", error);
+        throw error;
       }
     }
+    
+    return draftId;
+  };
 
-    // Navigate to qualifications page
-    navigate("/pages/service-qualifications", {
-      state: {
-        draftId,
-        category: "service",
-        serviceCategory: mainCategory,
-        serviceCity: location.state?.serviceCity,
-        serviceYearsOfExperience: yearsOfExperience,
-      },
-    });
+  const handleSaveAndExit = async () => {
+    try {
+      const { auth } = await import("@/lib/firebase");
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        alert("Please log in to save your progress.");
+        navigate("/login");
+        return;
+      }
+
+      await saveServiceData();
+      navigate("/host/listings", {
+        state: {
+          scrollToDrafts: true,
+          message: "Draft saved successfully!",
+        },
+      });
+    } catch (error) {
+      console.error("❌ Error saving draft:", error);
+      alert("Failed to save. Please try again.");
+    }
+  };
+
+  const handleNext = async () => {
+    try {
+      const draftId = await saveServiceData();
+
+      // Update context
+      if (actions.setCurrentStep) {
+        actions.setCurrentStep("service-qualifications");
+      }
+
+      // Navigate to qualifications page
+      navigate("/pages/service-qualifications", {
+        state: {
+          draftId,
+          category: "service",
+          serviceCategory: mainCategory,
+          serviceCity: location.state?.serviceCity,
+          serviceYearsOfExperience: yearsOfExperience,
+        },
+      });
+    } catch (error) {
+      console.error("❌ Error in handleNext:", error);
+      alert("Failed to save progress. Please try again.");
+    }
   };
 
   const handleBack = () => {
@@ -148,7 +215,11 @@ const ServiceYearsOfExperience = () => {
 
   return (
     <div className="h-screen bg-white flex flex-col overflow-hidden">
-      <OnboardingHeader showProgress={true} currentStepNameOverride="service-years-of-experience" />
+      <OnboardingHeader 
+        showProgress={true} 
+        currentStepNameOverride="service-years-of-experience"
+        customSaveAndExit={handleSaveAndExit}
+      />
 
       <main className="flex-1 flex items-center justify-center overflow-y-auto py-20 pt-32 pb-24">
         <div className="w-full max-w-4xl px-6">

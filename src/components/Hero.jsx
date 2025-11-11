@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Search, MapPin, Calendar, Users } from "lucide-react";
+import { Search, MapPin, Calendar, Users, ChevronDown } from "lucide-react";
 import heroVideo from "@/assets/hero-background.mp4";
-import { ChevronDown } from "lucide-react";
+import { db } from "@/lib/firebase";
+import { collection, query, where, getDocs, orderBy, limit } from "firebase/firestore";
 
 const Hero = ({ darkMode }) => {
     const navigate = useNavigate();
@@ -24,30 +25,8 @@ const Hero = ({ darkMode }) => {
     });
 
     const [showSuggestions, setShowSuggestions] = useState(false);
-
-    // Popular destinations list
-    const destinations = [
-        "Manila, Philippines",
-        "Cebu, Philippines",
-        "Boracay, Philippines",
-        "Palawan, Philippines",
-        "Davao, Philippines",
-        "Baguio, Philippines",
-        "Tagaytay, Philippines",
-        "Siargao, Philippines",
-        "Bohol, Philippines",
-        "Batanes, Philippines",
-        "Tokyo, Japan",
-        "Bangkok, Thailand",
-        "Singapore",
-        "Bali, Indonesia",
-        "Seoul, South Korea",
-        "Hong Kong",
-        "Dubai, UAE",
-        "Paris, France",
-        "New York, USA",
-        "London, UK"
-    ];
+    const [availableDestinations, setAvailableDestinations] = useState([]);
+    const [loadingDestinations, setLoadingDestinations] = useState(false);
 
     // ✅ Dynamically generate the next 18 months
     const generateMonths = (count = 18) => {
@@ -68,6 +47,85 @@ const Hero = ({ darkMode }) => {
     const months = generateMonths(18);
 
     const flexibleOptions = ["Weekend", "Week", "Month"];
+
+    // Load available destinations from Firestore based on selected category
+    useEffect(() => {
+        const loadDestinations = async () => {
+            try {
+                setLoadingDestinations(true);
+                const listingsRef = collection(db, 'listings');
+                
+                // Query listings for the selected category
+                let querySnapshot;
+                try {
+                    const q = query(
+                        listingsRef,
+                        where('category', '==', searchData.category),
+                        where('status', '==', 'active'),
+                        orderBy('publishedAt', 'desc'),
+                        limit(50) // Get more listings to extract unique locations
+                    );
+                    querySnapshot = await getDocs(q);
+                } catch (indexError) {
+                    console.warn('⚠️ Index error, trying without orderBy:', indexError.message);
+                    try {
+                        const q = query(
+                            listingsRef,
+                            where('category', '==', searchData.category),
+                            where('status', '==', 'active'),
+                            limit(50)
+                        );
+                        querySnapshot = await getDocs(q);
+                    } catch (error2) {
+                        console.warn('⚠️ Index error for status, querying by category only:', error2.message);
+                        const q = query(
+                            listingsRef,
+                            where('category', '==', searchData.category),
+                            limit(50)
+                        );
+                        querySnapshot = await getDocs(q);
+                    }
+                }
+
+                const locations = new Set();
+                querySnapshot.forEach((doc) => {
+                    const data = doc.data();
+                    if (data.status !== 'active') return;
+                    
+                    const locationData = data.locationData || {};
+                    
+                    // Format location as "city, province" or "city, country" or just "city"
+                    let formattedLocation = '';
+                    
+                    if (locationData.city && locationData.province) {
+                        formattedLocation = `${locationData.city}, ${locationData.province}`;
+                    } else if (locationData.city && locationData.country) {
+                        formattedLocation = `${locationData.city}, ${locationData.country}`;
+                    } else if (locationData.city) {
+                        formattedLocation = locationData.city;
+                    } else if (locationData.province) {
+                        formattedLocation = locationData.province;
+                    } else if (data.location) {
+                        formattedLocation = data.location;
+                    }
+                    
+                    if (formattedLocation) {
+                        locations.add(formattedLocation);
+                    }
+                });
+
+                // Convert Set to Array and limit to top 20 unique locations
+                setAvailableDestinations(Array.from(locations).slice(0, 20));
+            } catch (error) {
+                console.error('Error loading destinations:', error);
+                setAvailableDestinations([]);
+            } finally {
+                setLoadingDestinations(false);
+            }
+        };
+
+        loadDestinations();
+    }, [searchData.category]);
 
     const handleSearch = () => {
         // Build search params
@@ -212,15 +270,14 @@ const Hero = ({ darkMode }) => {
                             />
 
                             {/* Suggestions Dropdown */}
-                            {showSuggestions && destinations.length > 0 && (
+                            {showSuggestions && (
                                 <ul className={`absolute left-0 right-0 mt-2 border rounded-xl shadow-lg z-20 max-h-60 overflow-y-auto ${
                                     darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
                                 }`}>
-                                    <li className="px-4 py-2 text-sm font-semibold text-gray-600 uppercase tracking-wider bg-gray-50 border-b border-gray-200">
-                                        Suggested Destinations
-                                    </li>
-
-                                    {destinations
+                                    {loadingDestinations ? (
+                                        <li className="px-4 py-2 text-sm text-gray-500">Loading destinations...</li>
+                                    ) : availableDestinations.length > 0 ? (
+                                        availableDestinations
                                         .filter((d) =>
                                             d.toLowerCase().includes(searchData.location.toLowerCase())
                                         )
@@ -231,15 +288,26 @@ const Hero = ({ darkMode }) => {
                                                     setSearchData({ ...searchData, location: d });
                                                     setShowSuggestions(false);
                                                 }}
-                                                className="px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors"
+                                                    className={`px-4 py-2 cursor-pointer transition-colors ${
+                                                        darkMode 
+                                                            ? 'hover:bg-gray-700 text-gray-200' 
+                                                            : 'hover:bg-gray-100 text-gray-900'
+                                                    }`}
                                             >
                                                 {d}
                                             </li>
-                                        ))}
-                                    {destinations.filter((d) =>
+                                            ))
+                                    ) : (
+                                        <li className={`px-4 py-2 text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                            {searchData.location ? 'No matching locations found' : 'No destinations available'}
+                                        </li>
+                                    )}
+                                    {availableDestinations.filter((d) =>
                                         d.toLowerCase().includes(searchData.location.toLowerCase())
-                                    ).length === 0 && (
-                                            <li className="px-4 py-2 text-gray-500">No matches found</li>
+                                    ).length === 0 && searchData.location && !loadingDestinations && (
+                                        <li className={`px-4 py-2 text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                            No matches found
+                                        </li>
                                         )}
                                 </ul>
                             )}

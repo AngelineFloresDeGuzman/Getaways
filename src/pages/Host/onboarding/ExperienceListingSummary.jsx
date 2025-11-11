@@ -170,9 +170,9 @@ const ExperienceListingSummary = () => {
   const handleGetStarted = async () => {
     const draftId = state.draftId || location.state?.draftId;
 
-    // Update context
+    // Update context - set to years of experience step (first step in Step 2)
     if (actions.setCurrentStep) {
-      actions.setCurrentStep("experience-details");
+      actions.setCurrentStep("experience-years-of-experience");
     }
 
     // Update Firebase draft
@@ -180,17 +180,17 @@ const ExperienceListingSummary = () => {
       try {
         const draftRef = doc(db, "onboardingDrafts", draftId);
         await updateDoc(draftRef, {
-          currentStep: "experience-details",
+          currentStep: "experience-years-of-experience",
           lastModified: new Date(),
         });
-        console.log("✅ Updated experience listing summary in draft");
+        console.log("✅ Updated experience listing summary in draft, moving to years of experience");
       } catch (error) {
         console.error("Error updating draft:", error);
       }
     }
 
-    // Navigate to experience details page (with sidebar layout)
-    navigate("/pages/experience-details", {
+    // Navigate to experience years of experience (first step in Step 2)
+    navigate("/pages/experience-years-of-experience", {
       state: {
         draftId,
         category: "experience",
@@ -212,6 +212,90 @@ const ExperienceListingSummary = () => {
     });
   };
 
+  const handleSaveAndExit = async () => {
+    console.log("🚀 ExperienceListingSummary handleSaveAndExit called");
+    try {
+      const { auth } = await import("@/lib/firebase");
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        alert("Please log in to save your progress.");
+        navigate("/login");
+        return;
+      }
+
+      let draftId = state.draftId || location.state?.draftId;
+
+      // Create draft if it doesn't exist
+      if (!draftId) {
+        try {
+          const { saveDraft } = await import("@/pages/Host/services/draftService");
+          const draftData = {
+            experienceCategory: mainCategory,
+            experienceCity: city,
+          };
+          
+          if (subcategory) {
+            draftData.experienceSubcategory = subcategory;
+          }
+          
+          const newDraftData = {
+            currentStep: "experience-listing-summary",
+            category: "experience",
+            data: draftData
+          };
+          draftId = await saveDraft(newDraftData, null);
+          console.log("✅ ExperienceListingSummary: Created new draft:", draftId);
+          
+          // Update state with new draftId
+          if (actions?.setDraftId) {
+            actions.setDraftId(draftId);
+          }
+        } catch (error) {
+          console.error("❌ ExperienceListingSummary: Error creating draft:", error);
+          alert("Failed to create draft. Please try again.");
+          return;
+        }
+      }
+
+      // Save current step and data
+      if (draftId) {
+        try {
+          const draftRef = doc(db, "onboardingDrafts", draftId);
+          const updateData = {
+            currentStep: "experience-listing-summary",
+            "data.experienceCategory": mainCategory,
+            "data.experienceCity": city,
+            lastModified: new Date(),
+          };
+          
+          if (subcategory) {
+            updateData["data.experienceSubcategory"] = subcategory;
+          }
+          
+          await updateDoc(draftRef, updateData);
+          console.log("✅ ExperienceListingSummary: Draft saved successfully");
+        } catch (error) {
+          console.error("❌ Error saving draft:", error);
+          alert("Failed to save draft. Please try again.");
+          return;
+        }
+      }
+
+      // Navigate to listings page
+      navigate("/host/listings", {
+        state: {
+          scrollToDrafts: true,
+          draftId: draftId,
+          message: "Draft saved successfully!",
+        },
+      });
+      console.log("✅ Navigation to listings page initiated");
+    } catch (error) {
+      console.error("❌ Error in handleSaveAndExit:", error);
+      alert("Failed to save. Please try again.");
+    }
+  };
+
   const categoryIcon = mainCategory ? categoryIcons[mainCategory] : null;
   const categoryDisplayName = mainCategory ? categoryDisplayNames[mainCategory] : null;
 
@@ -228,7 +312,11 @@ const ExperienceListingSummary = () => {
 
   return (
     <div className="h-screen bg-white flex flex-col overflow-hidden">
-      <OnboardingHeader showProgress={true} currentStepNameOverride="experience-listing-summary" />
+      <OnboardingHeader 
+        showProgress={true} 
+        currentStepNameOverride="experience-listing-summary"
+        customSaveAndExit={handleSaveAndExit}
+      />
 
       <main className="flex-1 flex items-center justify-center overflow-y-auto py-20 pt-32 pb-24">
         <div className="w-full max-w-6xl px-6">

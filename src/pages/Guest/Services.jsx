@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from "react";
-import { services } from './sharedData';
 import { useNavigate, useSearchParams } from "react-router-dom";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
+import Loading from "@/components/Loading";
 import SearchBar from "@/components/SearchBar";
+import Recommendations from "@/components/Recommendations";
 import { Sparkles, Clock, MapPin, Star, Heart, Share2, X } from "lucide-react";
-import { auth } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
+import { collection, query, where, getDocs, orderBy } from "firebase/firestore";
 import LogIn from "@/pages/Auth/LogIn";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faXTwitter, faFacebookF, faInstagram, faFacebookMessenger } from "@fortawesome/free-brands-svg-icons";
@@ -23,6 +25,10 @@ const Services = () => {
   const [copied, setCopied] = useState(false);
   const shareUrl = `${window.location.origin}/services/${activeShare}`;
   const [favoriteItems, setFavoriteItems] = useState([]);
+  const [services, setServices] = useState([]);
+  const [filteredServices, setFilteredServices] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [sortBy, setSortBy] = useState('recommended');
   const [filters, setFilters] = useState({
     location: searchParams.get('location') || '',
     when: searchParams.get('when') || '',
@@ -36,6 +42,117 @@ const Services = () => {
     return () => unsubscribe();
   }, []);
 
+  // Load services from Firestore
+  useEffect(() => {
+    const loadServices = async () => {
+      try {
+        setLoading(true);
+        console.log('📦 Services: Loading published listings...');
+        
+        // Query listings collection for active services
+        const listingsRef = collection(db, 'listings');
+        
+        // Try with orderBy first, fallback without if index missing
+        let querySnapshot;
+        try {
+          const q = query(
+            listingsRef,
+            where('category', '==', 'service'),
+            where('status', '==', 'active'),
+            orderBy('publishedAt', 'desc')
+          );
+          querySnapshot = await getDocs(q);
+        } catch (indexError) {
+          console.warn('⚠️ Index error (expected on first use), trying without orderBy:', indexError.message);
+          try {
+            // Fallback: query without orderBy
+            const q = query(
+              listingsRef,
+              where('category', '==', 'service'),
+              where('status', '==', 'active')
+            );
+            querySnapshot = await getDocs(q);
+          } catch (indexError2) {
+            console.warn('⚠️ Index error for status filter, querying by category only:', indexError2.message);
+            // Final fallback: query by category only, filter status in JavaScript
+            const q = query(
+              listingsRef,
+              where('category', '==', 'service')
+            );
+            querySnapshot = await getDocs(q);
+          }
+        }
+        
+        // Map all services with Firestore data
+        const allServicesData = querySnapshot.docs.map(doc => {
+          const data = doc.data();
+          const locationData = data.locationData || {};
+          const photosData = data.photos || [];
+          
+          // Format location display
+          const location = data.location || 
+            (locationData.city && locationData.province 
+              ? `${locationData.city}, ${locationData.province}`
+              : locationData.city || locationData.country || 'No location');
+          
+          // Get main price
+          const price = data.price || 0;
+          
+          // Get image
+          const image = (() => {
+            const firstPhoto = photosData[0];
+            if (firstPhoto?.base64) return firstPhoto.base64;
+            if (firstPhoto?.url) return firstPhoto.url;
+            if (data.image) return data.image;
+            return "fallback.jpg";
+          })();
+          
+          return {
+            id: doc.id,
+            title: data.title || 'Untitled Service',
+            description: data.description || '',
+            location: location,
+            locationData: locationData,
+            price: price,
+            rating: data.rating || 0,
+            reviews: data.reviews || 0,
+            image: image,
+            category: data.serviceCategory || data.category || 'Service',
+            provider: data.ownerName || data.ownerEmail?.split('@')[0] || 'Provider',
+            duration: data.duration || data.serviceDuration || '1 hour',
+            status: data.status,
+            publishedAt: data.publishedAt,
+            createdAt: data.createdAt
+          };
+        });
+        
+        // Filter by status if we had to query without status filter
+        const servicesData = allServicesData.filter(svc => svc.status === 'active');
+        
+        // Sort manually if orderBy failed
+        if (servicesData.length > 0) {
+          servicesData.sort((a, b) => {
+            const aDate = a.publishedAt?.toDate ? a.publishedAt.toDate() : new Date(0);
+            const bDate = b.publishedAt?.toDate ? b.publishedAt.toDate() : new Date(0);
+            return bDate - aDate; // Descending
+          });
+        }
+        
+        console.log('✅ Services: Loaded', servicesData.length, 'listings');
+        setServices(servicesData);
+        setFilteredServices(servicesData);
+      } catch (error) {
+        console.error('❌ Error loading services:', error);
+        setServices([]);
+        setFilteredServices([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadServices();
+  }, []);
+
 
   // Update filters when URL params change
   useEffect(() => {
@@ -46,41 +163,82 @@ const Services = () => {
     });
   }, [searchParams]);
 
-  const categories = [
-    "All Services",
-    "Wellness & Spa",
-    "Dining & Culinary",
-    "Fitness & Health",
-    "Photography",
-    "Beauty & Grooming",
-    "Transportation",
-    "Concierge",
-  ];
-
+  // Extract unique categories from loaded services
+  const categories = ["All Services", ...new Set(services.map(svc => svc.category).filter(Boolean))];
   const [selectedCategory, setSelectedCategory] = useState("All Services");
 
-  const filteredServices = services.filter(service => {
+  // Update filtered services when filters or category changes
+  useEffect(() => {
+    let filtered = [...services];
+    
     // Filter by category (from selectedCategory button)
-    if (selectedCategory !== "All Services" && service.category !== selectedCategory) {
-      return false;
+    if (selectedCategory !== "All Services") {
+      filtered = filtered.filter(service => service.category === selectedCategory);
     }
     
     // Filter by serviceType (from search bar)
-    if (filters.serviceType && service.category !== filters.serviceType) {
-      return false;
+    if (filters.serviceType) {
+      filtered = filtered.filter(service => service.category === filters.serviceType);
     }
     
-    // Filter by location
+    // Filter by location - improved matching
     if (filters.location) {
-      const locationLower = filters.location.toLowerCase();
-      const serviceLocation = (service.location || '').toLowerCase();
-      if (!serviceLocation.includes(locationLower)) {
-        return false;
-      }
+      const locationLower = filters.location.toLowerCase().trim();
+      // Split search term to check individual parts
+      const searchParts = locationLower.split(',').map(part => part.trim()).filter(Boolean);
+      
+      filtered = filtered.filter(service => {
+        const serviceLocation = (service.location || '').toLowerCase();
+        const city = (service.locationData?.city || '').toLowerCase();
+        const province = (service.locationData?.province || '').toLowerCase();
+        const country = (service.locationData?.country || '').toLowerCase();
+        
+        // Create a combined location string for matching
+        const combinedLocation = [
+          city,
+          province,
+          country,
+          serviceLocation
+        ].filter(Boolean).join(', ').toLowerCase();
+        
+        // Check if search term matches the combined location
+        if (combinedLocation.includes(locationLower)) {
+          return true;
+        }
+        
+        // Also check if any part of the search matches any part of the location
+        const locationParts = combinedLocation.split(',').map(part => part.trim());
+        return searchParts.some(searchPart => 
+          locationParts.some(locPart => locPart.includes(searchPart) || searchPart.includes(locPart))
+        );
+      });
     }
     
-    return true;
-  });
+    // Apply sorting
+    let sorted = [...filtered];
+    switch (sortBy) {
+      case 'price-low':
+        sorted.sort((a, b) => (a.price || 0) - (b.price || 0));
+        break;
+      case 'price-high':
+        sorted.sort((a, b) => (b.price || 0) - (a.price || 0));
+        break;
+      case 'rating-high':
+        sorted.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+        break;
+      case 'recommended':
+      default:
+        // Sort by published date (newest first) as recommended
+        sorted.sort((a, b) => {
+          const aDate = a.publishedAt?.toDate ? a.publishedAt.toDate() : new Date(0);
+          const bDate = b.publishedAt?.toDate ? b.publishedAt.toDate() : new Date(0);
+          return bDate - aDate;
+        });
+        break;
+    }
+    
+    setFilteredServices(sorted);
+  }, [services, selectedCategory, filters, sortBy]);
 
   const handleFavoriteClick = (e) => {
     e.stopPropagation();
@@ -145,13 +303,13 @@ const Services = () => {
       )}
 
       <section className="pt-36 pb-12 px-6 bg-gradient-to-br from-secondary/20 to-accent/20">
-        <div className="max-w-7xl mx-auto">
+        <div className="max-w-7xl mx-auto text-center">
           <div className="mb-4 animate-fade-in">
             <h1 className="font-heading text-4xl md:text-6xl font-bold text-foreground">
-              Premium Services
+              Premium <span className="text-primary">Services</span>
             </h1>
           </div>
-          <p className="font-body text-xl text-muted-foreground max-w-2xl animate-fade-in">
+          <p className="font-body text-xl text-muted-foreground max-w-2xl mx-auto animate-fade-in">
             Enhance your stay with personalized services from local professionals
           </p>
         </div>
@@ -167,16 +325,24 @@ const Services = () => {
 
       <section className="py-12 px-6">
         <div className="max-w-7xl mx-auto">
-          <div className="flex items-center justify-between mb-8">
-            <p className="font-body text-muted-foreground">
-              {filteredServices.length} services available
-              {filters.location && ` in ${filters.location}`}
-            </p>
-            <select className="p-2 border border-border rounded-lg bg-background text-foreground">
-              <option>Sort by: Recommended</option>
-              <option>Price: Low to High</option>
-              <option>Price: High to Low</option>
-              <option>Rating: High to Low</option>
+          {loading ? (
+            <Loading message="Loading services..." />
+          ) : (
+            <>
+              <div className="flex items-center justify-between mb-8">
+                <p className="font-body text-muted-foreground">
+                  {filteredServices.length} services available
+                  {filters.location && ` in ${filters.location}`}
+                </p>
+            <select 
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="p-2 border border-border rounded-lg bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <option value="recommended">Sort by: Recommended</option>
+              <option value="price-low">Price: Low to High</option>
+              <option value="price-high">Price: High to Low</option>
+              <option value="rating-high">Rating: High to Low</option>
             </select>
           </div>
 
@@ -246,7 +412,7 @@ const Services = () => {
                   <div className="flex items-center justify-between mt-4">
                     <div>
                       <span className="font-heading text-2xl font-bold text-foreground">
-                        ${service.price}
+                        ₱{service.price.toLocaleString()}
                       </span>
                       <span className="font-body text-muted-foreground"> / session</span>
                     </div>
@@ -257,9 +423,21 @@ const Services = () => {
             ))}
           </div>
 
-          <div className="text-center mt-12">
-            <button className="btn-outline px-8 py-3">Load More Services</button>
-          </div>
+              {filteredServices.length === 0 && !loading && (
+                <div className="text-center py-12">
+                  <Sparkles className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+                  <h3 className="text-xl font-semibold text-foreground mb-2">No services found</h3>
+                  <p className="text-muted-foreground">Try adjusting your filters or check back later.</p>
+                </div>
+              )}
+
+              {filteredServices.length > 0 && (
+                <div className="text-center mt-12">
+                  <button className="btn-outline px-8 py-3">Load More Services</button>
+                </div>
+              )}
+            </>
+          )}
         </div>
       </section>
 
@@ -383,6 +561,14 @@ const Services = () => {
           </div>
         </div>
       )}
+
+      {/* Recommendations Section */}
+      <Recommendations 
+        title="Recommended Services for You" 
+        showTitle={true} 
+        limit={12}
+        category="service"
+      />
 
       <Footer />
     </div>

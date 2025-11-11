@@ -13,6 +13,7 @@ import { format } from "date-fns";
 import LogIn from "@/pages/Auth/LogIn";
 import ReviewModal from "@/components/ReviewModal";
 import { toast } from "@/components/ui/sonner";
+import Recommendations from "@/components/Recommendations";
 
 const Bookings = () => {
   const [user, setUser] = useState(null);
@@ -554,6 +555,15 @@ const Bookings = () => {
               Browse Accommodations
             </button>
           </div>
+        )}
+
+        {/* Recommendations Section - Show if user has completed bookings */}
+        {user && bookings.filter(b => b.status === 'completed' || b.status === 'confirmed').length > 0 && (
+          <Recommendations 
+            title="Recommended Based on Your Bookings" 
+            showTitle={true} 
+            limit={8} 
+          />
         )}
       </main>
 

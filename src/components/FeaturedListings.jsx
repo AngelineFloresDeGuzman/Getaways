@@ -276,26 +276,6 @@ const FeaturedListings = () => {
                         </div>
                     )}
                 </div>
-
-                <div className="text-center mt-16 animate-fade-in">
-                    <p className="font-body text-muted-foreground mb-6">
-                        Discover thousands more listings around the world
-                    </p>
-                    <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                        <button 
-                            onClick={() => navigate('/accommodations')}
-                            className="btn-primary"
-                        >
-                            Explore All Accommodations
-                        </button>
-                        <button 
-                            onClick={() => navigate('/services')}
-                            className="btn-secondary"
-                        >
-                            Browse Services & Experiences
-                        </button>
-                    </div>
-                </div>
             </div>
         </section>
     );

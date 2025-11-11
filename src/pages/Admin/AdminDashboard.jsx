@@ -39,6 +39,7 @@ import {
   updateAdminPayPalEmail,
   getAdminPayPalEmail
 } from './services/platformSettingsService';
+import PolicyManagement from './components/PolicyManagement';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -82,6 +83,7 @@ const AdminDashboard = () => {
   const [payPalEmailInput, setPayPalEmailInput] = useState('');
   const [payPalAccountNameInput, setPayPalAccountNameInput] = useState('');
   const [isSavingPayPal, setIsSavingPayPal] = useState(false);
+  const [generatingReport, setGeneratingReport] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -512,9 +514,21 @@ const AdminDashboard = () => {
     }
   };
 
-  const generateReport = (type) => {
-    toast.info(`Generating ${type} report...`);
-    // In a real implementation, this would generate and download a report
+  const generateReport = async (type) => {
+    if (generatingReport) return; // Prevent multiple simultaneous reports
+    
+    try {
+      setGeneratingReport(true);
+      toast.info(`Generating ${type} report... This may take a moment.`);
+      const { generateReport: generateReportService } = await import('./services/reportService');
+      await generateReportService(type);
+      toast.success(`${type} report generated and downloaded successfully!`);
+    } catch (error) {
+      console.error('Error generating report:', error);
+      toast.error(`Failed to generate ${type} report: ${error.message}`);
+    } finally {
+      setGeneratingReport(false);
+    }
   };
 
   const formatCurrency = (amount) => {
@@ -1262,77 +1276,8 @@ const AdminDashboard = () => {
 
           {/* Policy & Compliance Tab */}
           {activeTab === 'compliance' && (
-            <div className="space-y-6">
-              <div className="card-listing p-6">
-                <div className="flex items-center gap-2 mb-4">
-                  <Shield className="w-5 h-5 text-primary" />
-                  <h2 className="font-heading text-2xl font-bold text-foreground">Cancellation Rules</h2>
-                </div>
-                <div className="space-y-4">
-                  <div className="p-4 border border-border rounded-lg">
-                    <h3 className="font-semibold mb-2">Standard Cancellation Policy</h3>
-                    <p className="text-sm text-muted-foreground mb-2">
-                      Guests can cancel free of charge up to 48 hours before check-in. 
-                      Cancellations within 48 hours are subject to a 50% fee.
-                    </p>
-                    <button className="btn-outline text-sm">Edit Policy</button>
-                  </div>
-                  <div className="p-4 border border-border rounded-lg">
-                    <h3 className="font-semibold mb-2">Host Cancellation Policy</h3>
-                    <p className="text-sm text-muted-foreground mb-2">
-                      Hosts who cancel confirmed bookings may face penalties including 
-                      listing suspension and refund obligations.
-                    </p>
-                    <button className="btn-outline text-sm">Edit Policy</button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="card-listing p-6">
-                <div className="flex items-center gap-2 mb-4">
-                  <BookOpen className="w-5 h-5 text-primary" />
-                  <h2 className="font-heading text-2xl font-bold text-foreground">Rules & Regulations</h2>
-                </div>
-                <div className="space-y-4">
-                  <div className="p-4 border border-border rounded-lg">
-                    <h3 className="font-semibold mb-2">Host Requirements</h3>
-                    <ul className="text-sm text-muted-foreground list-disc list-inside space-y-1">
-                      <li>Valid identification and verification</li>
-                      <li>Active subscription payment</li>
-                      <li>Compliance with local regulations</li>
-                      <li>Maintain listing accuracy</li>
-                    </ul>
-                    <button className="btn-outline text-sm mt-3">Edit Rules</button>
-                  </div>
-                  <div className="p-4 border border-border rounded-lg">
-                    <h3 className="font-semibold mb-2">Guest Requirements</h3>
-                    <ul className="text-sm text-muted-foreground list-disc list-inside space-y-1">
-                      <li>Verified email address</li>
-                      <li>Valid payment method</li>
-                      <li>Respect property rules</li>
-                      <li>Timely check-in/check-out</li>
-                    </ul>
-                    <button className="btn-outline text-sm mt-3">Edit Rules</button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="card-listing p-6">
-                <div className="flex items-center gap-2 mb-4">
-                  <FileCheck className="w-5 h-5 text-primary" />
-                  <h2 className="font-heading text-2xl font-bold text-foreground">Compliance Reports</h2>
-                </div>
-                <div className="space-y-3">
-                  <button onClick={() => generateReport('compliance')} className="w-full btn-outline flex items-center justify-between p-4">
-                    <span>Generate Compliance Report</span>
-                    <Download className="w-4 h-4" />
-                  </button>
-                  <button onClick={() => generateReport('violations')} className="w-full btn-outline flex items-center justify-between p-4">
-                    <span>Policy Violations Report</span>
-                    <AlertCircle className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
+            <div className="max-w-7xl mx-auto px-6">
+              <PolicyManagement />
             </div>
           )}
 
@@ -1492,8 +1437,14 @@ const AdminDashboard = () => {
                   <button
                     key={report.id}
                     onClick={() => generateReport(report.id)}
-                    className="p-6 border border-border rounded-lg hover:bg-muted/30 text-left transition-colors"
+                    disabled={generatingReport}
+                    className="p-6 border border-border rounded-lg hover:bg-muted/30 text-left transition-colors disabled:opacity-50 disabled:cursor-not-allowed relative"
                   >
+                    {generatingReport && (
+                      <div className="absolute top-2 right-2">
+                        <div className="animate-spin rounded-full h-5 w-5 border-2 border-primary border-t-transparent"></div>
+                      </div>
+                    )}
                     <report.icon className="w-8 h-8 text-primary mb-3" />
                     <h3 className="font-semibold mb-1">{report.label}</h3>
                     <p className="text-sm text-muted-foreground">{report.description}</p>

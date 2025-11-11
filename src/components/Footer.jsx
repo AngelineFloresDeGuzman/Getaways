@@ -1,94 +1,182 @@
 import React from "react";
-
+import { Link } from "react-router-dom";
 import { Mail, Phone, MapPin, Facebook, Twitter, Instagram, Youtube } from 'lucide-react';
+
 const Footer = () => {
     const footerSections = [
         {
             title: 'Explore',
             links: [
-                { label: 'Accommodations', href: '#accommodations' },
-                { label: 'Services', href: '#services' },
-                { label: 'Experiences', href: '#experiences' },
-                { label: 'Featured Listings', href: '#featured' },
-                { label: 'Popular Destinations', href: '#destinations' }
+                { label: 'Accommodations', to: '/accommodations', external: false },
+                { label: 'Services', to: '/services', external: false },
+                { label: 'Experiences', to: '/experiences', external: false },
+                { label: 'Bookings', to: '/bookings', external: false },
+                { label: 'Favorites', to: '/favorites', external: false }
             ]
         },
         {
             title: 'Hosting',
             links: [
-                { label: 'Become a Host', href: '#host' },
-                { label: 'Host Resources', href: '#resources' },
-                { label: 'Host Dashboard', href: '#dashboard' },
-                { label: 'Pricing Tools', href: '#pricing' },
-                { label: 'Host Community', href: '#community' }
+                { label: 'Become a Host', to: '/pages/hostingsteps', external: false },
+                { label: 'Host Resources', to: '/host/resources', external: false },
+                { label: 'Host Dashboard', to: '/host/hostdashboard', external: false },
+                { label: 'Host Policies', to: '/host/policies', external: false },
+                { label: 'Find a Co-host', to: '/find-cohost', external: false }
             ]
         },
         {
             title: 'Support',
             links: [
-                { label: 'Help Center', href: '#help' },
-                { label: 'Safety Information', href: '#safety' },
-                { label: 'Cancellation Policy', href: '#cancellation' },
-                { label: 'Contact Us', href: '#contact' },
-                { label: 'Trust & Safety', href: '#trust' }
+                { label: 'Help Center', to: '/help', external: false },
+                { label: 'Policies & Guidelines', to: '/guest/policies', external: false },
+                { label: 'Contact Support', to: '/help', external: false }
             ]
         },
         {
             title: 'Company',
             links: [
-                { label: 'About Getaways', href: '#about' },
-                { label: 'Careers', href: '#careers' },
-                { label: 'Press', href: '#press' },
-                { label: 'Privacy Policy', href: '#privacy' },
-                { label: 'Terms of Service', href: '#terms' }
+                { label: 'Account Settings', to: '/accountsettings', external: false },
+                { label: 'GetPay', to: '/ewallet', external: false },
+                { label: 'Refer & Earn', to: '/refer', external: false }
             ]
         }
     ];
+
     const socialLinks = [
-        { icon: Facebook, href: '#facebook', label: 'Facebook' },
-        { icon: Twitter, href: '#twitter', label: 'Twitter' },
-        { icon: Instagram, href: '#instagram', label: 'Instagram' },
-        { icon: Youtube, href: '#youtube', label: 'YouTube' }
+        { icon: Facebook, href: 'https://facebook.com/getaways', label: 'Facebook', external: true },
+        { icon: Twitter, href: 'https://twitter.com/getaways', label: 'Twitter', external: true },
+        { icon: Instagram, href: 'https://instagram.com/getaways', label: 'Instagram', external: true },
+        { icon: Youtube, href: 'https://youtube.com/getaways', label: 'YouTube', external: true }
     ];
-    return (React.createElement("footer", { className: "pt-36 pb-8" },
-        React.createElement("div", { className: "max-w-7xl mx-auto px-6" },
-            React.createElement("div", { className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-8 mb-12" },
-                React.createElement("div", { className: "lg:col-span-2" },
-                    React.createElement("img", { src: "/logo.jpg", alt: "Getaways Logo", className: "w-8 h-8" }),
-                    React.createElement("h2", { className: "font-heading text-3xl font-bold text-primary mb-4" }, "Getaways"),
-                    React.createElement("p", { className: "font-body text-muted-foreground mb-6 leading-relaxed" }, "Your trusted platform for discovering unique accommodations, exceptional services, and unforgettable experiences around the world."),
-                    React.createElement("div", { className: "space-y-3 mb-6" },
-                        React.createElement("div", { className: "flex items-center gap-3 text-muted-foreground" },
-                            React.createElement(Mail, { className: "w-4 h-4 text-primary" }),
-                            React.createElement("span", { className: "font-body text-sm" }, "hello@getaways.com")),
-                        React.createElement("div", { className: "flex items-center gap-3 text-muted-foreground" },
-                            React.createElement(Phone, { className: "w-4 h-4 text-primary" }),
-                            React.createElement("span", { className: "font-body text-sm" }, "+63 906-707-1976")),
-                        React.createElement("div", { className: "flex items-center gap-3 text-muted-foreground" },
-                            React.createElement(MapPin, { className: "w-4 h-4 text-primary" }),
-                            React.createElement("span", { className: "font-body text-sm" }, "Bulacan, PH"))),
-                    React.createElement("div", { className: "flex gap-3" }, socialLinks.map((social) => {
+
+    const contactInfo = {
+        email: 'admin@getaways.com',
+        phone: '+63 906-707-1976',
+        location: 'Bulacan, Philippines'
+    };
+
+    return (
+        <footer className="pt-36 pb-8 bg-background">
+            <div className="max-w-7xl mx-auto px-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-8 mb-12">
+                    {/* Brand Section */}
+                    <div className="lg:col-span-2">
+                        <img src="/logo.jpg" alt="Getaways Logo" className="w-8 h-8 mb-4" />
+                        <h2 className="font-heading text-3xl font-bold text-primary mb-4">
+                            Getaways
+                        </h2>
+                        <p className="font-body text-muted-foreground mb-6 leading-relaxed">
+                            Your trusted platform for discovering unique accommodations, exceptional services, and unforgettable experiences around the world.
+                        </p>
+                        
+                        {/* Contact Information */}
+                        <div className="space-y-3 mb-6">
+                            <a 
+                                href={`mailto:${contactInfo.email}`}
+                                className="flex items-center gap-3 text-muted-foreground hover:text-primary transition-colors"
+                            >
+                                <Mail className="w-4 h-4 text-primary" />
+                                <span className="font-body text-sm">{contactInfo.email}</span>
+                            </a>
+                            <a 
+                                href={`tel:${contactInfo.phone.replace(/\s/g, '')}`}
+                                className="flex items-center gap-3 text-muted-foreground hover:text-primary transition-colors"
+                            >
+                                <Phone className="w-4 h-4 text-primary" />
+                                <span className="font-body text-sm">{contactInfo.phone}</span>
+                            </a>
+                            <div className="flex items-center gap-3 text-muted-foreground">
+                                <MapPin className="w-4 h-4 text-primary" />
+                                <span className="font-body text-sm">{contactInfo.location}</span>
+                            </div>
+                        </div>
+                        
+                        {/* Social Links */}
+                        <div className="flex gap-3">
+                            {socialLinks.map((social) => {
                         const IconComponent = social.icon;
-                        return (React.createElement("a", { key: social.label, href: social.href, className: "p-2 rounded-full bg-background hover:bg-primary hover:text-primary-foreground transition-all duration-300", "aria-label": social.label },
-                            React.createElement(IconComponent, { className: "w-5 h-5" })));
-                    }))),
-                footerSections.map((section) => (React.createElement("div", { key: section.title, className: "lg:col-span-1" },
-                    React.createElement("h3", { className: "font-heading text-lg font-semibold text-foreground mb-4" }, section.title),
-                    React.createElement("ul", { className: "space-y-3" }, section.links.map((link) => (React.createElement("li", { key: link.label },
-                        React.createElement("a", { href: link.href, className: "font-body text-muted-foreground hover:text-primary transition-colors" }, link.label))))))))),
-            React.createElement("div", { className: "border-t border-border pt-8 mb-8" },
-                React.createElement("div", { className: "max-w-lg mx-auto text-center" },
-                    React.createElement("h3", { className: "font-heading text-xl font-semibold text-foreground mb-2" }, "Stay Updated"),
-                    React.createElement("p", { className: "font-body text-muted-foreground mb-6" }, "Get the latest deals and travel inspiration delivered to your inbox"),
-                    React.createElement("div", { className: "flex gap-3" },
-                        React.createElement("input", { type: "email", placeholder: "Enter your email", className: "input-field flex-1" }),
-                        React.createElement("button", { className: "btn-primary px-6" }, "Subscribe")))),
-            React.createElement("div", { className: "border-t border-border pt-8" },
-                React.createElement("div", { className: "flex flex-col md:flex-row md:items-center md:justify-between gap-4" },
-                    React.createElement("p", { className: "font-body text-muted-foreground text-center md:text-left" }, "\u00A9 2024 Getaways. All rights reserved."),
-                    React.createElement("div", { className: "flex flex-wrap justify-center md:justify-end gap-6" },
-                        React.createElement("a", { href: "#privacy", className: "font-body text-muted-foreground hover:text-primary transition-colors text-sm" }, "Privacy Policy"),
-                        React.createElement("a", { href: "#terms", className: "font-body text-muted-foreground hover:text-primary transition-colors text-sm" }, "Terms of Service"),
-                        React.createElement("a", { href: "#cookies", className: "font-body text-muted-foreground hover:text-primary transition-colors text-sm" }, "Cookie Policy")))))));
+                                return (
+                                    <a
+                                        key={social.label}
+                                        href={social.href}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="p-2 rounded-full bg-background hover:bg-primary hover:text-primary-foreground transition-all duration-300"
+                                        aria-label={social.label}
+                                    >
+                                        <IconComponent className="w-5 h-5" />
+                                    </a>
+                                );
+                            })}
+                        </div>
+                    </div>
+
+                    {/* Footer Sections */}
+                    {footerSections.map((section) => (
+                        <div key={section.title} className="lg:col-span-1">
+                            <h3 className="font-heading text-lg font-semibold text-foreground mb-4">
+                                {section.title}
+                            </h3>
+                            <ul className="space-y-3">
+                                {section.links.map((link) => (
+                                    <li key={link.label}>
+                                        {link.external ? (
+                                            <a
+                                                href={link.to}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="font-body text-muted-foreground hover:text-primary transition-colors"
+                                            >
+                                                {link.label}
+                                            </a>
+                                        ) : (
+                                            <Link
+                                                to={link.to}
+                                                className="font-body text-muted-foreground hover:text-primary transition-colors"
+                                            >
+                                                {link.label}
+                                            </Link>
+                                        )}
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    ))}
+                </div>
+
+                {/* Newsletter Section */}
+                <div className="border-t border-border pt-8 mb-8">
+                    <div className="max-w-lg mx-auto text-center">
+                        <h3 className="font-heading text-xl font-semibold text-foreground mb-2">
+                            Stay Updated
+                        </h3>
+                        <p className="font-body text-muted-foreground mb-6">
+                            Get the latest deals and travel inspiration delivered to your inbox
+                        </p>
+                        <div className="flex gap-3">
+                            <input
+                                type="email"
+                                placeholder="Enter your email"
+                                className="input-field flex-1"
+                            />
+                            <button className="btn-primary px-6">
+                                Subscribe
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Copyright & Legal Links */}
+                <div className="border-t border-border pt-8">
+                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                        <p className="font-body text-muted-foreground text-center md:text-left">
+                            © 2025 Getaways. All rights reserved.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </footer>
+    );
 };
+
 export default Footer;

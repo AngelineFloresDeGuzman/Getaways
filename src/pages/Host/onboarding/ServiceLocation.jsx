@@ -230,40 +230,107 @@ const ServiceLocation = () => {
     loadCity();
   }, [state.draftId, location.state?.draftId]);
 
-  const handleNext = async () => {
-    if (!city.trim() || !mainCategory) return;
-
-    const draftId = state.draftId || location.state?.draftId;
-
-    // Update context
-    if (actions.setCurrentStep) {
-      actions.setCurrentStep("service-years-of-experience");
+  const saveServiceData = async () => {
+    let draftId = state.draftId || location.state?.draftId;
+    
+    // If no draftId exists, create a new draft first
+    if (!draftId) {
+      try {
+        const { auth } = await import("@/lib/firebase");
+        const currentUser = auth.currentUser;
+        if (!currentUser) {
+          console.warn("⚠️ ServiceLocation: User not authenticated, cannot create draft");
+          return null;
+        }
+        
+        const { saveDraft } = await import("@/pages/Host/services/draftService");
+        const newDraftData = {
+          currentStep: "service-location",
+          category: "service",
+          data: {
+            serviceCategory: mainCategory,
+            serviceCity: city.trim(),
+          }
+        };
+        draftId = await saveDraft(newDraftData, null);
+        console.log("✅ ServiceLocation: Created new draft:", draftId);
+        
+        // Update state with new draftId
+        if (actions?.setDraftId) {
+          actions.setDraftId(draftId);
+        }
+      } catch (error) {
+        console.error("❌ ServiceLocation: Error creating draft:", error);
+        throw error;
+      }
     }
-
-    // Update Firebase draft
+    
     if (draftId) {
       try {
         const draftRef = doc(db, "onboardingDrafts", draftId);
         await updateDoc(draftRef, {
-          currentStep: "service-years-of-experience",
+          currentStep: "service-location", // Save CURRENT step, not next step
           "data.serviceCity": city.trim(),
+          "data.serviceCategory": mainCategory,
           lastModified: new Date(),
         });
-        console.log("✅ Updated service city in draft");
+        console.log("✅ ServiceLocation: Draft saved successfully");
       } catch (error) {
-        console.error("Error updating draft:", error);
+        console.error("❌ ServiceLocation: Error saving data:", error);
+        throw error;
       }
     }
+    
+    return draftId;
+  };
 
-    // Navigate to years of experience page
-    navigate("/pages/service-years-of-experience", {
-      state: {
-        draftId,
-        category: "service",
-        serviceCategory: mainCategory,
-        serviceCity: city.trim(),
-      },
-    });
+  const handleSaveAndExit = async () => {
+    try {
+      const { auth } = await import("@/lib/firebase");
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        alert("Please log in to save your progress.");
+        navigate("/login");
+        return;
+      }
+
+      await saveServiceData();
+      navigate("/host/listings", {
+        state: {
+          scrollToDrafts: true,
+          message: "Draft saved successfully!",
+        },
+      });
+    } catch (error) {
+      console.error("❌ Error saving draft:", error);
+      alert("Failed to save. Please try again.");
+    }
+  };
+
+  const handleNext = async () => {
+    if (!city.trim() || !mainCategory) return;
+
+    try {
+      const draftId = await saveServiceData();
+
+      // Update context
+      if (actions.setCurrentStep) {
+        actions.setCurrentStep("service-years-of-experience");
+      }
+
+      // Navigate to years of experience page
+      navigate("/pages/service-years-of-experience", {
+        state: {
+          draftId,
+          category: "service",
+          serviceCategory: mainCategory,
+          serviceCity: city.trim(),
+        },
+      });
+    } catch (error) {
+      console.error("❌ Error in handleNext:", error);
+      alert("Failed to save progress. Please try again.");
+    }
   };
 
   const handleBack = () => {
@@ -527,7 +594,11 @@ const ServiceLocation = () => {
 
   return (
     <div className="h-screen bg-white flex flex-col overflow-hidden">
-      <OnboardingHeader showProgress={true} currentStepNameOverride="service-location" />
+      <OnboardingHeader 
+        showProgress={true} 
+        currentStepNameOverride="service-location"
+        customSaveAndExit={handleSaveAndExit}
+      />
 
       <main className="flex-1 flex items-center justify-center overflow-y-auto py-20 pt-32 pb-24">
         <div className="w-full max-w-6xl px-6">
