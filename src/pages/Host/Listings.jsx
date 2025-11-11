@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Navigation from '@/components/Navigation';
 import Footer from '@/components/Footer';
+import Loading from '@/components/Loading';
 import { toast } from '@/components/ui/sonner';
 import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -678,7 +679,39 @@ const HostListings = () => {
         updatedAt: serverTimestamp()
       });
 
-      toast.success('Listing unpublished successfully');
+      // Deduct points/value for unpublished listing
+      try {
+        const { deductPointsForUnpublishedListing } = await import('@/pages/Host/services/pointsService');
+        console.log('🔍 Calling deductPointsForUnpublishedListing for listing:', listingToUnpublish.id);
+        const deductionResult = await deductPointsForUnpublishedListing(auth.currentUser.uid, listingToUnpublish.id);
+        console.log('📊 Deduction result:', deductionResult);
+        
+        if (deductionResult.success) {
+          if (deductionResult.pointsDeducted > 0 || deductionResult.walletDeducted > 0) {
+            console.log('✅ Points/wallet deducted for unpublished listing:', deductionResult);
+            if (deductionResult.remainingDebt > 0) {
+              toast.success(`Listing unpublished. ₱${deductionResult.totalDeducted} deducted. ₱${deductionResult.remainingDebt} will be deducted from future credits.`);
+            } else {
+              toast.success(`Listing unpublished. ${deductionResult.pointsDeducted > 0 ? `${deductionResult.pointsDeducted} points` : ''} ${deductionResult.walletDeducted > 0 ? `₱${deductionResult.walletDeducted}` : ''} deducted.`);
+            }
+          } else if (deductionResult.message) {
+            // Show the message from the deduction function
+            console.log('ℹ️ Deduction info:', deductionResult.message);
+            toast.info(deductionResult.message || 'Listing unpublished successfully');
+          } else {
+            toast.success('Listing unpublished successfully');
+          }
+        } else {
+          console.error('❌ Points deduction failed:', deductionResult.error);
+          toast.warning(`Listing unpublished, but points deduction failed: ${deductionResult.error}`);
+        }
+      } catch (pointsError) {
+        console.error('❌ Error deducting points for unpublished listing:', pointsError);
+        console.error('Error stack:', pointsError.stack);
+        toast.error(`Listing unpublished, but points deduction error: ${pointsError.message}`);
+        // Don't fail unpublish if points deduction fails
+      }
+
       await loadListings();
       setUnpublishModalOpen(false);
       setListingToUnpublish(null);
@@ -773,7 +806,27 @@ const HostListings = () => {
         updatedAt: serverTimestamp()
       });
       
-      toast.success('Listing republished successfully');
+      // Restore points/value for republished listing
+      try {
+        const { restorePointsForRepublishedListing } = await import('@/pages/Host/services/pointsService');
+        const restoreResult = await restorePointsForRepublishedListing(auth.currentUser.uid, listing.id);
+        
+        if (restoreResult.success) {
+          if (restoreResult.restored) {
+            console.log('✅ Points restored for republished listing:', restoreResult);
+            toast.success(`Listing republished. ${restoreResult.pointsRestored} points restored.`);
+          } else {
+            toast.success('Listing republished successfully');
+          }
+        } else {
+          toast.success('Listing republished successfully');
+        }
+      } catch (pointsError) {
+        console.error('Error restoring points for republished listing:', pointsError);
+        toast.success('Listing republished successfully');
+        // Don't fail republish if points restoration fails
+      }
+
       await loadListings();
       await loadUnpublishedListings();
     } catch (error) {
@@ -812,10 +865,8 @@ const HostListings = () => {
     return (
       <div className="min-h-screen bg-background">
         <Navigation />
-        <div className="flex items-center justify-center min-h-screen pt-36">
-          <div className="text-center">
-            <p className="text-foreground text-lg">Loading listings...</p>
-          </div>
+        <div className="pt-36">
+          <Loading message="Loading listings..." />
         </div>
         <Footer />
       </div>

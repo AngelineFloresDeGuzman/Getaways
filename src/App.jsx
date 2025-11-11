@@ -12,6 +12,7 @@ import AccommodationDetail from "./pages/Guest/AccommodationDetail";
 import Services from "./pages/Guest/Services";
 import ServicesDetail from "./pages/Guest/ServicesDetail";
 import Bookings from "./pages/Guest/Bookings";
+import BookingDetail from "./pages/Guest/BookingDetail";
 import BookingRequest from "./pages/Guest/BookingRequest";
 import Experiences from "./pages/Guest/Experiences";
 import ExperiencesDetails from "./pages/Guest/ExperiencesDetails";
@@ -128,6 +129,7 @@ const App = () => {
             <Route path="/verify-email" element={<VerifyEmail darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/guest/index" element={<GuestIndex darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/bookings" element={<Bookings darkMode={darkMode} setDarkMode={setDarkMode} />} />
+            <Route path="/bookings/:id" element={<BookingDetail />} />
             <Route path="/favorites" element={<Favorites darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/messages" element={<GuestMessages />} />
             <Route path="/host/hostdashboard" element={<HostDashboard darkMode={darkMode} setDarkMode={setDarkMode} />} />

@@ -2,7 +2,8 @@ import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
-import { Heart, MapPin, Grid, List, Loader2 } from "lucide-react";
+import Loading from "@/components/Loading";
+import { Heart, MapPin, Grid, List } from "lucide-react";
 import { auth } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import LogIn from "@/pages/Auth/LogIn";
@@ -107,8 +108,12 @@ const Favorites = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      <div className="min-h-screen bg-background">
+        <Navigation />
+        <div className="pt-36">
+          <Loading message="Loading favorites..." />
+        </div>
+        <Footer />
       </div>
     );
   }

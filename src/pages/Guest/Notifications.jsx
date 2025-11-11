@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Navigation from '@/components/Navigation';
 import Footer from '@/components/Footer';
+import Loading from '@/components/Loading';
 import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import {
@@ -176,8 +177,8 @@ const Notifications = () => {
     return (
       <div className="min-h-screen bg-background">
         <Navigation />
-        <div className="flex items-center justify-center min-h-screen pt-36">
-          <p className="text-foreground">Loading notifications...</p>
+        <div className="pt-36">
+          <Loading message="Loading notifications..." />
         </div>
         <Footer />
       </div>

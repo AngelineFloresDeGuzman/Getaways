@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Navigation from '@/components/Navigation';
 import Footer from '@/components/Footer';
+import Loading from '@/components/Loading';
 import { auth, db } from '@/lib/firebase';
 import { collection, getDocs, query, orderBy, where, doc, getDoc, updateDoc } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -10,15 +11,34 @@ import {
   Star, FileText, Shield, Settings, BarChart3,
   Eye, Download, Filter, Search, CheckCircle, XCircle,
   AlertCircle, CreditCard, Receipt, BookOpen, FileCheck,
-  TrendingDown, Award, AlertTriangle, Send, Clock, RefreshCw
+  TrendingDown, Award, AlertTriangle, Send, Clock, RefreshCw, Edit3, X
 } from 'lucide-react';
 import { toast } from '@/components/ui/sonner';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { 
   autoCompleteBookings, 
   releaseHostEarnings, 
   getPendingEarnings, 
-  getReleasedEarningsSummary 
+  getReleasedEarningsSummary,
+  getEarningsReleaseHistory
 } from './services/earningsService';
+import {
+  getPendingRefunds,
+  processRefund
+} from './services/refundService';
+import {
+  getPlatformSettings,
+  updateAdminPayPalEmail,
+  getAdminPayPalEmail
+} from './services/platformSettingsService';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -45,6 +65,23 @@ const AdminDashboard = () => {
   const [pendingEarnings, setPendingEarnings] = useState([]);
   const [releasedEarnings, setReleasedEarnings] = useState({ totalReleased: 0, totalServiceFees: 0, byHost: [] });
   const [releasingEarnings, setReleasingEarnings] = useState(new Set());
+  const [earningsHistory, setEarningsHistory] = useState([]);
+  const [showEarningsHistoryModal, setShowEarningsHistoryModal] = useState(false);
+  const [isLoadingEarningsHistory, setIsLoadingEarningsHistory] = useState(false);
+  
+  // Refund states
+  const [pendingRefunds, setPendingRefunds] = useState([]);
+  const [processingRefunds, setProcessingRefunds] = useState(new Set());
+  
+  // Platform settings state
+  const [platformSettings, setPlatformSettings] = useState({
+    adminPayPalEmail: '',
+    adminPayPalAccountName: ''
+  });
+  const [isEditingPayPal, setIsEditingPayPal] = useState(false);
+  const [payPalEmailInput, setPayPalEmailInput] = useState('');
+  const [payPalAccountNameInput, setPayPalAccountNameInput] = useState('');
+  const [isSavingPayPal, setIsSavingPayPal] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -87,7 +124,10 @@ const AdminDashboard = () => {
         loadPayments(),
         loadHosts(),
         loadPendingEarnings(),
-        loadReleasedEarnings()
+        loadReleasedEarnings(),
+        loadPlatformSettings(),
+        loadEarningsHistory(),
+        loadPendingRefunds()
       ]);
     } catch (error) {
       console.error('Error loading dashboard data:', error);
@@ -115,6 +155,25 @@ const AdminDashboard = () => {
     }
   };
 
+  const loadEarningsHistory = async () => {
+    try {
+      const { getAdminUserId } = await import('@/pages/Common/services/getpayService');
+      const adminUserId = await getAdminUserId();
+      if (adminUserId) {
+        console.log('🔍 Loading earnings history for admin:', adminUserId);
+        const history = await getEarningsReleaseHistory(adminUserId);
+        console.log('📈 Earnings history loaded:', history.length, 'transactions');
+        setEarningsHistory(history);
+      } else {
+        console.warn('⚠️ Admin user ID not found');
+        setEarningsHistory([]);
+      }
+    } catch (error) {
+      console.error('❌ Error loading earnings history:', error);
+      setEarningsHistory([]);
+    }
+  };
+
   const handleReleaseEarnings = async (bookingId) => {
     if (releasingEarnings.has(bookingId)) return;
     
@@ -125,8 +184,8 @@ const AdminDashboard = () => {
       
       if (result.success) {
         toast.success(result.message);
-        // Reload pending and released earnings
-        await Promise.all([loadPendingEarnings(), loadReleasedEarnings(), loadStats()]);
+        // Reload pending and released earnings, and earnings history
+        await Promise.all([loadPendingEarnings(), loadReleasedEarnings(), loadStats(), loadEarningsHistory()]);
       } else {
         toast.error(result.message);
       }
@@ -134,6 +193,56 @@ const AdminDashboard = () => {
       toast.error('Failed to release earnings: ' + error.message);
     } finally {
       setReleasingEarnings(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(bookingId);
+        return newSet;
+      });
+    }
+  };
+
+  const loadPendingRefunds = async () => {
+    try {
+      const refunds = await getPendingRefunds();
+      setPendingRefunds(refunds);
+    } catch (error) {
+      console.error('Error loading pending refunds:', error);
+    }
+  };
+
+  const handleProcessRefund = async (bookingId) => {
+    if (processingRefunds.has(bookingId)) return;
+    
+    // Confirm refund processing
+    const refund = pendingRefunds.find(r => r.bookingId === bookingId);
+    if (!refund) {
+      toast.error('Refund not found');
+      return;
+    }
+    
+    const refundAmount = refund.refundAmount || 0;
+    const refundType = refund.refundType || 'full_refund';
+    const confirmMessage = `Process refund of ₱${refundAmount.toLocaleString()} (${refundType === 'full_refund' ? 'Full' : 'Half'}) for ${refund.guestName}?`;
+    
+    if (!window.confirm(confirmMessage)) {
+      return;
+    }
+    
+    setProcessingRefunds(prev => new Set(prev).add(bookingId));
+    
+    try {
+      const result = await processRefund(bookingId);
+      
+      if (result.success) {
+        toast.success(result.message);
+        // Reload pending refunds and stats
+        await Promise.all([loadPendingRefunds(), loadStats()]);
+      } else {
+        toast.error(result.message);
+      }
+    } catch (error) {
+      toast.error('Failed to process refund: ' + error.message);
+    } finally {
+      setProcessingRefunds(prev => {
         const newSet = new Set(prev);
         newSet.delete(bookingId);
         return newSet;
@@ -372,6 +481,37 @@ const AdminDashboard = () => {
     }
   };
 
+  const loadPlatformSettings = async () => {
+    try {
+      const settings = await getPlatformSettings();
+      setPlatformSettings(settings);
+      setPayPalEmailInput(settings.adminPayPalEmail || '');
+      setPayPalAccountNameInput(settings.adminPayPalAccountName || '');
+    } catch (error) {
+      console.error('Error loading platform settings:', error);
+    }
+  };
+
+  const handleSavePayPalSettings = async () => {
+    if (!payPalEmailInput || !payPalEmailInput.includes('@')) {
+      toast.error('Please enter a valid PayPal email address');
+      return;
+    }
+
+    setIsSavingPayPal(true);
+    try {
+      await updateAdminPayPalEmail(payPalEmailInput, payPalAccountNameInput);
+      await loadPlatformSettings();
+      setIsEditingPayPal(false);
+      toast.success('Admin PayPal account updated successfully!');
+    } catch (error) {
+      console.error('Error saving PayPal settings:', error);
+      toast.error(error.message || 'Failed to save PayPal settings');
+    } finally {
+      setIsSavingPayPal(false);
+    }
+  };
+
   const generateReport = (type) => {
     toast.info(`Generating ${type} report...`);
     // In a real implementation, this would generate and download a report
@@ -395,8 +535,8 @@ const AdminDashboard = () => {
     return (
       <div className="min-h-screen bg-background">
         <Navigation />
-        <div className="flex items-center justify-center min-h-[60vh]">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+        <div className="pt-36">
+          <Loading message="Loading admin dashboard..." />
         </div>
         <Footer />
       </div>
@@ -428,7 +568,10 @@ const AdminDashboard = () => {
                   <Download className="w-4 h-4" />
                   Export Report
                 </button>
-                <button className="btn-primary flex items-center gap-2">
+                <button 
+                  onClick={() => setActiveTab('settings')}
+                  className="btn-primary flex items-center gap-2"
+                >
                   <Settings className="w-4 h-4" />
                   Settings
                 </button>
@@ -503,7 +646,16 @@ const AdminDashboard = () => {
               <p className="text-muted-foreground text-sm">Pending Earnings ({pendingEarnings.length} bookings)</p>
             </div>
 
-            <div className="card-listing p-6">
+            <div 
+              className="card-listing p-6 cursor-pointer hover:shadow-lg transition-shadow"
+              onClick={async () => {
+                setShowEarningsHistoryModal(true);
+                // Reload earnings history when modal opens to ensure fresh data
+                setIsLoadingEarningsHistory(true);
+                await loadEarningsHistory();
+                setIsLoadingEarningsHistory(false);
+              }}
+            >
               <div className="flex items-center justify-between mb-4">
                 <div className="w-12 h-12 bg-blue-500/10 rounded-2xl flex items-center justify-center">
                   <Send className="w-6 h-6 text-blue-600" />
@@ -513,6 +665,7 @@ const AdminDashboard = () => {
                 {formatCurrency(releasedEarnings.totalReleased || 0)}
               </h3>
               <p className="text-muted-foreground text-sm">Total Earnings Released</p>
+              <p className="text-xs text-blue-600 mt-2 font-medium">Click to view history</p>
             </div>
           </div>
         </div>
@@ -523,10 +676,12 @@ const AdminDashboard = () => {
             {[
               { id: 'overview', label: 'Overview', icon: BarChart3 },
               { id: 'earnings', label: 'Earnings Release', icon: Send, badge: pendingEarnings.length },
+              { id: 'refunds', label: 'Refunds', icon: RefreshCw, badge: pendingRefunds.length },
               { id: 'service-fees', label: 'Service Fees', icon: DollarSign },
               { id: 'analytics', label: 'Analytics', icon: TrendingUp },
               { id: 'bookings', label: 'Bookings', icon: Calendar },
               { id: 'payments', label: 'Payments', icon: CreditCard },
+              { id: 'settings', label: 'Settings', icon: Settings },
               { id: 'compliance', label: 'Policy & Compliance', icon: Shield },
               { id: 'reports', label: 'Reports', icon: FileText }
             ].map(tab => (
@@ -660,7 +815,7 @@ const AdminDashboard = () => {
                                 <p className="font-medium">{earning.guestName}</p>
                               </div>
                               <div>
-                                <p className="text-muted-foreground">Booking Amount</p>
+                                <p className="text-muted-foreground">Total Paid by Guest</p>
                                 <p className="font-semibold">{formatCurrency(earning.totalPrice)}</p>
                               </div>
                               <div>
@@ -670,12 +825,12 @@ const AdminDashboard = () => {
                             </div>
                             <div className="flex items-center gap-4 pt-3 border-t border-border">
                               <div>
-                                <p className="text-xs text-muted-foreground">Service Fee (3.3%)</p>
-                                <p className="text-sm font-semibold text-red-600">-{formatCurrency(earning.serviceFee)}</p>
+                                <p className="text-xs text-muted-foreground">Guest Fee (Admin)</p>
+                                <p className="text-sm font-semibold text-blue-600">+{formatCurrency(earning.guestFee || earning.serviceFee || 0)}</p>
                               </div>
                               <div>
-                                <p className="text-xs text-muted-foreground">Host Earnings</p>
-                                <p className="text-lg font-bold text-green-600">{formatCurrency(earning.hostEarnings)}</p>
+                                <p className="text-xs text-muted-foreground">Host Earnings (to release)</p>
+                                <p className="text-lg font-bold text-green-600">{formatCurrency(earning.hostEarnings || earning.bookingAmount || 0)}</p>
                               </div>
                             </div>
                           </div>
@@ -738,6 +893,124 @@ const AdminDashboard = () => {
                         </div>
                       ))}
                     </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Refunds Tab */}
+          {activeTab === 'refunds' && (
+            <div className="space-y-6">
+              <div className="card-listing p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <div>
+                    <h2 className="font-heading text-2xl font-bold text-foreground mb-2">Pending Refunds</h2>
+                    <p className="text-muted-foreground">
+                      Process refunds for cancelled bookings. Full refunds for pending bookings, half refunds for confirmed bookings.
+                    </p>
+                  </div>
+                  <button 
+                    onClick={loadPendingRefunds}
+                    className="btn-outline flex items-center gap-2"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    Refresh
+                  </button>
+                </div>
+
+                {pendingRefunds.length === 0 ? (
+                  <div className="text-center py-12">
+                    <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
+                    <p className="text-lg font-medium text-foreground mb-2">No Pending Refunds</p>
+                    <p className="text-muted-foreground">All refunds have been processed.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {pendingRefunds.map(refund => (
+                      <div key={refund.bookingId} className="p-4 border border-border rounded-lg hover:bg-muted/30 transition-colors">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-2">
+                              <h3 className="font-semibold text-foreground">{refund.listingTitle}</h3>
+                              <span className="text-xs px-2 py-1 rounded bg-red-100 text-red-700">
+                                Cancelled
+                              </span>
+                              <span className={`text-xs px-2 py-1 rounded ${
+                                refund.refundType === 'full_refund' 
+                                  ? 'bg-green-100 text-green-700' 
+                                  : 'bg-yellow-100 text-yellow-700'
+                              }`}>
+                                {refund.refundType === 'full_refund' ? 'Full Refund' : 'Half Refund'}
+                              </span>
+                              {refund.earningsReleased && (
+                                <span className="text-xs px-2 py-1 rounded bg-blue-100 text-blue-700">
+                                  Earnings Released
+                                </span>
+                              )}
+                            </div>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-3">
+                              <div>
+                                <p className="text-muted-foreground">Guest</p>
+                                <p className="font-medium">{refund.guestName}</p>
+                                <p className="text-xs text-muted-foreground">{refund.guestEmail}</p>
+                              </div>
+                              <div>
+                                <p className="text-muted-foreground">Host</p>
+                                <p className="font-medium">{refund.hostName}</p>
+                                <p className="text-xs text-muted-foreground">{refund.hostEmail}</p>
+                              </div>
+                              <div>
+                                <p className="text-muted-foreground">Original Booking Amount</p>
+                                <p className="font-semibold">{formatCurrency(refund.totalPrice || 0)}</p>
+                              </div>
+                              <div>
+                                <p className="text-muted-foreground">Cancelled Date</p>
+                                <p className="font-medium">{formatDate(refund.cancelledAt || refund.refundRequestedAt)}</p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-4 pt-3 border-t border-border">
+                              <div>
+                                <p className="text-xs text-muted-foreground">Refund Amount (to Guest)</p>
+                                <p className="text-lg font-bold text-green-600">{formatCurrency(refund.refundAmount || 0)}</p>
+                              </div>
+                              {refund.refundType === 'half_refund' && refund.earningsReleased && refund.hostRefundAmount && (
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Host Refund Amount</p>
+                                  <p className="text-sm font-semibold text-blue-600">{formatCurrency(refund.hostRefundAmount)}</p>
+                                  <p className="text-xs text-muted-foreground">(to be deducted from host)</p>
+                                </div>
+                              )}
+                              <div>
+                                <p className="text-xs text-muted-foreground">Original Status</p>
+                                <p className="text-sm font-medium">
+                                  {refund.originalStatus === 'pending' ? 'Pending' : refund.originalStatus === 'confirmed' ? 'Confirmed' : refund.originalStatus || 'Unknown'}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="ml-4">
+                            <button
+                              onClick={() => handleProcessRefund(refund.bookingId)}
+                              disabled={processingRefunds.has(refund.bookingId)}
+                              className="btn-primary flex items-center gap-2 whitespace-nowrap"
+                            >
+                              {processingRefunds.has(refund.bookingId) ? (
+                                <>
+                                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                  Processing...
+                                </>
+                              ) : (
+                                <>
+                                  <RefreshCw className="w-4 h-4" />
+                                  Process Refund
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
@@ -1063,6 +1336,145 @@ const AdminDashboard = () => {
             </div>
           )}
 
+          {/* Settings Tab */}
+          {activeTab === 'settings' && (
+            <div className="space-y-6">
+              <div className="card-listing p-6">
+                <div className="flex items-center gap-2 mb-6">
+                  <Settings className="w-5 h-5 text-primary" />
+                  <h2 className="font-heading text-2xl font-bold text-foreground">Platform Settings</h2>
+                </div>
+
+                {/* Admin PayPal Account Settings */}
+                <div className="border border-border rounded-lg p-6 mb-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="font-semibold text-lg text-foreground mb-2">Official PayPal Account</h3>
+                      <p className="text-sm text-muted-foreground">
+                        This is the official PayPal account that will receive all transaction money from hosts and guests.
+                        Users will cash in to this account, and you will process cash-outs from this account.
+                      </p>
+                    </div>
+                  </div>
+
+                  {!isEditingPayPal ? (
+                    <div className="space-y-4">
+                      <div className="p-4 bg-muted/30 rounded-lg">
+                        <div className="flex items-center justify-between mb-2">
+                          <label className="text-sm font-medium text-muted-foreground">PayPal Email</label>
+                        </div>
+                        <p className="text-lg font-semibold text-foreground">
+                          {platformSettings.adminPayPalEmail || (
+                            <span className="text-muted-foreground italic">Not configured</span>
+                          )}
+                        </p>
+                        {platformSettings.adminPayPalAccountName && (
+                          <p className="text-sm text-muted-foreground mt-1">
+                            Account Name: {platformSettings.adminPayPalAccountName}
+                          </p>
+                        )}
+                        {platformSettings.updatedAt && (
+                          <p className="text-xs text-muted-foreground mt-2">
+                            Last updated: {formatDate(platformSettings.updatedAt.toDate ? platformSettings.updatedAt.toDate() : new Date(platformSettings.updatedAt))}
+                          </p>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => {
+                          setIsEditingPayPal(true);
+                          setPayPalEmailInput(platformSettings.adminPayPalEmail || '');
+                          setPayPalAccountNameInput(platformSettings.adminPayPalAccountName || '');
+                        }}
+                        className="btn-primary flex items-center gap-2"
+                      >
+                        <Edit3 className="w-4 h-4" />
+                        {platformSettings.adminPayPalEmail ? 'Edit PayPal Account' : 'Configure PayPal Account'}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-foreground mb-2">
+                          PayPal Email Address <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="email"
+                          value={payPalEmailInput}
+                          onChange={(e) => setPayPalEmailInput(e.target.value)}
+                          placeholder="admin@getaways.com"
+                          className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                          disabled={isSavingPayPal}
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Enter the PayPal email address that will receive all cash-in transactions
+                        </p>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-foreground mb-2">
+                          Account Name (Optional)
+                        </label>
+                        <input
+                          type="text"
+                          value={payPalAccountNameInput}
+                          onChange={(e) => setPayPalAccountNameInput(e.target.value)}
+                          placeholder="Getaways Official Account"
+                          className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                          disabled={isSavingPayPal}
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">
+                          A friendly name to identify this PayPal account (for your reference only)
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={handleSavePayPalSettings}
+                          disabled={isSavingPayPal || !payPalEmailInput || !payPalEmailInput.includes('@')}
+                          className="btn-primary flex items-center gap-2"
+                        >
+                          {isSavingPayPal ? (
+                            <>
+                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                              Saving...
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle className="w-4 h-4" />
+                              Save PayPal Account
+                            </>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setIsEditingPayPal(false);
+                            setPayPalEmailInput(platformSettings.adminPayPalEmail || '');
+                            setPayPalAccountNameInput(platformSettings.adminPayPalAccountName || '');
+                          }}
+                          disabled={isSavingPayPal}
+                          className="btn-outline"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Information Box */}
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <h4 className="font-semibold text-blue-900 mb-2">How It Works</h4>
+                  <ul className="text-sm text-blue-800 space-y-1 list-disc list-inside">
+                    <li>Users will cash in to your GetPay wallet via PayPal - the money goes to this official account</li>
+                    <li>When users request cash-out, you'll send money from this account to their PayPal</li>
+                    <li>All booking payments and subscription fees flow through this account</li>
+                    <li>Make sure this PayPal account has sufficient balance to process cash-out requests</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Reports Tab */}
           {activeTab === 'reports' && (
             <div className="card-listing p-6">
@@ -1092,6 +1504,110 @@ const AdminDashboard = () => {
           )}
         </div>
       </div>
+
+      {/* Earnings History Modal */}
+      <AlertDialog open={showEarningsHistoryModal} onOpenChange={setShowEarningsHistoryModal}>
+        <AlertDialogContent className="bg-white max-w-4xl max-h-[80vh] overflow-y-auto">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-gray-900 flex items-center gap-2">
+              <Send className="w-5 h-5 text-blue-600" />
+              Earnings Release History
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-gray-600">
+              Total Released: <span className="font-bold text-blue-600">{formatCurrency(releasedEarnings.totalReleased || 0)}</span>
+              <span className="ml-4">Total Releases: <span className="font-bold">{earningsHistory.length}</span></span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          
+          <div className="mt-4 space-y-3">
+            {isLoadingEarningsHistory ? (
+              <div className="text-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-3 border-primary border-t-transparent mx-auto mb-3"></div>
+                <p className="text-gray-500">Loading earnings history...</p>
+              </div>
+            ) : earningsHistory && earningsHistory.length > 0 ? (
+              earningsHistory.map((transaction, index) => {
+                const timestamp = transaction.date instanceof Date ? transaction.date : new Date(transaction.date);
+                const formattedDate = timestamp.toLocaleDateString('en-US', { 
+                  year: 'numeric', 
+                  month: 'short', 
+                  day: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit'
+                });
+                
+                const metadata = transaction.metadata || {};
+                const bookingId = metadata.bookingId || 'N/A';
+                const listingTitle = metadata.listingTitle || 'Unknown Listing';
+                const hostEmail = metadata.hostEmail || 'Unknown';
+                const hostId = metadata.hostId || 'N/A';
+                
+                return (
+                  <div
+                    key={transaction.id || index}
+                    className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="font-semibold text-lg text-red-600">
+                            -{formatCurrency(transaction.amount || 0)}
+                          </span>
+                          <span className="text-sm text-gray-500">
+                            (Balance: {formatCurrency(transaction.balanceAfter || 0)})
+                          </span>
+                        </div>
+                        <p className="text-gray-700 font-medium mb-1">{transaction.description || 'Earnings Release'}</p>
+                        <div className="space-y-1 mt-2">
+                          <p className="text-sm text-gray-600">
+                            <span className="font-medium">Listing:</span> {listingTitle}
+                          </p>
+                          <p className="text-sm text-gray-600">
+                            <span className="font-medium">Host:</span> {hostEmail}
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            Booking ID: {bookingId}
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            Transaction ID: {transaction.id || 'N/A'}
+                          </p>
+                        </div>
+                        <p className="text-xs text-gray-400 mt-2">{formattedDate}</p>
+                      </div>
+                      <div className="w-2 h-2 rounded-full bg-red-500" />
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="text-center py-8">
+                <Send className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                <p className="text-gray-500 font-medium">No earnings release history yet.</p>
+                <p className="text-sm text-gray-400 mt-2">
+                  Earnings releases will appear here when you release payments to hosts.
+                </p>
+                <p className="text-xs text-gray-400 mt-4">
+                  💡 <strong>Tip:</strong> Go to the "Earnings Release" tab to release earnings for completed bookings.
+                </p>
+                {process.env.NODE_ENV === 'development' && (
+                  <div className="mt-4 p-3 bg-gray-100 rounded text-xs text-left text-gray-600">
+                    <p><strong>Debug Info:</strong></p>
+                    <p>Admin User ID: {currentUser?.uid || 'Not found'}</p>
+                    <p>Total Transactions: Check console for details</p>
+                    <p>Filter: type === 'payment' && metadata.paymentType === 'host_earnings_release'</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => setShowEarningsHistoryModal(false)}>
+              Close
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Footer />
     </div>

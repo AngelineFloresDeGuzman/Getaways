@@ -2,17 +2,18 @@ import React, { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
+import Loading from "@/components/Loading";
 import {
   User, Calendar, Heart, Camera, Edit3, Save, X, MapPin,
   Star, CalendarCheck, Grid, List, Loader2, CalendarIcon, Users,
   Sparkles, Mail, Clock, CheckCircle, Circle, Search, Filter, ExternalLink,
-  MessageSquare, Ticket, Plus, Trash2, Edit, Copy, CreditCard, Shield, CheckCircle2
+  MessageSquare, Ticket, Plus, Trash2, Edit, Copy, CreditCard, Shield, CheckCircle2, Link2, Unlink
 } from "lucide-react";
 import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { 
   doc, getDoc, updateDoc, setDoc, collection, query, where, 
-  getDocs, onSnapshot, orderBy, updateDoc as updateFirestoreDoc
+  getDocs, onSnapshot, orderBy, updateDoc as updateFirestoreDoc, serverTimestamp
 } from "firebase/firestore";
 import { format } from "date-fns";
 import { toast } from "@/components/ui/sonner";
@@ -94,6 +95,12 @@ const AccountSettings = () => {
   const [showUserReviewsModal, setShowUserReviewsModal] = useState(false);
   const [userReviews, setUserReviews] = useState([]);
   const [userReviewsLoading, setUserReviewsLoading] = useState(false);
+  
+  // PayPal connection state
+  const [isConnectingPayPal, setIsConnectingPayPal] = useState(false);
+  const [isDisconnectingPayPal, setIsDisconnectingPayPal] = useState(false);
+  const [paypalEmailInput, setPaypalEmailInput] = useState('');
+  const [showConnectPayPal, setShowConnectPayPal] = useState(false);
 
   // Wishlist state (for hosts - Guest wishes)
   const [wishes, setWishes] = useState([]);
@@ -103,6 +110,7 @@ const AccountSettings = () => {
   const [filterListing, setFilterListing] = useState('all');
   const [wishlistListings, setWishlistListings] = useState([]);
   const [wishlistLoading, setWishlistLoading] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   // Tabs based on user role
   const tabs = isHost
@@ -210,6 +218,22 @@ const AccountSettings = () => {
     loadCoupons();
   }, [user, activeTab, isHost]);
 
+  // Handle URL tab parameter (e.g., ?tab=profile)
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const tabParam = params.get('tab');
+    if (tabParam && ['profile', 'bookings', 'wishlist', 'coupon', 'reviews'].includes(tabParam)) {
+      setActiveTab(tabParam);
+    }
+  }, [location.search]);
+
+  // Initialize PayPal email input when showing connect form
+  useEffect(() => {
+    if (showConnectPayPal && profile.paypalEmail && !paypalEmailInput) {
+      setPaypalEmailInput(profile.paypalEmail);
+    }
+  }, [showConnectPayPal, profile.paypalEmail]);
+
   // Filter wishes (Host only - guest wishes)
   useEffect(() => {
     if (activeTab !== 'wishlist' || !isHost) return;
@@ -241,6 +265,8 @@ const AccountSettings = () => {
       if (userDoc.exists()) {
         const userData = userDoc.data();
         const userRoles = Array.isArray(userData.roles) ? userData.roles : (userData.roles ? [userData.roles] : []);
+        const adminRole = userRoles.includes('admin');
+        setIsAdmin(adminRole);
         
         // Check current view mode from sessionStorage (guest vs host)
         // If user is viewing as guest, isHost should be false even if they have host role
@@ -345,8 +371,43 @@ const AccountSettings = () => {
         
         // Get payment data from Firebase
         const paymentData = userData.payment || {};
-        const paypalEmail = paymentData.paypalEmail || userData.paypalEmail || '';
-        const paypalStatus = paymentData.paypalStatus || '';
+        let paypalEmail = paymentData.paypalEmail || userData.paypalEmail || '';
+        let paypalStatus = paymentData.paypalStatus || '';
+        
+        // Auto-connect merchant PayPal account for admins
+        if (adminRole) {
+          try {
+            const { getAdminPayPalEmail } = await import('@/pages/Admin/services/platformSettingsService');
+            const merchantEmail = await getAdminPayPalEmail();
+            
+            if (merchantEmail) {
+              // Always use merchant account for admins
+              if (paypalEmail !== merchantEmail || paypalStatus !== 'connected') {
+                // Auto-connect merchant account
+                const userRef = doc(db, 'users', userId);
+                const existingPayment = paymentData;
+                await updateDoc(userRef, {
+                  payment: {
+                    ...existingPayment,
+                    paypalEmail: merchantEmail,
+                    paypalAccountId: `PP_ADMIN_${Date.now()}`,
+                    paypalAccountName: merchantEmail.split('@')[0],
+                    paypalConnectedAt: serverTimestamp(),
+                    paypalStatus: 'connected',
+                    method: 'paypal',
+                    isMerchantAccount: true
+                  }
+                });
+                // Update local state
+                paypalEmail = merchantEmail;
+                paypalStatus = 'connected';
+              }
+            }
+          } catch (error) {
+            console.error('Error auto-connecting merchant account for admin:', error);
+          }
+        }
+        
         const paymentMethod = paymentData.method || '';
         const paymentType = paymentData.type || '';
         const paymentStatus = paymentData.status || '';
@@ -990,6 +1051,116 @@ const AccountSettings = () => {
     }
   };
 
+  // Connect PayPal account
+  const handleConnectPayPal = async () => {
+    if (!user) {
+      toast.error('You must be logged in to connect PayPal');
+      return;
+    }
+
+    // Admins cannot change their PayPal account - it's always the merchant account
+    if (isAdmin) {
+      toast.error('Admin accounts automatically use the merchant PayPal account. You cannot change this.');
+      setShowConnectPayPal(false);
+      return;
+    }
+
+    // Use input value or fallback to profile email
+    const emailToUse = paypalEmailInput.trim() || profile.paypalEmail || '';
+    
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailToUse || !emailRegex.test(emailToUse)) {
+      toast.error('Please enter a valid PayPal email address');
+      return;
+    }
+
+    setIsConnectingPayPal(true);
+    try {
+      const userRef = doc(db, 'users', user.uid);
+      const userDoc = await getDoc(userRef);
+      
+      const existingData = userDoc.exists() ? userDoc.data() : {};
+      const existingPayment = existingData.payment || {};
+      
+      // Update payment map with PayPal connection info
+      await updateDoc(userRef, {
+        payment: {
+          ...existingPayment,
+          paypalEmail: emailToUse,
+          paypalAccountId: `PP_${Date.now()}`,
+          paypalAccountName: emailToUse.split('@')[0],
+          paypalConnectedAt: serverTimestamp(),
+          paypalStatus: 'connected',
+          method: 'paypal'
+        }
+      });
+      
+      // Reload profile data
+      await loadUserProfile(user.uid);
+      await loadStats(user.uid);
+      setPaypalEmailInput('');
+      setShowConnectPayPal(false);
+      toast.success('PayPal account connected successfully!');
+    } catch (error) {
+      console.error('Error connecting PayPal:', error);
+      toast.error('Failed to connect PayPal account: ' + error.message);
+    } finally {
+      setIsConnectingPayPal(false);
+    }
+  };
+
+  // Disconnect PayPal account
+  const handleDisconnectPayPal = async () => {
+    if (!user) {
+      toast.error('You must be logged in to disconnect PayPal');
+      return;
+    }
+
+    // Admins cannot disconnect their PayPal account - it's always the merchant account
+    if (isAdmin) {
+      toast.error('Admin accounts cannot disconnect the merchant PayPal account. This account is required for platform operations.');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      'Are you sure you want to disconnect your PayPal account? You will need to reconnect it to use cash in and cash out features.'
+    );
+    
+    if (!confirmed) return;
+
+    setIsDisconnectingPayPal(true);
+    try {
+      const userRef = doc(db, 'users', user.uid);
+      const userDoc = await getDoc(userRef);
+      
+      const existingData = userDoc.exists() ? userDoc.data() : {};
+      const existingPayment = existingData.payment || {};
+      
+      // Remove PayPal connection but keep other payment data
+      await updateDoc(userRef, {
+        payment: {
+          ...existingPayment,
+          paypalEmail: '',
+          paypalAccountId: '',
+          paypalAccountName: '',
+          paypalStatus: 'disconnected',
+          paypalConnectedAt: null
+        }
+      });
+      
+      // Reload profile data
+      await loadUserProfile(user.uid);
+      await loadStats(user.uid);
+      toast.success('PayPal account disconnected successfully');
+    } catch (error) {
+      console.error('Error disconnecting PayPal:', error);
+      toast.error('Failed to disconnect PayPal account: ' + error.message);
+    } finally {
+      setIsDisconnectingPayPal(false);
+    }
+  };
+
 
   // Group wishes by listing
   const groupedWishes = filteredWishes.reduce((acc, wish) => {
@@ -1051,11 +1222,8 @@ const AccountSettings = () => {
     return (
       <div className="min-h-screen bg-background">
         <Navigation />
-        <div className="pt-36 flex items-center justify-center min-h-[60vh]">
-          <div className="text-center">
-            <Loader2 className="w-12 h-12 animate-spin text-primary mx-auto mb-4" />
-            <p className="text-muted-foreground">Loading account settings...</p>
-          </div>
+        <div className="pt-36">
+          <Loading message="Loading account settings..." />
         </div>
         <Footer />
       </div>
@@ -1389,30 +1557,7 @@ const AccountSettings = () => {
                     
                     {profile.paypalEmail || profile.paymentMethod ? (
                       <div className="space-y-3">
-                        {/* PayPal Email Card */}
-                        {profile.paypalEmail && (
-                          <div className="relative p-4 bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-950/30 dark:to-blue-900/20 rounded-xl border border-blue-200/50 dark:border-blue-800/50">
-                            <div className="flex items-start justify-between">
-                              <div className="flex items-start gap-3 flex-1">
-                                <div className="p-2 bg-blue-500/10 rounded-lg">
-                                  <Mail className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-xs font-medium text-muted-foreground mb-1">PayPal Email</p>
-                                  <p className="text-sm font-medium text-foreground break-all">{profile.paypalEmail}</p>
-                                </div>
-                              </div>
-                              {profile.paypalStatus === 'connected' && (
-                                <div className="flex items-center gap-1.5 px-2.5 py-1 bg-green-500/20 dark:bg-green-500/30 rounded-full">
-                                  <CheckCircle2 className="w-3.5 h-3.5 text-green-600 dark:text-green-400" />
-                                  <span className="text-xs font-medium text-green-700 dark:text-green-300">Connected</span>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                        
-                        {/* Payment Details Grid */}
+                        {/* Payment Details Grid - Show First */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                           {profile.paymentMethod && (
                             <div className="p-4 bg-muted/50 rounded-xl border border-border">
@@ -1471,6 +1616,136 @@ const AccountSettings = () => {
                           )}
                         </div>
                         
+                        {/* PayPal Email Card */}
+                        {profile.paypalEmail && (
+                          <div className="relative p-4 bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-950/30 dark:to-blue-900/20 rounded-xl border border-blue-200/50 dark:border-blue-800/50">
+                            <div className="flex items-start justify-between">
+                              <div className="flex items-start gap-3 flex-1">
+                                <div className="p-2 bg-blue-500/10 rounded-lg">
+                                  <Mail className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-xs font-medium text-muted-foreground mb-1">PayPal Email</p>
+                                  <p className="text-sm font-medium text-foreground break-all">{profile.paypalEmail}</p>
+                                  {profile.paypalStatus === 'connected' && (
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                      This account will be used automatically for cash in and cash out
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                              {profile.paypalStatus === 'connected' && (
+                                <div className="flex items-center gap-1.5 px-2.5 py-1 bg-green-500/20 dark:bg-green-500/30 rounded-full">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-green-600 dark:text-green-400" />
+                                  <span className="text-xs font-medium text-green-700 dark:text-green-300">Connected</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Admin PayPal Account - Always Connected to Merchant Account */}
+                        {isAdmin && profile.paypalStatus === 'connected' && (
+                          <div className="w-full p-4 bg-green-50 dark:bg-green-900/20 border-2 border-green-300 dark:border-green-700 rounded-lg">
+                            <div className="flex items-center gap-2 mb-2">
+                              <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
+                              <p className="text-sm font-bold text-green-900 dark:text-green-100">
+                                Admin Account - Merchant PayPal
+                              </p>
+                            </div>
+                            <p className="text-xs text-green-800 dark:text-green-200 mb-2">
+                              Your account is automatically connected to the merchant PayPal account: <strong>{profile.paypalEmail}</strong>
+                            </p>
+                            <p className="text-xs text-green-700 dark:text-green-300">
+                              This account cannot be changed or disconnected as it's required for platform operations.
+                            </p>
+                          </div>
+                        )}
+                        
+                        {/* Non-Admin PayPal Account Management */}
+                        {!isAdmin && (
+                          <>
+                            {profile.paypalStatus === 'connected' ? (
+                              <button
+                                onClick={handleDisconnectPayPal}
+                                disabled={isDisconnectingPayPal}
+                                className="w-full flex items-center justify-center gap-2 px-4 py-2 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50"
+                              >
+                                {isDisconnectingPayPal ? (
+                                  <>
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    Disconnecting...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Unlink className="w-4 h-4" />
+                                    Disconnect PayPal Account
+                                  </>
+                                )}
+                              </button>
+                            ) : !showConnectPayPal && (
+                              <button
+                                onClick={() => setShowConnectPayPal(true)}
+                                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+                              >
+                                <Link2 className="w-4 h-4" />
+                                Connect PayPal Account
+                              </button>
+                            )}
+                          </>
+                        )}
+                        
+                        {/* Connect PayPal Form - Only for Non-Admins */}
+                        {showConnectPayPal && !isAdmin && (
+                          <div className="p-4 bg-muted/50 rounded-xl border border-border space-y-3">
+                            <div>
+                              <label className="block text-sm font-medium text-foreground mb-2">
+                                PayPal Email Address <span className="text-red-500">*</span>
+                              </label>
+                              <input
+                                type="email"
+                                value={paypalEmailInput || profile.paypalEmail || ''}
+                                onChange={(e) => setPaypalEmailInput(e.target.value)}
+                                placeholder="your-email@example.com"
+                                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                                disabled={isConnectingPayPal}
+                              />
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Enter the PayPal email address you want to use for cash in and cash out. <strong>Important:</strong> This must be different from the merchant account.
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={handleConnectPayPal}
+                                disabled={isConnectingPayPal || !(paypalEmailInput || profile.paypalEmail) || !(paypalEmailInput || profile.paypalEmail || '').includes('@')}
+                                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
+                              >
+                                {isConnectingPayPal ? (
+                                  <>
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    Connecting...
+                                  </>
+                                ) : (
+                                  <>
+                                    <CheckCircle className="w-4 h-4" />
+                                    Connect PayPal
+                                  </>
+                                )}
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setShowConnectPayPal(false);
+                                  setPaypalEmailInput('');
+                                }}
+                                disabled={isConnectingPayPal}
+                                className="px-4 py-2 border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-50"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        
                         {/* Last Payment Email */}
                         {profile.lastPayPalPayerEmail && profile.lastPayPalPayerEmail !== profile.paypalEmail && (
                           <div className="p-4 bg-muted/50 rounded-xl border border-border">
@@ -1506,10 +1781,72 @@ const AccountSettings = () => {
                         )}
                       </div>
                     ) : (
-                      <div className="p-6 bg-muted/30 rounded-xl border border-dashed border-border text-center">
+                      <div className="p-6 bg-muted/30 rounded-xl border border-dashed border-border">
+                        <div className="text-center mb-4">
                         <CreditCard className="w-8 h-8 text-muted-foreground mx-auto mb-2 opacity-50" />
-                        <p className="text-sm text-muted-foreground">No payment information available</p>
-                        <p className="text-xs text-muted-foreground mt-1">Connect your PayPal account to see payment details</p>
+                          <p className="text-sm text-muted-foreground">No PayPal account connected</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Connect your PayPal account to enable cash in and cash out features
+                          </p>
+                      </div>
+                        
+                        {!showConnectPayPal ? (
+                          <button
+                            onClick={() => setShowConnectPayPal(true)}
+                            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+                          >
+                            <Link2 className="w-4 h-4" />
+                            Connect PayPal Account
+                          </button>
+                        ) : (
+                          <div className="space-y-3">
+                            <div>
+                              <label className="block text-sm font-medium text-foreground mb-2">
+                                PayPal Email Address <span className="text-red-500">*</span>
+                              </label>
+                              <input
+                                type="email"
+                                value={paypalEmailInput}
+                                onChange={(e) => setPaypalEmailInput(e.target.value)}
+                                placeholder="your-email@example.com"
+                                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                                disabled={isConnectingPayPal}
+                              />
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Enter the PayPal email address you want to use for cash in and cash out
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={handleConnectPayPal}
+                                disabled={isConnectingPayPal || !paypalEmailInput || !paypalEmailInput.includes('@')}
+                                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
+                              >
+                                {isConnectingPayPal ? (
+                                  <>
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    Connecting...
+                                  </>
+                                ) : (
+                                  <>
+                                    <CheckCircle className="w-4 h-4" />
+                                    Connect PayPal
+                                  </>
+                                )}
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setShowConnectPayPal(false);
+                                  setPaypalEmailInput('');
+                                }}
+                                disabled={isConnectingPayPal}
+                                className="px-4 py-2 border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-50"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1587,10 +1924,7 @@ const AccountSettings = () => {
         {activeTab === "bookings" && (
           <div className="space-y-6">
             {bookingsLoading ? (
-              <div className="text-center py-20">
-                <Loader2 className="w-12 h-12 animate-spin text-primary mx-auto mb-4" />
-                <p className="text-muted-foreground">Loading your bookings...</p>
-              </div>
+              <Loading message="Loading your bookings..." size="default" />
             ) : isHost ? (
               // Host Bookings
               bookings.length > 0 ? (
@@ -2107,10 +2441,7 @@ const AccountSettings = () => {
           <div className="space-y-6">
             {isHost ? (
               wishlistLoading ? (
-                <div className="text-center py-20">
-                  <Loader2 className="w-12 h-12 animate-spin text-primary mx-auto mb-4" />
-                  <p className="text-muted-foreground">Loading wishes...</p>
-                </div>
+                <Loading message="Loading wishes..." size="default" />
               ) : (
                 <>
                   {/* Stats */}
@@ -2433,10 +2764,7 @@ const AccountSettings = () => {
             </div>
 
             {couponsLoading ? (
-              <div className="text-center py-20">
-                <Loader2 className="w-12 h-12 animate-spin text-primary mx-auto mb-4" />
-                <p className="text-muted-foreground">Loading coupons...</p>
-              </div>
+              <Loading message="Loading coupons..." size="default" />
             ) : coupons.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {coupons.map((coupon) => (
@@ -2479,6 +2807,15 @@ const AccountSettings = () => {
                           coupon.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
                         }`}>
                           {coupon.active ? 'Active' : 'Inactive'}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground">Applies to:</span>
+                        <span className="text-sm font-medium text-foreground">
+                          {!coupon.listingIds || coupon.listingIds.length === 0
+                            ? 'All listings'
+                            : `${coupon.listingIds.length} ${coupon.listingIds.length === 1 ? 'listing' : 'listings'}`
+                          }
                         </span>
                       </div>
                       {coupon.validUntil && (
@@ -2603,10 +2940,7 @@ const AccountSettings = () => {
             {/* Reviews List */}
             <div className="p-6">
               {userReviewsLoading ? (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="w-8 h-8 text-primary animate-spin" />
-                  <span className="ml-3 text-muted-foreground">Loading reviews...</span>
-                </div>
+                <Loading message="Loading reviews..." size="small" />
               ) : userReviews.length > 0 ? (
                 <div className="space-y-6">
                   {userReviews.map((review) => (

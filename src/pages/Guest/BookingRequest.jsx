@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Navigation from '@/components/Navigation';
 import Footer from '@/components/Footer';
-import { ArrowLeft, ChevronRight, CreditCard, MessageSquare, User, CheckCircle2, Camera, X } from 'lucide-react';
+import { ArrowLeft, ChevronRight, CreditCard, MessageSquare, User, CheckCircle2, Camera, X, CheckCircle, AlertCircle, ExternalLink } from 'lucide-react';
 import { format } from 'date-fns';
 import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -38,6 +38,9 @@ const BookingRequest = () => {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [showPriceBreakdown, setShowPriceBreakdown] = useState(false);
   const fileInputRef = useRef(null);
+  const [paypalConnected, setPaypalConnected] = useState(false);
+  const [paypalEmail, setPaypalEmail] = useState('');
+  const [isCheckingPaypal, setIsCheckingPaypal] = useState(true);
 
   // Calculate charge date (check-in date minus some days, or check-in date if paying later)
   const getChargeDate = () => {
@@ -48,10 +51,8 @@ const BookingRequest = () => {
   };
 
   const chargeDate = getChargeDate();
-  const dueToday = paymentOption === 'now' ? totalPrice : 0;
-  const chargeOnDate = paymentOption === 'later' ? totalPrice : 0;
 
-  // Load user profile photo on mount
+  // Load user profile photo and PayPal connection status on mount
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
@@ -64,14 +65,51 @@ const BookingRequest = () => {
               setProfilePhoto(existingPhoto);
               setProfilePhotoPreview(existingPhoto);
             }
+            
+            // Check PayPal connection status
+            const paymentData = userData.payment || {};
+            const email = paymentData.paypalEmail || userData.paypalEmail || '';
+            const isConnected = paymentData.paypalStatus === 'connected' || userData.paypalStatus === 'connected';
+            setPaypalEmail(email);
+            setPaypalConnected(isConnected && !!email);
+            setIsCheckingPaypal(false);
+          } else {
+            setIsCheckingPaypal(false);
           }
         } catch (error) {
-          console.error('Error loading profile photo:', error);
+          console.error('Error loading user profile:', error);
+          setIsCheckingPaypal(false);
         }
+      } else {
+        setIsCheckingPaypal(false);
       }
     });
     return () => unsubscribe();
   }, []);
+
+  // Refresh PayPal connection status when returning to Step 2
+  useEffect(() => {
+    if (currentStep === 2 && user) {
+      const checkPaypalStatus = async () => {
+        try {
+          const userDoc = await getDoc(doc(db, 'users', user.uid));
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            const paymentData = userData.payment || {};
+            const email = paymentData.paypalEmail || userData.paypalEmail || '';
+            const isConnected = paymentData.paypalStatus === 'connected' || userData.paypalStatus === 'connected';
+            setPaypalEmail(email);
+            setPaypalConnected(isConnected && !!email);
+            setIsCheckingPaypal(false);
+          }
+        } catch (error) {
+          console.error('Error checking PayPal status:', error);
+          setIsCheckingPaypal(false);
+        }
+      };
+      checkPaypalStatus();
+    }
+  }, [currentStep, user]);
 
   // Auto-advance from Step 4 if photo already exists when reaching that step
   useEffect(() => {
@@ -144,6 +182,12 @@ const BookingRequest = () => {
   };
 
   const handleNext = () => {
+    // Validate Step 2: PayPal must be connected before proceeding
+    if (currentStep === 2 && !paypalConnected) {
+      toast.error('Please connect your PayPal account before proceeding');
+      return;
+    }
+    
     if (currentStep < 5) {
       setCurrentStep(currentStep + 1);
     }
@@ -185,12 +229,15 @@ const BookingRequest = () => {
       }
 
       // Create booking
+      // useWallet: true for "pay now", false for "pay later"
+      // Use displayTotalPrice which includes guest fee and coupon discount
       const bookingId = await createBooking({
         listingId: listingId,
         checkInDate: checkInDate,
         checkOutDate: checkOutDate,
         guests: guests || 1,
-        totalPrice: totalPrice,
+        totalPrice: displayTotalPrice, // Final total with coupon discount and guest fee
+        useWallet: paymentOption === 'now', // Pay now = use wallet, pay later = don't use wallet
         message: messageToHost || undefined,
         couponCode: couponCode || undefined,
         couponDiscount: couponDiscount || 0,
@@ -214,27 +261,84 @@ const BookingRequest = () => {
     ? Math.ceil((new Date(checkOutDate) - new Date(checkInDate)) / (1000 * 60 * 60 * 24))
     : 0;
 
-  // Calculate base price (nights × nightly price)
+  // Calculate base booking amount (nights × nightly price)
+  // This is the amount before coupon discount and guest fee
   const calculatedBasePrice = nights && nightlyPrice ? nights * nightlyPrice : 0;
   
-  // If totalPrice is provided, work backwards to calculate service fee
-  // Service fee is typically ~14% of the base price
-  // If totalPrice = basePrice + serviceFee, and serviceFee = basePrice * 0.14
-  // Then: totalPrice = basePrice + (basePrice * 0.14) = basePrice * 1.14
-  // So: basePrice = totalPrice / 1.14
-  let basePrice = 0;
-  let serviceFee = 0;
-  const finalTotalPrice = totalPrice || 0;
+  // Guest fee percentage (14% like Airbnb-style service fee)
+  const GUEST_FEE_PERCENTAGE = 0.14;
   
-  if (finalTotalPrice > 0) {
-    // Work backwards from total to get base price
-    basePrice = Math.round((finalTotalPrice / 1.14) * 100) / 100;
-    serviceFee = Math.round((finalTotalPrice - basePrice) * 100) / 100;
+  // Calculate prices with coupon discount
+  // Note: totalPrice from AccommodationDetail is basePrice - couponDiscount (doesn't include guest fee)
+  // So we need to:
+  // 1. Get the base booking amount (before coupon)
+  // 2. Apply coupon discount
+  // 3. Calculate guest fee on discounted booking amount
+  // 4. Calculate final total = discounted booking amount + guest fee
+  
+  let baseBookingAmount = 0;
+  let discountedBookingAmount = 0;
+  let guestFee = 0;
+  let finalTotalPrice = 0;
+  
+  // Calculate prices with coupon discount
+  // Note: totalPrice from AccommodationDetail is basePrice - couponDiscount (doesn't include guest fee)
+  // So we need to:
+  // 1. Get the base booking amount (before coupon)
+  // 2. Apply coupon discount
+  // 3. Calculate guest fee on discounted booking amount
+  // 4. Calculate final total = discounted booking amount + guest fee
+  
+  if (couponDiscount > 0 && totalPrice) {
+    // totalPrice from AccommodationDetail is the discounted base price (basePrice - couponDiscount)
+    // Reconstruct original base price
+    baseBookingAmount = totalPrice + couponDiscount;
+    // Apply coupon discount to get discounted booking amount
+    discountedBookingAmount = Math.max(0, baseBookingAmount - couponDiscount);
+    // Calculate guest fee on discounted booking amount (14% of discounted amount)
+    guestFee = Math.round((discountedBookingAmount * GUEST_FEE_PERCENTAGE) * 100) / 100;
+    // Final total = discounted booking amount + guest fee
+    finalTotalPrice = Math.round((discountedBookingAmount + guestFee) * 100) / 100;
+    
+    console.log('💰 BookingRequest: Price calculation with coupon', {
+      totalPriceFromDetail: totalPrice,
+      couponDiscount: couponDiscount,
+      baseBookingAmount: baseBookingAmount,
+      discountedBookingAmount: discountedBookingAmount,
+      guestFee: guestFee,
+      finalTotalPrice: finalTotalPrice
+    });
+  } else if (totalPrice && totalPrice > 0) {
+    // No coupon: totalPrice from AccommodationDetail is the base price (without guest fee)
+    baseBookingAmount = totalPrice;
+    discountedBookingAmount = baseBookingAmount;
+    // Calculate guest fee on base price (14% of base amount)
+    guestFee = Math.round((discountedBookingAmount * GUEST_FEE_PERCENTAGE) * 100) / 100;
+    // Final total = base booking amount + guest fee
+    finalTotalPrice = Math.round((discountedBookingAmount + guestFee) * 100) / 100;
+    
+    console.log('💰 BookingRequest: Price calculation without coupon', {
+      totalPriceFromDetail: totalPrice,
+      baseBookingAmount: baseBookingAmount,
+      guestFee: guestFee,
+      finalTotalPrice: finalTotalPrice
+    });
   } else if (calculatedBasePrice > 0) {
     // Use calculated base price if totalPrice not provided
-    basePrice = calculatedBasePrice;
-    serviceFee = Math.round((calculatedBasePrice * 0.14) * 100) / 100;
+    baseBookingAmount = calculatedBasePrice;
+    discountedBookingAmount = baseBookingAmount;
+    guestFee = Math.round((discountedBookingAmount * GUEST_FEE_PERCENTAGE) * 100) / 100;
+    finalTotalPrice = Math.round((discountedBookingAmount + guestFee) * 100) / 100;
   }
+  
+  // Use finalTotalPrice for display and booking (includes guest fee and coupon discount)
+  const displayTotalPrice = finalTotalPrice || totalPrice || 0;
+  const displayBasePrice = discountedBookingAmount || baseBookingAmount || 0;
+  const displayServiceFee = guestFee || 0;
+  
+  // Calculate payment amounts
+  const dueToday = paymentOption === 'now' ? displayTotalPrice : 0;
+  const chargeOnDate = paymentOption === 'later' ? displayTotalPrice : 0;
 
   if (!listing || !checkInDate || !checkOutDate) {
     return (
@@ -373,30 +477,105 @@ const BookingRequest = () => {
                 </div>
 
                 {currentStep > 2 && paymentMethod && (
-                  <div className="text-sm text-muted-foreground mt-2">
-                    PayPal
+                  <div className="text-sm text-muted-foreground mt-2 flex items-center gap-2">
+                    {paypalConnected ? (
+                      <>
+                        <CheckCircle className="w-4 h-4 text-green-600" />
+                        <span>PayPal Connected ({paypalEmail})</span>
+                      </>
+                    ) : (
+                      <>
+                        <AlertCircle className="w-4 h-4 text-amber-600" />
+                        <span>PayPal Not Connected</span>
+                      </>
+                    )}
                   </div>
                 )}
 
                 {currentStep === 2 && (
                   <div className="mt-4 space-y-4">
                     <p className="text-sm text-muted-foreground mb-4">
-                      You'll be able to review before paying
+                      Connect your PayPal account to enable payments. You'll be able to review before paying.
                     </p>
-                    <div className="flex items-center gap-3 p-4 border border-border rounded-lg bg-muted/30">
-                      <div className="flex items-center justify-center w-10 h-10 rounded bg-[#0070ba]">
-                        <span className="text-white font-bold text-sm">P</span>
+                    
+                    {/* PayPal Connection Status */}
+                    {isCheckingPaypal ? (
+                      <div className="flex items-center justify-center py-8">
+                        <div className="animate-spin rounded-full h-6 w-6 border-2 border-primary border-t-transparent"></div>
+                        <span className="ml-3 text-sm text-muted-foreground">Checking PayPal connection...</span>
                       </div>
-                      <div className="flex-1">
-                        <span className="font-medium text-foreground">PayPal</span>
+                    ) : paypalConnected ? (
+                      <div className="space-y-4">
+                        <div className="flex items-center gap-3 p-4 border-2 border-green-500 rounded-lg bg-green-50">
+                          <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
+                          <div className="flex-1">
+                            <div className="font-medium text-green-900">PayPal Account Connected</div>
+                            <div className="text-sm text-green-700 mt-1">{paypalEmail}</div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3 p-4 border border-border rounded-lg bg-muted/30">
+                          <div className="flex items-center justify-center w-10 h-10 rounded bg-[#0070ba]">
+                            <span className="text-white font-bold text-sm">P</span>
+                          </div>
+                          <div className="flex-1">
+                            <span className="font-medium text-foreground">PayPal</span>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Your PayPal account is connected and ready for payments
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={handleNext}
+                          className="w-full bg-foreground text-background py-3 rounded-lg font-medium hover:opacity-90 transition-opacity"
+                        >
+                          Continue
+                        </button>
                       </div>
-                    </div>
-                    <button
-                      onClick={handleNext}
-                      className="w-full bg-foreground text-background py-3 rounded-lg font-medium hover:opacity-90 transition-opacity"
-                    >
-                      Done
-                    </button>
+                    ) : (
+                      <div className="space-y-4">
+                        <div className="flex items-start gap-3 p-4 border-2 border-amber-500 rounded-lg bg-amber-50">
+                          <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                          <div className="flex-1">
+                            <div className="font-medium text-amber-900 mb-1">PayPal Account Not Connected</div>
+                            <div className="text-sm text-amber-800">
+                              You need to connect your PayPal account before you can proceed with the booking. 
+                              This allows you to cash in to your GetPay wallet for payments.
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center gap-3 p-4 border border-border rounded-lg bg-muted/30 opacity-60">
+                          <div className="flex items-center justify-center w-10 h-10 rounded bg-[#0070ba]">
+                            <span className="text-white font-bold text-sm">P</span>
+                          </div>
+                          <div className="flex-1">
+                            <span className="font-medium text-foreground">PayPal</span>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Connect your PayPal account to enable this payment method
+                            </p>
+                          </div>
+                        </div>
+                        
+                        <button
+                          onClick={() => navigate('/accountsettings?tab=profile')}
+                          className="w-full bg-[#0070ba] text-white py-3 rounded-lg font-medium hover:bg-[#005ea6] transition-colors flex items-center justify-center gap-2"
+                        >
+                          <ExternalLink className="w-4 h-4" />
+                          Connect PayPal Account
+                        </button>
+                        
+                        <button
+                          disabled
+                          className="w-full bg-muted text-muted-foreground py-3 rounded-lg font-medium cursor-not-allowed opacity-50"
+                        >
+                          Continue (Connect PayPal to enable)
+                        </button>
+                        
+                        <p className="text-xs text-muted-foreground text-center">
+                          After connecting PayPal in Account Settings, return to this page to continue.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -576,23 +755,95 @@ const BookingRequest = () => {
 
                 {currentStep === 5 && (
                   <div className="mt-4 space-y-4">
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-muted-foreground">Dates</span>
-                        <span className="font-medium text-foreground">
-                          {checkInDate ? format(new Date(checkInDate), 'MMM d') : ''} – {checkOutDate ? format(new Date(checkOutDate), 'MMM d, yyyy') : ''}
-                        </span>
+                    <div className="space-y-4">
+                      {/* Booking Details */}
+                      <div className="space-y-3 pb-4 border-b border-border">
+                        <h3 className="font-semibold text-foreground">Booking Details</h3>
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Dates</span>
+                          <span className="font-medium text-foreground">
+                            {checkInDate ? format(new Date(checkInDate), 'MMM d') : ''} – {checkOutDate ? format(new Date(checkOutDate), 'MMM d, yyyy') : ''}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Nights</span>
+                          <span className="font-medium text-foreground">{nights} {nights === 1 ? 'night' : 'nights'}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Guests</span>
+                          <span className="font-medium text-foreground">{guests || 1} {guests === 1 ? 'guest' : 'guests'}</span>
+                        </div>
                       </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-muted-foreground">Guests</span>
-                        <span className="font-medium text-foreground">{guests || 1} {guests === 1 ? 'guest' : 'guests'}</span>
+
+                      {/* Payment Option */}
+                      <div className="space-y-2 pb-4 border-b border-border">
+                        <h3 className="font-semibold text-foreground">Payment</h3>
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Payment option</span>
+                          <span className="font-medium text-foreground">
+                            {paymentOption === 'now' ? 'Pay now' : 'Pay later'}
+                          </span>
+                        </div>
+                        {paymentOption === 'now' && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-muted-foreground">Due today</span>
+                            <span className="font-medium text-foreground">
+                              ₱{dueToday.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                        )}
+                        {paymentOption === 'later' && chargeDate && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-muted-foreground">Charge on</span>
+                            <span className="font-medium text-foreground">
+                              {format(chargeDate, 'MMM d, yyyy')} - ₱{chargeOnDate.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                        )}
                       </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-muted-foreground">Total</span>
-                        <span className="font-medium text-foreground">
-                          ₱{totalPrice?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
-                        </span>
+
+                      {/* Price Breakdown */}
+                      <div className="space-y-2 pb-4 border-b border-border">
+                        <h3 className="font-semibold text-foreground">Price Summary</h3>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground">
+                            {nights} {nights === 1 ? 'night' : 'nights'} × ₱{nightlyPrice?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
+                          </span>
+                          <span className="font-medium text-foreground">
+                            ₱{baseBookingAmount?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || displayBasePrice?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
+                          </span>
+                        </div>
+                        {couponCode && couponDiscount > 0 && (
+                          <div className="flex items-center justify-between text-sm text-green-600">
+                            <span>Coupon discount ({couponCode})</span>
+                            <span className="font-medium">
+                              -₱{couponDiscount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground">Service fee</span>
+                          <span className="font-medium text-foreground">
+                            ₱{displayServiceFee?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between pt-2 border-t border-border">
+                          <span className="font-semibold text-foreground">Total</span>
+                          <span className="font-semibold text-foreground text-lg">
+                            ₱{displayTotalPrice?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
+                          </span>
+                        </div>
                       </div>
+
+                      {/* Message Preview */}
+                      {messageToHost && (
+                        <div className="space-y-2 pb-4 border-b border-border">
+                          <h3 className="font-semibold text-foreground">Message to Host</h3>
+                          <p className="text-sm text-muted-foreground bg-muted/30 p-3 rounded-lg">
+                            {messageToHost}
+                          </p>
+                        </div>
+                      )}
                     </div>
 
                     <button
@@ -675,13 +926,21 @@ const BookingRequest = () => {
                       {nights} {nights === 1 ? 'night' : 'nights'} × ₱{nightlyPrice?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
                     </span>
                     <span className="font-medium text-foreground">
-                      ₱{totalPrice?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
+                      ₱{baseBookingAmount?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || displayBasePrice?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
                     </span>
                   </div>
+                  {couponCode && couponDiscount > 0 && (
+                    <div className="flex items-center justify-between text-sm text-green-600">
+                      <span>Coupon discount ({couponCode})</span>
+                      <span className="font-medium">
+                        -₱{couponDiscount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between">
                     <span className="font-semibold text-foreground">Total PHP</span>
                     <span className="font-semibold text-foreground">
-                      ₱{totalPrice?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
+                      ₱{displayTotalPrice?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
                     </span>
                   </div>
                   <button 
@@ -750,7 +1009,7 @@ const BookingRequest = () => {
 
             {/* Content */}
             <div className="space-y-4">
-              {/* Booking Details */}
+              {/* Booking Details - Original Base Price */}
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-foreground font-medium">
@@ -758,22 +1017,7 @@ const BookingRequest = () => {
                   </p>
                 </div>
                 <div className="text-sm font-medium text-foreground">
-                  ₱{basePrice?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
-                </div>
-              </div>
-
-              {/* Service Fee */}
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-sm text-foreground font-medium">
-                    Airbnb service fee
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    This includes VAT.
-                  </p>
-                </div>
-                <div className="text-sm font-medium text-foreground">
-                  ₱{serviceFee?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
+                  ₱{baseBookingAmount?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
                 </div>
               </div>
 
@@ -791,6 +1035,21 @@ const BookingRequest = () => {
                 </div>
               )}
 
+              {/* Service Fee - Calculated on discounted booking amount */}
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-sm text-foreground font-medium">
+                    Service fee
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    This includes VAT.
+                  </p>
+                </div>
+                <div className="text-sm font-medium text-foreground">
+                  ₱{displayServiceFee?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
+                </div>
+              </div>
+
               {/* Separator */}
               <div className="border-t border-border my-4"></div>
 
@@ -802,7 +1061,7 @@ const BookingRequest = () => {
                   </p>
                 </div>
                 <div className="text-base font-semibold text-foreground">
-                  ₱{finalTotalPrice?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
+                  ₱{displayTotalPrice?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
                 </div>
               </div>
             </div>

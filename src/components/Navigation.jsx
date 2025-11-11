@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from "react";
-import { Moon, Sun, Menu, Home, Mountain, ConciergeBell, Calendar, List, MessageSquare, Clock, Settings, Globe, BookOpen, HelpCircle, UserPlus, Plus, Users, LogOut, Sparkles, Wallet } from "lucide-react";
+import { Moon, Sun, Menu, Home, Mountain, ConciergeBell, Calendar, List, MessageSquare, Clock, Settings, Globe, BookOpen, HelpCircle, UserPlus, Plus, Users, LogOut, Sparkles, Wallet, Heart, Bell, Shield, BarChart3 } from "lucide-react";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
@@ -158,8 +158,14 @@ const Navigation = () => {
     ? (activeMode === 'host')
     : (isHostSpecificPath || (hasHostRole && isOnSharedHostMenuPath));
   
-  // Final decision: Show host nav only if user has host role AND we're in host mode
-  const shouldShowHostNav = hasHostRole && isOnHostPages;
+  // Check if user is admin
+  const isAdmin = userRoles.includes('admin');
+  
+  // Final decision: Show host nav only if user has host role AND we're in host mode AND not admin
+  // Admin users should always see admin navigation
+  const shouldShowHostNav = hasHostRole && isOnHostPages && !isAdmin;
+  const shouldShowGuestNav = !isAdmin && !shouldShowHostNav;
+  const shouldShowAdminNav = isAdmin;
   
   // Debug: Log to help diagnose navigation issues
   useEffect(() => {
@@ -294,7 +300,7 @@ const Navigation = () => {
         <div className="flex items-center justify-between px-8 py-3">
           {/* Logo */}
           <Link 
-            to={shouldShowHostNav ? "/host/hostdashboard" : "/"} 
+            to={shouldShowAdminNav ? "/admin/admindashboard" : shouldShowHostNav ? "/host/hostdashboard" : "/"} 
             className="flex items-center gap-2 flex-shrink-0"
           >
             <img src="/logo.jpg" alt="Getaways Logo" className="w-8 h-8" />
@@ -309,7 +315,53 @@ const Navigation = () => {
 
           {/* Tabs */}
           <div className="hidden md:flex items-center space-x-8">
-            {shouldShowHostNav ? (
+            {shouldShowAdminNav ? (
+              // Admin Navigation - All items in navbar
+              <>
+                <Link
+                  to="/admin/admindashboard"
+                  className={`flex items-center gap-1 font-body transition-colors ${
+                    location.pathname === "/admin/admindashboard" || location.pathname.startsWith("/admin/")
+                      ? darkMode
+                        ? "text-white font-semibold"
+                        : "text-primary font-semibold"
+                      : darkMode
+                        ? "text-gray-300 hover:text-white"
+                        : "text-foreground hover:text-primary"
+                  }`}
+                >
+                  <BarChart3 className="w-5 h-5" /> Dashboard
+                </Link>
+                <Link
+                  to="/ewallet"
+                  className={`flex items-center gap-1 font-body transition-colors ${
+                    isActive("/ewallet")
+                      ? darkMode
+                        ? "text-white font-semibold"
+                        : "text-primary font-semibold"
+                      : darkMode
+                        ? "text-gray-300 hover:text-white"
+                        : "text-foreground hover:text-primary"
+                  }`}
+                >
+                  <Wallet className="w-5 h-5" /> GetPay
+                </Link>
+                <Link
+                  to="/accountsettings"
+                  className={`flex items-center gap-1 font-body transition-colors ${
+                    isActive("/accountsettings")
+                      ? darkMode
+                        ? "text-white font-semibold"
+                        : "text-primary font-semibold"
+                      : darkMode
+                        ? "text-gray-300 hover:text-white"
+                        : "text-foreground hover:text-primary"
+                  }`}
+                >
+                  <Settings className="w-5 h-5" /> Settings
+                </Link>
+              </>
+            ) : shouldShowHostNav ? (
               // Host Navigation
               <>
                 <Link
@@ -425,7 +477,8 @@ const Navigation = () => {
 
           {/* Right Side */}
           <div className="flex items-center gap-4">
-            {roleSwitchButton && (
+            {/* Hide role switch button for admin users */}
+            {!isAdmin && roleSwitchButton && (
               <button
                 onClick={roleSwitchButton.action}
                 className={`hidden md:flex items-center gap-2 text-sm font-medium transition-colors transition-opacity duration-200
@@ -457,8 +510,21 @@ const Navigation = () => {
               )}
             </button>
 
-            {/* User Menu */}
-            <div className="relative">
+            {/* User Menu - Only show for non-admin users, or show logout button for admin */}
+            {shouldShowAdminNav ? (
+              // Admin: Show logout button directly in navbar
+              <button
+                onClick={handleLogout}
+                className={`flex items-center gap-2 px-4 py-2 rounded-full hover:shadow-md transition ${
+                  darkMode ? "border border-gray-700 hover:bg-gray-800" : "border border-border hover:bg-muted"
+                }`}
+              >
+                <LogOut className={`w-4 h-4 ${darkMode ? "text-gray-300" : ""}`} />
+                <span className={`text-sm font-medium ${darkMode ? "text-gray-300" : ""}`}>Log out</span>
+              </button>
+            ) : (
+              // Guest/Host: Show menu button with dropdown
+              <div className="relative">
               <button
                 onClick={() => setMenuOpen(!menuOpen)}
                 className={`flex items-center gap-2 border rounded-full px-3 py-2 hover:shadow-md transition ${
@@ -502,7 +568,7 @@ const Navigation = () => {
                           </Link>
                           <Link to="/ewallet" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
                             <Wallet className="w-5 h-5" />
-                            E-Wallet
+                            GetPay
                           </Link>
                           <Link to="/languages" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
                             <Globe className="w-5 h-5" />
@@ -560,16 +626,41 @@ const Navigation = () => {
                             </>
                           )}
                           
-                          <Link to="/favorites" onClick={() => setMenuOpen(false)} className="block px-4 py-2 hover:bg-muted">Favorites</Link>
-                          <Link to="/bookings" onClick={() => setMenuOpen(false)} className="block px-4 py-2 hover:bg-muted">Bookings</Link>
-                          <Link to="/messages" onClick={() => setMenuOpen(false)} className="block px-4 py-2 hover:bg-muted">Messages</Link>
-                          <Link to="/notifications" onClick={() => setMenuOpen(false)} className="block px-4 py-2 hover:bg-muted">Notifications</Link>
-                          <Link to="/accountsettings" onClick={() => setMenuOpen(false)} className="block px-4 py-2 hover:bg-muted">Account settings</Link>
-                          <Link to="/ewallet" onClick={() => setMenuOpen(false)} className="block px-4 py-2 hover:bg-muted">E-Wallet</Link>
-                          <Link to="/languages" onClick={() => setMenuOpen(false)} className="block px-4 py-2 hover:bg-muted">Languages & currency</Link>
-                          <Link to="/help" onClick={() => setMenuOpen(false)} className="block px-4 py-2 hover:bg-muted">Help Center</Link>
+                          <Link to="/favorites" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
+                            <Heart className="w-5 h-5" />
+                            Favorites
+                          </Link>
+                          <Link to="/bookings" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
+                            <Calendar className="w-5 h-5" />
+                            Bookings
+                          </Link>
+                          <Link to="/messages" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
+                            <MessageSquare className="w-5 h-5" />
+                            Messages
+                          </Link>
+                          <Link to="/notifications" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
+                            <Bell className="w-5 h-5" />
+                            Notifications
+                          </Link>
+                          <Link to="/accountsettings" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
+                            <Settings className="w-5 h-5" />
+                            Account settings
+                          </Link>
+                          <Link to="/ewallet" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
+                            <Wallet className="w-5 h-5" />
+                            GetPay
+                          </Link>
+                          <Link to="/languages" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
+                            <Globe className="w-5 h-5" />
+                            Languages & currency
+                          </Link>
+                          <Link to="/help" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
+                            <HelpCircle className="w-5 h-5" />
+                            Help Center
+                          </Link>
                           <hr className="my-2 mx-4 border-border" />
-                          <button onClick={() => { handleLogout(); setMenuOpen(false); }} className="w-full text-left px-4 py-2 hover:bg-muted">
+                          <button onClick={() => { handleLogout(); setMenuOpen(false); }} className="flex items-center gap-3 w-full text-left px-4 py-3 hover:bg-muted">
+                            <LogOut className="w-5 h-5" />
                             Logout
                           </button>
                         </>
@@ -606,6 +697,7 @@ const Navigation = () => {
                 </div>
               )}
             </div>
+            )}
           </div>
         </div>
       </nav>

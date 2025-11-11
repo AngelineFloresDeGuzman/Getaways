@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import Navigation from '@/components/Navigation';
 import Footer from '@/components/Footer';
+import Loading from '@/components/Loading';
 import WishlistSection from '@/components/WishlistSection';
 import {
   MapPin, Star, Heart, Share2, Check, X, ArrowLeft, ChevronLeft, ChevronRight
@@ -106,69 +107,43 @@ const AccommodationDetail = () => {
     loadUnavailableDates();
     
     // Set up real-time listener for bookings on this listing
-    // This ensures calendar updates immediately when host confirms/cancels bookings
+    // This ensures calendar updates immediately when bookings change (pending/confirmed/cancelled)
+    // We listen to ALL bookings - getUnavailableDates will filter by status (confirmed/pending)
     let unsubscribe;
     let fallbackInterval;
     
     try {
-      // Try with status filter first (requires composite index) - only confirmed bookings
+      // Listen to all bookings for this listing (no status filter)
+      // This ensures we catch all status changes (pending -> confirmed, confirmed -> cancelled, etc.)
       const bookingsQuery = query(
         collection(db, 'bookings'),
-        where('listingId', '==', id),
-        where('status', '==', 'confirmed')
+        where('listingId', '==', id)
       );
 
       unsubscribe = onSnapshot(
         bookingsQuery,
         (snapshot) => {
           console.log('📅 Bookings snapshot update - docs:', snapshot.docs.length);
-          // When bookings change, reload unavailable dates
-          console.log('📅 Bookings changed, reloading unavailable dates...');
-          loadUnavailableDates();
-        },
-        (error) => {
-          console.error('❌ Error in bookings snapshot (with status filter):', error);
-          console.warn('⚠️ Falling back to listener without status filter');
-          
-          // Fallback: Listen to all bookings for this listing (no status filter)
-          try {
-            const fallbackQuery = query(
-              collection(db, 'bookings'),
-              where('listingId', '==', id)
-            );
-            
-            const fallbackUnsubscribe = onSnapshot(
-              fallbackQuery,
-              (snapshot) => {
-                console.log('📅 Fallback bookings snapshot - docs:', snapshot.docs.length);
-                // Always reload when any booking changes, as status might have changed
-                console.log('📅 Booking data changed, reloading unavailable dates...');
+          // Log all booking statuses for debugging
                 snapshot.docs.forEach(doc => {
                   const booking = doc.data();
-                  console.log(`📅 Booking ${doc.id} status: ${booking.status}`);
+            console.log(`📅 Booking ${doc.id} status: ${booking.status}`, {
+              checkIn: booking.checkInDate?.toDate ? booking.checkInDate.toDate().toISOString().split('T')[0] : 'N/A',
+              checkOut: booking.checkOutDate?.toDate ? booking.checkOutDate.toDate().toISOString().split('T')[0] : 'N/A'
                 });
+          });
+          // When bookings change, reload unavailable dates (will include both confirmed and pending)
+          console.log('📅 Bookings changed, reloading unavailable dates...');
                 loadUnavailableDates();
               },
-              (fallbackError) => {
-                console.error('❌ Error in fallback bookings snapshot:', fallbackError);
-                // Final fallback: periodic refresh
+        (error) => {
+          console.error('❌ Error in bookings snapshot:', error);
+          // Fallback: periodic refresh if real-time listener fails
+          console.warn('⚠️ Real-time listener failed, using periodic refresh');
                 fallbackInterval = setInterval(() => {
                   console.log('📅 Periodic refresh of unavailable dates...');
                   loadUnavailableDates();
                 }, 10000); // Refresh every 10 seconds
-              }
-            );
-            
-            // Store fallback unsubscribe separately
-            unsubscribe = fallbackUnsubscribe;
-          } catch (fallbackSetupError) {
-            console.error('❌ Error setting up fallback listener:', fallbackSetupError);
-            // Final fallback: periodic refresh
-            fallbackInterval = setInterval(() => {
-              console.log('📅 Periodic refresh of unavailable dates...');
-              loadUnavailableDates();
-            }, 10000); // Refresh every 10 seconds
-          }
         }
       );
     } catch (error) {
@@ -663,10 +638,8 @@ const AccommodationDetail = () => {
     return (
       <div className="min-h-screen bg-background">
         <Navigation />
-        <div className="flex items-center justify-center min-h-screen pt-36">
-          <div className="text-center">
-            <p className="text-foreground text-lg">Loading accommodation...</p>
-          </div>
+        <div className="pt-36">
+          <Loading message="Loading accommodation..." />
         </div>
         <Footer />
       </div>
@@ -1033,6 +1006,91 @@ const AccommodationDetail = () => {
                     mode="range"
                     selected={selectedDateRange}
                     onSelect={(range) => {
+                      // If only the first date is selected (from but no to), allow it
+                      // The user is still in the process of selecting a range
+                      if (range?.from && !range?.to) {
+                        setSelectedDateRange(range);
+                        setCheckInDate(range.from);
+                        setCheckOutDate(null);
+                        return;
+                      }
+                      
+                      // If a complete range is selected (both from and to), validate it
+                      if (range?.from && range?.to) {
+                        // Ensure check-in is before check-out
+                        const checkIn = new Date(range.from);
+                        const checkOut = new Date(range.to);
+                        checkIn.setHours(0, 0, 0, 0);
+                        checkOut.setHours(0, 0, 0, 0);
+                        
+                        if (checkIn >= checkOut) {
+                          toast.error('Check-out date must be after check-in date.');
+                          // Keep only the first date selected
+                          setSelectedDateRange({ from: range.from, to: null });
+                          setCheckInDate(range.from);
+                          setCheckOutDate(null);
+                          return;
+                        }
+                        
+                        // Check if the selected range includes any unavailable dates
+                        // Iterate through all dates in the range (check-in to check-out, exclusive of check-out)
+                        let hasUnavailableDate = false;
+                        let unavailableDateFound = null;
+                        
+                        for (let d = new Date(checkIn); d < checkOut; d.setDate(d.getDate() + 1)) {
+                          const dateToCheck = new Date(d);
+                          dateToCheck.setHours(0, 0, 0, 0);
+                          
+                          // Check if this date is in the unavailable dates list
+                          const isUnavailable = unavailableDates.some((unavailableDate) => {
+                            try {
+                              let unavailableDateObj;
+                              if (unavailableDate instanceof Date) {
+                                unavailableDateObj = new Date(unavailableDate);
+                              } else {
+                                unavailableDateObj = new Date(unavailableDate);
+                              }
+                              unavailableDateObj.setHours(0, 0, 0, 0);
+                              
+                              // Compare dates
+                              return unavailableDateObj.getTime() === dateToCheck.getTime();
+                            } catch (error) {
+                              return false;
+                            }
+                          });
+                          
+                          if (isUnavailable) {
+                            hasUnavailableDate = true;
+                            unavailableDateFound = new Date(dateToCheck);
+                            break;
+                          }
+                        }
+                        
+                        if (hasUnavailableDate) {
+                          // Range includes unavailable dates - prevent selection
+                          const dateStr = unavailableDateFound.toLocaleDateString('en-US', { 
+                            month: 'short', 
+                            day: 'numeric', 
+                            year: 'numeric' 
+                          });
+                          toast.error(`Selected date range includes reserved dates (e.g., ${dateStr}). Please choose different dates.`);
+                          // Clear the selection and keep only the first date if it was valid
+                          if (selectedDateRange?.from && selectedDateRange?.to) {
+                            // Revert to previous valid selection
+                            setSelectedDateRange(selectedDateRange);
+                            setCheckInDate(selectedDateRange.from);
+                            setCheckOutDate(selectedDateRange.to);
+                          } else {
+                            // Clear the selection entirely
+                            setSelectedDateRange(null);
+                            setCheckInDate(null);
+                            setCheckOutDate(null);
+                          }
+                          return;
+                        }
+                      }
+                      
+                      // Range is valid - update the selection
                       setSelectedDateRange(range);
                       if (range?.from) {
                         setCheckInDate(range.from);
@@ -1065,20 +1123,25 @@ const AccommodationDetail = () => {
                       cell: "h-10 w-10 text-center text-sm p-0 relative [&:has([aria-selected].day-range-end)]:rounded-r-md [&:has([aria-selected].day-outside)]:bg-accent/50 [&:has([aria-selected])]:bg-accent first:[&:has([aria-selected])]:rounded-l-md last:[&:has([aria-selected])]:rounded-r-md focus-within:relative focus-within:z-20",
                       day: "h-10 w-10 p-0 font-normal rounded-md hover:bg-gray-100 transition-colors aria-selected:opacity-100",
                       day_range_end: "day-range-end rounded-r-md",
-                      day_selected: "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground focus:bg-primary focus:text-primary-foreground font-semibold",
+                      day_selected: "!bg-blue-500 !text-white hover:!bg-blue-600 hover:!text-white focus:!bg-blue-500 focus:!text-white font-semibold",
                       day_today: "bg-blue-50 text-blue-700 font-semibold border-2 border-blue-500",
                       day_outside: "day-outside text-gray-400 opacity-50 aria-selected:bg-accent/50 aria-selected:text-muted-foreground aria-selected:opacity-30",
                       day_disabled: "!bg-amber-200 !text-amber-800 !opacity-75 !cursor-not-allowed hover:!bg-amber-200 !font-medium !border !border-amber-400 !line-through",
-                      day_unavailable: "!bg-red-600 !text-white !line-through !opacity-100 !cursor-not-allowed hover:!bg-red-600 hover:!text-white !font-bold !border-2 !border-red-800 !shadow-lg !relative !z-10",
-                      day_range_middle: "aria-selected:bg-primary/20 aria-selected:text-primary-foreground rounded-none",
+                      day_unavailable: "!bg-red-600 !text-white !line-through !opacity-100 !cursor-not-allowed hover:!bg-red-700 hover:!text-white !font-bold !border-2 !border-red-800 !shadow-lg !relative !z-10",
+                      day_range_middle: "aria-selected:!bg-blue-200 aria-selected:!text-blue-900 rounded-none",
                       day_hidden: "invisible"
                     }}
                     modifiers={{
                       unavailable: unavailableDates.map(d => {
+                        let dateObj;
                         if (d instanceof Date) {
-                          return d;
+                          dateObj = new Date(d);
+                        } else {
+                          dateObj = new Date(d);
                         }
-                        return new Date(d);
+                        // Normalize to midnight in local timezone for accurate comparison
+                        dateObj.setHours(0, 0, 0, 0);
+                        return dateObj;
                       })
                     }}
                     components={{
@@ -1088,29 +1151,42 @@ const AccommodationDetail = () => {
                     disabled={(date) => {
                       const dateToCheck = new Date(date);
                       dateToCheck.setHours(0, 0, 0, 0);
-                      const dateStr = dateToCheck.toISOString().split('T')[0];
+                      
+                      // Use local date string for consistent comparison (avoid timezone issues)
+                      const year = dateToCheck.getFullYear();
+                      const month = String(dateToCheck.getMonth() + 1).padStart(2, '0');
+                      const day = String(dateToCheck.getDate()).padStart(2, '0');
+                      const dateStr = `${year}-${month}-${day}`;
                       
                       // Check if date is in the past
                       const today = new Date();
                       today.setHours(0, 0, 0, 0);
                       const isPast = dateToCheck < today;
                       
-                      // Check if date is unavailable (booked)
+                      // Check if date is unavailable (booked - confirmed or pending)
                       let isUnavailable = false;
                       if (unavailableDates.length > 0) {
                         isUnavailable = unavailableDates.some((unavailableDate) => {
                           try {
-                            let unavailableStr;
+                            let unavailableDateObj;
                             if (unavailableDate instanceof Date) {
-                              unavailableStr = unavailableDate.toISOString().split('T')[0];
+                              unavailableDateObj = new Date(unavailableDate);
                             } else if (typeof unavailableDate === 'string') {
-                              unavailableStr = unavailableDate.split('T')[0];
+                              unavailableDateObj = new Date(unavailableDate);
                             } else {
-                              const tempDate = new Date(unavailableDate);
-                              unavailableStr = tempDate.toISOString().split('T')[0];
+                              unavailableDateObj = new Date(unavailableDate);
                             }
+                            unavailableDateObj.setHours(0, 0, 0, 0);
+                            
+                            // Use local date string for comparison (match getUnavailableDates format)
+                            const unavailableYear = unavailableDateObj.getFullYear();
+                            const unavailableMonth = String(unavailableDateObj.getMonth() + 1).padStart(2, '0');
+                            const unavailableDay = String(unavailableDateObj.getDate()).padStart(2, '0');
+                            const unavailableStr = `${unavailableYear}-${unavailableMonth}-${unavailableDay}`;
+                            
                             return dateStr === unavailableStr;
                           } catch (error) {
+                            console.warn('Error comparing unavailable date:', error);
                             return false;
                           }
                         });
@@ -1122,7 +1198,8 @@ const AccommodationDetail = () => {
                     }}
                     modifiersClassNames={{
                       unavailable: "!bg-red-600 !text-white !line-through !opacity-100 !cursor-not-allowed hover:!bg-red-700 hover:!text-white !font-bold !border-2 !border-red-800 !shadow-lg !relative !z-20",
-                      selected: "bg-primary text-white",
+                      selected: "!bg-blue-500 !text-white hover:!bg-blue-600 !font-semibold",
+                      range_middle: "!bg-blue-200 !text-blue-900",
                       today: "bg-blue-50 text-blue-700 border-2 border-blue-500"
                     }}
                   />

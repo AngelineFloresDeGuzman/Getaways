@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { auth, db } from "@/lib/firebase";
 import { doc, updateDoc } from "firebase/firestore";
 import { verifyToken } from "@/lib/emailService";
-import { CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { CheckCircle, XCircle } from "lucide-react";
+import Loading from "@/components/Loading";
 
 const VerifyEmail = () => {
   const [status, setStatus] = useState("verifying");
@@ -54,11 +55,9 @@ const VerifyEmail = () => {
     switch (status) {
       case "verifying":
         return (
-          <>
-            <Loader2 className="animate-spin text-primary mx-auto mb-6" size={60} />
-            <h1 className="text-3xl font-bold text-primary mb-4">Verifying your email...</h1>
-            <p className="text-gray-700 text-lg">Please wait a moment while we confirm your verification.</p>
-          </>
+          <div className="flex flex-col items-center">
+            <Loading message="Verifying your email..." size="large" />
+          </div>
         );
       case "success":
         return (

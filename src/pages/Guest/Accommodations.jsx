@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import Navigation from '@/components/Navigation';
 import Footer from '@/components/Footer';
+import Loading from '@/components/Loading';
 import { Search, MapPin, Calendar, Users, Filter, Share2, Star, X } from 'lucide-react';
 import FavoriteButton from '@/components/FavoriteButton';
 import SearchBar from '@/components/SearchBar';
@@ -399,9 +400,7 @@ const Accommodations = () => {
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-8">
                         {loading ? (
-                            <div className="text-center py-12">
-                                <p className="text-muted-foreground">Loading accommodations...</p>
-                            </div>
+                            <Loading message="Loading accommodations..." size="default" />
                         ) : accommodations.length === 0 ? (
                             <div className="text-center py-12">
                                 <p className="text-muted-foreground">No accommodations available yet.</p>

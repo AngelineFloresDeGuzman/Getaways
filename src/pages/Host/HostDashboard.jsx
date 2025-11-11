@@ -11,7 +11,7 @@ import { doc, getDoc, setDoc, collection, addDoc, query, where, getDocs, orderBy
 import {
   Home, Calendar as CalendarIcon, MessageSquare, DollarSign, Plus,
   TrendingUp, Eye, Star, Users, Clock, MapPin, Camera,
-  Bed, Bath, Edit, Check, X, EyeOff, Trash2, User, Award
+  Bed, Bath, Edit, Check, X, EyeOff, Trash2, User, Award, Send, Wallet
 } from 'lucide-react';
 
 import { Home as HomeIcon, Grid, List } from 'lucide-react';
@@ -59,24 +59,68 @@ const HostDashboard = () => {
   const [hostPoints, setHostPoints] = useState(0); // Host points
   const [pointsHistory, setPointsHistory] = useState([]); // Points history
   const [showPointsHistoryModal, setShowPointsHistoryModal] = useState(false); // Points history modal
+  const [showCashOutPointsModal, setShowCashOutPointsModal] = useState(false); // Cash out points modal
+  const [cashOutPointsAmount, setCashOutPointsAmount] = useState(''); // Points to cash out
+  const [isProcessingCashOut, setIsProcessingCashOut] = useState(false); // Cash out processing state
+  const [earningsHistory, setEarningsHistory] = useState([]); // Earnings history from wallet
+  const [showEarningsHistoryModal, setShowEarningsHistoryModal] = useState(false); // Earnings history modal
+  const [totalEarningsFromWallet, setTotalEarningsFromWallet] = useState(0); // Total earnings from wallet transactions
+  const [isLoadingEarningsHistory, setIsLoadingEarningsHistory] = useState(false);
 
   // Calculate stats (will update when bookings/listings change)
   const totalBookings = bookings.length;
-  const totalEarnings = bookings
-    .filter(b => b.status === 'completed')
-    .reduce((sum, b) => sum + (b.totalPrice || 0), 0);
+  // Use earnings from wallet transactions (released by admin) instead of calculating from bookings
+  const totalEarnings = totalEarningsFromWallet;
 
-  // Points to currency conversion rate (100 points = ₱1)
-  const POINTS_TO_CURRENCY_RATE = 100;
+  // Points to currency conversion rate (10 points = ₱1)
+  const POINTS_TO_CURRENCY_RATE = 10;
   const pointsCurrencyValue = (hostPoints / POINTS_TO_CURRENCY_RATE).toFixed(2);
 
   // ...existing code...
   const stats = [
-    { icon: Home, label: "Active Listings", value: listings.length.toString(), change: "" },
-    { icon: CalendarIcon, label: "Bookings", value: totalBookings.toString(), change: "" },
-    { icon: DollarSign, label: "Earnings", value: `₱${totalEarnings.toLocaleString()}`, change: "" },
-    { icon: Award, label: "Points", value: hostPoints.toLocaleString(), change: `≈ ₱${parseFloat(pointsCurrencyValue).toLocaleString()}`, clickable: true }
+    { icon: Home, label: "Active Listings", value: listings.length.toString(), change: "", clickable: false, type: 'listings' },
+    { icon: CalendarIcon, label: "Bookings", value: totalBookings.toString(), change: "", clickable: false, type: 'bookings' },
+    { icon: DollarSign, label: "Earnings", value: `₱${totalEarnings.toLocaleString()}`, change: "Released by admin", clickable: true, type: 'earnings' },
+    { icon: Award, label: "Points", value: hostPoints.toLocaleString(), change: `≈ ₱${parseFloat(pointsCurrencyValue).toLocaleString()}`, clickable: true, type: 'points' }
   ];
+
+  // Load earnings history from wallet transactions
+  const loadEarningsHistory = async (userId) => {
+    try {
+      setIsLoadingEarningsHistory(true);
+      const { getWalletTransactions } = await import('@/pages/Common/services/getpayService');
+      const transactions = await getWalletTransactions(userId, 1000); // Get more transactions to filter
+      
+      console.log(`💰 Loaded ${transactions.length} total transactions for host ${userId}`);
+      
+      // Filter for host earnings transactions (type: 'credit' with paymentType: 'host_earnings')
+      const earningsTransactions = transactions.filter(t => {
+        const isCredit = t.type === 'credit';
+        const isHostEarnings = t.metadata?.paymentType === 'host_earnings';
+        return isCredit && isHostEarnings;
+      });
+      
+      console.log(`✅ Found ${earningsTransactions.length} earnings transactions`);
+      
+      // Sort by date (newest first)
+      earningsTransactions.sort((a, b) => {
+        const dateA = a.date instanceof Date ? a.date : new Date(a.date);
+        const dateB = b.date instanceof Date ? b.date : new Date(b.date);
+        return dateB - dateA;
+      });
+      
+      // Calculate total earnings
+      const total = earningsTransactions.reduce((sum, t) => sum + (t.amount || 0), 0);
+      setTotalEarningsFromWallet(total);
+      setEarningsHistory(earningsTransactions);
+    } catch (error) {
+      console.error('❌ Error loading earnings history:', error);
+      setEarningsHistory([]);
+      setTotalEarningsFromWallet(0);
+    } finally {
+      setIsLoadingEarningsHistory(false);
+    }
+  };
 
   // Load user profile data
   const loadUserProfile = async (userId) => {
@@ -87,6 +131,9 @@ const HostDashboard = () => {
         setUserProfile(userData);
         setHostPoints(userData.points || 0);
         setPointsHistory(userData.pointsHistory || []);
+
+        // Load earnings history from wallet transactions
+        await loadEarningsHistory(userId);
 
         // Check and award birthday points if today is birthday
         if (userData.birthday) {
@@ -659,18 +706,15 @@ const HostDashboard = () => {
         updatedAt: serverTimestamp()
       });
 
-      // Award points when booking is confirmed (only if status changed to confirmed)
-      if (newStatus === 'confirmed' && previousStatus !== 'confirmed') {
-        try {
-          const { awardPointsForBookingConfirmed, awardMilestonePoints } = await import('@/pages/Host/services/pointsService');
-          const bookingAmount = bookingData.totalPrice || bookingData.price || 0;
-          await awardPointsForBookingConfirmed(auth.currentUser.uid, bookingAmount, bookingId);
-          
-          // Check for booking milestones
-          const confirmedBookings = bookings.filter(b => b.status === 'confirmed').length + 1; // +1 for the one just confirmed
-          if ([10, 25, 50, 100, 250].includes(confirmedBookings)) {
-            await awardMilestonePoints(auth.currentUser.uid, 'bookings', confirmedBookings);
-          }
+      // NOTE: Points for booking confirmations have been removed
+      // NOTE: Payment handling is done separately - admin releases earnings after booking completion
+      // NOTE: Host earnings are NOT automatically added when booking is confirmed
+      // Admin will manually release earnings to host's GetPay wallet after booking is completed
+      // Payment has already been received by admin when guest made the booking
+      // Host will receive bookingAmount (not totalPrice) when admin releases earnings after completion
+      // Guest paid: bookingAmount + guestFee → Admin's GetPay wallet
+      // Admin releases: bookingAmount → Host's GetPay wallet (after booking completion)
+      // Admin keeps: guestFee
 
           // Increment coupon usage if a coupon was used
           if (bookingData.couponId || bookingData.couponCode) {
@@ -684,11 +728,6 @@ const HostDashboard = () => {
             } catch (couponError) {
               console.error('Error incrementing coupon usage:', couponError);
               // Don't block booking update if coupon increment fails
-            }
-          }
-        } catch (pointsError) {
-          console.error('Error awarding points for booking:', pointsError);
-          // Don't block booking update if points fail
         }
       }
 
@@ -764,8 +803,42 @@ const HostDashboard = () => {
         updatedAt: serverTimestamp()
       });
       
+      // Deduct points/value for unpublished listing
+      let deductionResult = null;
+      try {
+        const { deductPointsForUnpublishedListing } = await import('@/pages/Host/services/pointsService');
+        console.log('🔍 Calling deductPointsForUnpublishedListing for listing:', listingToUnpublish.id);
+        deductionResult = await deductPointsForUnpublishedListing(auth.currentUser.uid, listingToUnpublish.id);
+        console.log('📊 Deduction result:', deductionResult);
+        
+        if (deductionResult.success) {
+          if (deductionResult.pointsDeducted > 0 || deductionResult.walletDeducted > 0) {
+            console.log('✅ Points/wallet deducted for unpublished listing:', deductionResult);
+            if (deductionResult.remainingDebt > 0) {
+              toast.success(`Listing unpublished. ₱${deductionResult.totalDeducted} deducted. ₱${deductionResult.remainingDebt} will be deducted from future credits.`);
+            } else {
+              toast.success(`Listing unpublished. ${deductionResult.pointsDeducted > 0 ? `${deductionResult.pointsDeducted} points` : ''} ${deductionResult.walletDeducted > 0 ? `₱${deductionResult.walletDeducted}` : ''} deducted.`);
+            }
+          } else if (deductionResult.message) {
+            // Show the message from the deduction function
+            console.log('ℹ️ Deduction info:', deductionResult.message);
+            toast.info(deductionResult.message || 'Listing unpublished successfully');
+          } else {
       console.log('✅ Listing unpublished successfully');
       toast.success('Listing unpublished successfully');
+          }
+        } else {
+          console.error('❌ Points deduction failed:', deductionResult.error);
+          toast.warning(`Listing unpublished, but points deduction failed: ${deductionResult.error}`);
+        }
+      } catch (pointsError) {
+        console.error('❌ Error deducting points for unpublished listing:', pointsError);
+        console.error('Error stack:', pointsError.stack);
+        toast.error(`Listing unpublished, but points deduction error: ${pointsError.message}`);
+        // Don't fail unpublish if points deduction fails
+      }
+      
+      console.log('✅ Listing unpublished successfully');
       
       // Reload listings and unpublished listings to update the UI
       await loadListings();
@@ -800,8 +873,32 @@ const HostDashboard = () => {
         updatedAt: serverTimestamp()
       });
       
+      // Restore points/value for republished listing
+      let restoreResult = null;
+      try {
+        const { restorePointsForRepublishedListing } = await import('@/pages/Host/services/pointsService');
+        restoreResult = await restorePointsForRepublishedListing(auth.currentUser.uid, listing.id);
+        
+        if (restoreResult.success) {
+          if (restoreResult.restored) {
+            console.log('✅ Points restored for republished listing:', restoreResult);
+            toast.success(`Listing republished. ${restoreResult.pointsRestored} points restored.`);
+          } else {
       console.log('✅ Listing republished successfully');
       toast.success('Listing republished successfully');
+          }
+        } else {
+          console.log('✅ Listing republished successfully');
+          toast.success('Listing republished successfully');
+        }
+      } catch (pointsError) {
+        console.error('Error restoring points for republished listing:', pointsError);
+        console.log('✅ Listing republished successfully');
+        toast.success('Listing republished successfully');
+        // Don't fail republish if points restoration fails
+      }
+      
+      console.log('✅ Listing republished successfully');
       
       // Reload listings and unpublished listings to update the UI
       await loadListings();
@@ -1033,7 +1130,20 @@ const HostDashboard = () => {
                 key={index}
                 className={`card-listing p-6 animate-slide-up ${stat.clickable ? 'cursor-pointer hover:shadow-lg transition-shadow' : ''}`}
                 style={{ animationDelay: `${index * 100}ms` }}
-                onClick={() => stat.clickable && setShowPointsHistoryModal(true)}
+                onClick={() => {
+                  if (stat.clickable) {
+                    if (stat.type === 'points') {
+                      console.log('Opening points history modal, current points:', hostPoints, 'pointsHistory:', pointsHistory);
+                      setShowPointsHistoryModal(true);
+                    } else if (stat.type === 'earnings') {
+                      setShowEarningsHistoryModal(true);
+                      // Reload earnings history when modal opens
+                      if (user?.uid) {
+                        loadEarningsHistory(user.uid);
+                      }
+                    }
+                  }
+                }}
               >
                 <div className="flex items-center justify-between mb-4">
                   <div className="w-12 h-12 bg-primary/10 rounded-2xl flex items-center justify-center">
@@ -1091,7 +1201,7 @@ const HostDashboard = () => {
                       {todayBookings.map((booking) => {
                         const listing = listings.find(l => l.id === booking.listingId);
                     return (
-                          <div key={booking.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                          <div key={booking.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer" onClick={() => navigate(`/bookings/${booking.id}`)}>
                             <div className="flex items-start gap-3">
                               {listing?.mainImage && (
                               <img 
@@ -1102,9 +1212,19 @@ const HostDashboard = () => {
                               )}
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 mb-1">
-                                  <h4 className="font-semibold text-foreground text-sm line-clamp-1">
+                                  <h4 className="font-semibold text-foreground text-sm line-clamp-1 flex-1">
                                     {listing?.title || `Listing ${booking.listingId}`}
                                   </h4>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      navigate(`/${listing?.category || 'accommodation'}s/${booking.listingId}`);
+                                    }}
+                                    className="p-1 hover:bg-gray-100 rounded-full transition-colors flex-shrink-0"
+                                    title="View Listing"
+                                  >
+                                    <Home className="w-3 h-3 text-muted-foreground hover:text-primary" />
+                                  </button>
                                   <span className={`px-2 py-0.5 rounded-full text-xs font-medium flex-shrink-0 ${
                                     booking.status === 'confirmed' ? 'bg-green-100 text-green-700' :
                                     booking.status === 'completed' ? 'bg-blue-100 text-blue-700' :
@@ -1132,7 +1252,10 @@ const HostDashboard = () => {
                                   {booking.status === 'pending' && (
                               <button 
                                       className="btn-primary px-3 py-1 text-xs font-medium"
-                                      onClick={() => handleUpdateBookingStatus(booking.id, 'confirmed')}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleUpdateBookingStatus(booking.id, 'confirmed');
+                                      }}
                               >
                                       Confirm
                               </button>
@@ -1163,7 +1286,7 @@ const HostDashboard = () => {
                       {upcomingBookings.slice(0, 5).map((booking) => {
                         const listing = listings.find(l => l.id === booking.listingId);
                         return (
-                          <div key={booking.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                          <div key={booking.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer" onClick={() => navigate(`/bookings/${booking.id}`)}>
                             <div className="flex items-start gap-3">
                               {listing?.mainImage && (
                               <img 
@@ -1174,9 +1297,19 @@ const HostDashboard = () => {
                               )}
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 mb-1">
-                                  <h4 className="font-semibold text-foreground text-sm line-clamp-1">
+                                  <h4 className="font-semibold text-foreground text-sm line-clamp-1 flex-1">
                                     {listing?.title || `Listing ${booking.listingId}`}
                                   </h4>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      navigate(`/${listing?.category || 'accommodation'}s/${booking.listingId}`);
+                                    }}
+                                    className="p-1 hover:bg-gray-100 rounded-full transition-colors flex-shrink-0"
+                                    title="View Listing"
+                                  >
+                                    <Home className="w-3 h-3 text-muted-foreground hover:text-primary" />
+                                  </button>
                                   <span className={`px-2 py-0.5 rounded-full text-xs font-medium flex-shrink-0 ${
                                     booking.status === 'confirmed' ? 'bg-green-100 text-green-700' :
                                     booking.status === 'completed' ? 'bg-blue-100 text-blue-700' :
@@ -1197,14 +1330,17 @@ const HostDashboard = () => {
                                   <div className="flex items-center gap-1">
                                     <Users className="w-3 h-3" />
                                     <span>{booking.guests || 1}</span>
-                          </div>
                             </div>
+                          </div>
                                 <div className="mt-2 flex items-center justify-between">
                                   <span className="text-sm font-bold text-foreground">₱{(booking.totalPrice || 0).toLocaleString()}</span>
                                   {booking.status === 'pending' && (
                                     <button
                                       className="btn-primary px-3 py-1 text-xs font-medium"
-                                      onClick={() => handleUpdateBookingStatus(booking.id, 'confirmed')}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleUpdateBookingStatus(booking.id, 'confirmed');
+                                      }}
                                     >
                                       Confirm
                                     </button>
@@ -1302,7 +1438,7 @@ const HostDashboard = () => {
                     const listing = listings.find(l => l.id === booking.listingId);
                     
                     return (
-                      <div key={booking.id} className="card-listing hover-lift border border-gray-200 rounded-lg overflow-hidden">
+                      <div key={booking.id} className="card-listing hover-lift border border-gray-200 rounded-lg overflow-hidden cursor-pointer" onClick={() => navigate(`/bookings/${booking.id}`)}>
                         {/* Image */}
                         <div className="relative w-full overflow-hidden rounded-t-2xl aspect-[4/3]">
                           {listing?.mainImage ? (
@@ -1330,9 +1466,21 @@ const HostDashboard = () => {
                         
                         {/* Content */}
                       <div className="p-4">
-                          <h3 className="font-heading text-lg font-semibold text-foreground mb-1 line-clamp-1">
-                            {listing?.title || `Listing ${booking.listingId}`}
-                          </h3>
+                          <div className="flex items-start justify-between mb-1">
+                            <h3 className="font-heading text-lg font-semibold text-foreground line-clamp-1 flex-1">
+                              {listing?.title || `Listing ${booking.listingId}`}
+                            </h3>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(`/${listing?.category || 'accommodation'}s/${booking.listingId}`);
+                              }}
+                              className="p-1.5 hover:bg-gray-100 rounded-full transition-colors ml-2 flex-shrink-0"
+                              title="View Listing"
+                            >
+                              <Home className="w-4 h-4 text-muted-foreground hover:text-primary" />
+                            </button>
+                          </div>
                           <p className="text-sm text-muted-foreground mb-3 line-clamp-1">
                             {booking.guestEmail || 'Guest'}
                           </p>
@@ -1361,16 +1509,22 @@ const HostDashboard = () => {
 
                           {/* Actions */}
                           {booking.status === 'pending' && (
-                            <div className="flex gap-2">
+                            <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
                           <button 
                                 className="btn-primary flex-1 px-4 py-2 text-sm font-medium"
-                                onClick={() => handleUpdateBookingStatus(booking.id, 'confirmed')}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleUpdateBookingStatus(booking.id, 'confirmed');
+                                }}
                           >
                                 Confirm
                           </button>
                           <button 
                                 className="btn-outline flex-1 px-4 py-2 text-sm font-medium text-red-600 hover:text-red-700 hover:border-red-300"
-                                onClick={() => handleUpdateBookingStatus(booking.id, 'cancelled')}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleUpdateBookingStatus(booking.id, 'cancelled');
+                                }}
                               >
                                 Decline
                           </button>
@@ -1379,7 +1533,10 @@ const HostDashboard = () => {
                           {booking.status === 'confirmed' && (
                           <button 
                               className="btn-outline w-full px-4 py-2 text-sm font-medium"
-                              onClick={() => handleUpdateBookingStatus(booking.id, 'completed')}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleUpdateBookingStatus(booking.id, 'completed');
+                              }}
                           >
                               Mark Complete
                           </button>
@@ -1422,7 +1579,7 @@ const HostDashboard = () => {
                     const listing = listings.find(l => l.id === booking.listingId);
                     
                     return (
-                  <div key={booking.id} className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow">
+                  <div key={booking.id} className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow cursor-pointer" onClick={() => navigate(`/bookings/${booking.id}`)}>
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
                         <div className="flex items-center gap-3 mb-3">
@@ -1431,6 +1588,16 @@ const HostDashboard = () => {
                               <span className="font-heading text-lg font-semibold text-foreground">
                                 {booking.guestEmail || 'Guest'}
                               </span>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigate(`/${listing?.category || 'accommodation'}s/${booking.listingId}`);
+                                }}
+                                className="p-1.5 hover:bg-gray-100 rounded-full transition-colors"
+                                title="View Listing"
+                              >
+                                <Home className="w-4 h-4 text-muted-foreground hover:text-primary" />
+                              </button>
                               <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                                 booking.status === 'confirmed' ? 'bg-green-100 text-green-700' :
                                 booking.status === 'completed' ? 'bg-blue-100 text-blue-700' :
@@ -1459,7 +1626,7 @@ const HostDashboard = () => {
                             </div>
                           </div>
                         </div>
-                        <div className="mt-3 pt-3 border-t border-gray-100">
+                        <div className="mt-3 pt-3 border-t border-gray-100" onClick={(e) => e.stopPropagation()}>
                               <div className="flex items-center justify-between mb-3">
                             <span className="text-sm text-muted-foreground">Total Price:</span>
                             <span className="font-heading text-xl font-bold text-foreground">
@@ -1468,7 +1635,8 @@ const HostDashboard = () => {
                           </div>
                               {booking.guestId && (
                                 <button
-                                  onClick={async () => {
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
                                     try {
                                       const conversationId = await startConversationFromHost(
                                         booking.guestId,
@@ -1488,18 +1656,24 @@ const HostDashboard = () => {
                               )}
                         </div>
                       </div>
-                      <div className="ml-4 flex flex-col gap-2">
+                      <div className="ml-4 flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
                         {booking.status === 'pending' && (
                           <>
                             <button
                               className="btn-primary px-4 py-2 text-sm font-medium"
-                              onClick={() => handleUpdateBookingStatus(booking.id, 'confirmed')}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleUpdateBookingStatus(booking.id, 'confirmed');
+                              }}
                             >
                               Confirm
                             </button>
                             <button
                               className="btn-outline px-4 py-2 text-sm font-medium text-red-600 hover:text-red-700 hover:border-red-300"
-                              onClick={() => handleUpdateBookingStatus(booking.id, 'cancelled')}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleUpdateBookingStatus(booking.id, 'cancelled');
+                              }}
                             >
                               Decline
                             </button>
@@ -1508,7 +1682,10 @@ const HostDashboard = () => {
                         {booking.status === 'confirmed' && (
                           <button
                             className="btn-outline px-4 py-2 text-sm font-medium"
-                            onClick={() => handleUpdateBookingStatus(booking.id, 'completed')}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleUpdateBookingStatus(booking.id, 'completed');
+                            }}
                           >
                             Mark Complete
                           </button>
@@ -1522,9 +1699,9 @@ const HostDashboard = () => {
                       </div>
                     </div>
                   </div>
-                    );
+                );
                   })}
-              </div>
+                </div>
               )}
             </div>
           </div>
@@ -1546,12 +1723,34 @@ const HostDashboard = () => {
 
       {/* Points History Modal */}
       <AlertDialog open={showPointsHistoryModal} onOpenChange={setShowPointsHistoryModal}>
-        <AlertDialogContent className="bg-white max-w-2xl max-h-[80vh] overflow-y-auto">
+        <AlertDialogContent className="bg-white max-w-2xl max-h-[80vh]">
+          <div className="relative">
+            <button
+              onClick={() => setShowPointsHistoryModal(false)}
+              className="absolute -right-2 -top-2 rounded-sm opacity-70 hover:opacity-100 transition-opacity focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 p-1 z-10 bg-white shadow-md"
+            >
+              <X className="h-5 w-5 text-gray-600" />
+              <span className="sr-only">Close</span>
+            </button>
           <AlertDialogHeader>
+              <div className="flex items-center justify-between mb-2">
             <AlertDialogTitle className="text-gray-900 flex items-center gap-2">
               <Award className="w-5 h-5 text-primary" />
               Points History
             </AlertDialogTitle>
+                {hostPoints > 0 && (
+                  <button
+                    onClick={() => {
+                      setShowPointsHistoryModal(false);
+                      setShowCashOutPointsModal(true);
+                    }}
+                    className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors font-medium flex items-center justify-center gap-2 text-sm"
+                  >
+                    <Wallet className="w-4 h-4" />
+                    Cash Out
+                  </button>
+                )}
+              </div>
             <AlertDialogDescription className="text-gray-600">
               Total Points: <span className="font-bold text-primary">{hostPoints.toLocaleString()}</span>
               <span className="ml-2 text-gray-500">
@@ -1560,7 +1759,8 @@ const HostDashboard = () => {
             </AlertDialogDescription>
           </AlertDialogHeader>
           
-          <div className="mt-4 space-y-3">
+            <div className="overflow-y-auto max-h-[60vh] mt-4">
+              <div className="space-y-3">
             {pointsHistory && pointsHistory.length > 0 ? (
               pointsHistory.map((entry, index) => {
                 const timestamp = entry.timestamp?.toDate ? entry.timestamp.toDate() : 
@@ -1617,15 +1817,242 @@ const HostDashboard = () => {
                 <Award className="w-12 h-12 text-gray-300 mx-auto mb-3" />
                 <p className="text-gray-500">No points history yet.</p>
                 <p className="text-sm text-gray-400 mt-2">Points will appear here when you earn them!</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Cash Out Points Modal */}
+      <AlertDialog open={showCashOutPointsModal} onOpenChange={setShowCashOutPointsModal}>
+        <AlertDialogContent className="bg-white max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-gray-900 flex items-center gap-2">
+              <Wallet className="w-5 h-5 text-primary" />
+              Cash Out Points to GetPay Wallet
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-gray-600">
+              Convert your points to currency and add to your GetPay wallet.
+              <br />
+              <span className="text-sm font-medium mt-2 block">
+                Conversion Rate: 10 points = ₱1
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          
+          <div className="mt-4 space-y-4">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <p className="text-sm text-blue-900 font-medium">
+                Available Points: {hostPoints.toLocaleString()} points
+              </p>
+              <p className="text-xs text-blue-700 mt-1">
+                Value: ≈ ₱{parseFloat(pointsCurrencyValue).toLocaleString()}
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Points to Cash Out
+              </label>
+              <input
+                type="number"
+                value={cashOutPointsAmount}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  if (value === '' || (parseInt(value) >= 0 && parseInt(value) <= hostPoints)) {
+                    setCashOutPointsAmount(value);
+                  }
+                }}
+                placeholder="Enter points amount"
+                min="1"
+                max={hostPoints}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                disabled={isProcessingCashOut}
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Maximum: {hostPoints.toLocaleString()} points
+              </p>
+              {cashOutPointsAmount && !isNaN(parseInt(cashOutPointsAmount)) && (
+                <p className="text-sm text-gray-700 mt-2">
+                  Will receive: ₱{((parseInt(cashOutPointsAmount) || 0) / POINTS_TO_CURRENCY_RATE).toFixed(2)}
+                </p>
+              )}
+            </div>
+
+            {isProcessingCashOut && (
+              <div className="text-center py-2">
+                <div className="animate-spin rounded-full h-6 w-6 border-2 border-primary border-t-transparent mx-auto"></div>
+                <p className="text-sm text-gray-600 mt-2">Processing cash out...</p>
               </div>
             )}
           </div>
           
           <AlertDialogFooter>
-            <AlertDialogAction onClick={() => setShowPointsHistoryModal(false)}>
-              Close
+            <AlertDialogCancel 
+              onClick={() => {
+                setShowCashOutPointsModal(false);
+                setCashOutPointsAmount('');
+              }}
+              disabled={isProcessingCashOut}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                if (!cashOutPointsAmount || isNaN(parseInt(cashOutPointsAmount)) || parseInt(cashOutPointsAmount) <= 0) {
+                  toast.error('Please enter a valid points amount');
+                  return;
+                }
+
+                const points = parseInt(cashOutPointsAmount);
+                if (points > hostPoints) {
+                  toast.error(`You only have ${hostPoints.toLocaleString()} points`);
+                  return;
+                }
+
+                if (points < 10) {
+                  toast.error('Minimum cash out is 10 points (₱1)');
+                  return;
+                }
+
+                setIsProcessingCashOut(true);
+                try {
+                  const { cashOutPoints } = await import('@/pages/Host/services/pointsService');
+                  const result = await cashOutPoints(auth.currentUser.uid, points);
+
+                  if (result.success) {
+                    toast.success(`Successfully cashed out ${points.toLocaleString()} points (₱${result.currencyAmount.toFixed(2)}) to your GetPay wallet!`);
+                    setShowCashOutPointsModal(false);
+                    setCashOutPointsAmount('');
+                    
+                    // Reload points data
+                    const { getHostPoints } = await import('@/pages/Host/services/pointsService');
+                    const pointsData = await getHostPoints(auth.currentUser.uid);
+                    setHostPoints(pointsData.points || 0);
+                    setPointsHistory(pointsData.pointsHistory || []);
+                  } else {
+                    toast.error(result.error || 'Failed to cash out points');
+                  }
+                } catch (error) {
+                  console.error('Error cashing out points:', error);
+                  toast.error('Failed to cash out points: ' + error.message);
+                } finally {
+                  setIsProcessingCashOut(false);
+                }
+              }}
+              disabled={isProcessingCashOut || !cashOutPointsAmount || isNaN(parseInt(cashOutPointsAmount)) || parseInt(cashOutPointsAmount) <= 0 || parseInt(cashOutPointsAmount) > hostPoints}
+              className="bg-primary text-white hover:bg-primary/90"
+            >
+              Cash Out
             </AlertDialogAction>
           </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Earnings History Modal */}
+      <AlertDialog open={showEarningsHistoryModal} onOpenChange={setShowEarningsHistoryModal}>
+        <AlertDialogContent className="bg-white max-w-4xl max-h-[80vh]">
+          <div className="relative">
+            <button
+              onClick={() => setShowEarningsHistoryModal(false)}
+              className="absolute -right-2 -top-2 rounded-sm opacity-70 hover:opacity-100 transition-opacity focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 p-1 z-10 bg-white shadow-md"
+            >
+              <X className="h-5 w-5 text-gray-600" />
+              <span className="sr-only">Close</span>
+            </button>
+            <AlertDialogHeader>
+              <AlertDialogTitle className="text-gray-900 flex items-center gap-2">
+                <Send className="w-5 h-5 text-green-600" />
+                Earnings History
+              </AlertDialogTitle>
+              <AlertDialogDescription className="text-gray-600">
+                Total Earnings: <span className="font-bold text-green-600">₱{totalEarnings.toLocaleString()}</span>
+                <span className="ml-4">Total Releases: <span className="font-bold">{earningsHistory.length}</span></span>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            
+            <div className="overflow-y-auto max-h-[60vh] mt-4">
+              <div className="space-y-3">
+                {isLoadingEarningsHistory ? (
+                  <div className="text-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-3 border-primary border-t-transparent mx-auto mb-3"></div>
+                    <p className="text-gray-500">Loading earnings history...</p>
+                  </div>
+                ) : earningsHistory && earningsHistory.length > 0 ? (
+                  earningsHistory.map((transaction, index) => {
+                    const timestamp = transaction.date instanceof Date ? transaction.date : new Date(transaction.date);
+                    const formattedDate = timestamp.toLocaleDateString('en-US', { 
+                      year: 'numeric', 
+                      month: 'short', 
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    });
+                    
+                    const metadata = transaction.metadata || {};
+                    const bookingId = metadata.bookingId || 'N/A';
+                    const listingTitle = metadata.listingTitle || 'Unknown Listing';
+                    const guestEmail = metadata.guestEmail || 'Unknown';
+                    const checkInDate = metadata.checkInDate ? new Date(metadata.checkInDate).toLocaleDateString() : 'N/A';
+                    const checkOutDate = metadata.checkOutDate ? new Date(metadata.checkOutDate).toLocaleDateString() : 'N/A';
+                    
+                    return (
+                      <div
+                        key={transaction.id || index}
+                        className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors"
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-2">
+                              <span className="font-semibold text-lg text-green-600">
+                                +₱{(transaction.amount || 0).toLocaleString()}
+                              </span>
+                              <span className="text-sm text-gray-500">
+                                (Balance: ₱{(transaction.balanceAfter || 0).toLocaleString()})
+                              </span>
+                            </div>
+                            <p className="text-gray-700 font-medium mb-1">{transaction.description || 'Earnings from Booking'}</p>
+                            <div className="space-y-1 mt-2">
+                              <p className="text-sm text-gray-600">
+                                <span className="font-medium">Listing:</span> {listingTitle}
+                              </p>
+                              <p className="text-sm text-gray-600">
+                                <span className="font-medium">Guest:</span> {guestEmail}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                Check-in: {checkInDate} - Check-out: {checkOutDate}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                Booking ID: {bookingId}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                Transaction ID: {transaction.id || 'N/A'}
+                              </p>
+                            </div>
+                            <p className="text-xs text-gray-400 mt-2">{formattedDate}</p>
+                          </div>
+                          <div className="w-2 h-2 rounded-full bg-green-500" />
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="text-center py-8">
+                    <Send className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                    <p className="text-gray-500 font-medium">No earnings history yet.</p>
+                    <p className="text-sm text-gray-400 mt-2">
+                      Earnings will appear here when the admin releases payments for your completed bookings.
+                    </p>
+                    <p className="text-xs text-gray-400 mt-4">
+                      💡 <strong>Note:</strong> Earnings are released by the admin after bookings are marked as completed.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         </AlertDialogContent>
       </AlertDialog>
 

@@ -2,11 +2,12 @@ import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
-import { Calendar, MapPin, Users, MessageSquare, Star } from "lucide-react";
+import Loading from "@/components/Loading";
+import { Calendar, MapPin, Users, MessageSquare, Star, Home, ExternalLink } from "lucide-react";
 import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc, onSnapshot, collection, query, where, updateDoc, serverTimestamp } from "firebase/firestore";
-import { getGuestBookings } from "@/pages/Guest/services/bookingService";
+import { getGuestBookings, cancelBooking } from "@/pages/Guest/services/bookingService";
 import { createReview, getReviewByBookingId } from "@/pages/Guest/services/reviewService";
 import { format } from "date-fns";
 import LogIn from "@/pages/Auth/LogIn";
@@ -21,6 +22,7 @@ const Bookings = () => {
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [completingBooking, setCompletingBooking] = useState(null);
+  const [cancellingBooking, setCancellingBooking] = useState(null);
   const navigate = useNavigate();
 
   // Handle marking booking as completed
@@ -40,6 +42,47 @@ const Bookings = () => {
       toast.error('Failed to mark booking as completed');
     } finally {
       setCompletingBooking(null);
+    }
+  };
+
+  // Handle cancelling booking
+  const handleCancelBooking = async (booking) => {
+    if (cancellingBooking === booking.id) return;
+    
+    // Check if booking was paid (has paymentStatus === 'paid' or has totalPrice > 0)
+    const isPaid = booking.paymentStatus === 'paid' || (booking.totalPrice && booking.totalPrice > 0);
+    
+    // Confirm cancellation with appropriate message
+    let confirmMessage = '';
+    if (!isPaid) {
+      confirmMessage = `Cancel this booking? No refund will be processed as payment was not completed.`;
+    } else {
+      const refundAmount = booking.status === 'pending' 
+        ? (booking.totalPrice || 0)
+        : Math.round(((booking.totalPrice || 0) / 2) * 100) / 100;
+      confirmMessage = booking.status === 'pending'
+        ? `Cancel this booking? A full refund of ₱${refundAmount.toLocaleString()} will be requested and processed by admin.`
+        : `Cancel this booking? A half refund of ₱${refundAmount.toLocaleString()} will be requested and processed by admin.`;
+    }
+    
+    if (!window.confirm(confirmMessage)) {
+      return;
+    }
+    
+    setCancellingBooking(booking.id);
+    try {
+      const result = await cancelBooking(booking.id);
+      if (result.success) {
+        toast.success(result.message);
+        // Booking status will be updated via real-time listener
+      } else {
+        toast.error(result.message || 'Failed to cancel booking');
+      }
+    } catch (error) {
+      console.error('Error cancelling booking:', error);
+      toast.error(error.message || 'Failed to cancel booking');
+    } finally {
+      setCancellingBooking(null);
     }
   };
 
@@ -142,7 +185,7 @@ const Bookings = () => {
             const updatedBookings = [];
             for (const docSnap of snapshot.docs) {
               const bookingData = docSnap.data();
-              console.log('📦 Processing booking:', docSnap.id, 'Status:', bookingData.status);
+              console.log('📦 Processing booking:', docSnap.id, 'Status:', bookingData.status, 'PaymentStatus:', bookingData.paymentStatus, 'TotalPrice:', bookingData.totalPrice);
               try {
                 const listingRef = doc(db, 'listings', bookingData.listingId);
                 const listingSnap = await getDoc(listingRef);
@@ -240,9 +283,7 @@ const Bookings = () => {
       <div className="min-h-screen bg-background">
         <Navigation />
         <main className="pt-36 pb-20 px-4 max-w-7xl mx-auto">
-          <div className="text-center py-20">
-            <p className="text-muted-foreground">Loading your bookings...</p>
-          </div>
+          <Loading message="Loading your bookings..." />
         </main>
         <Footer />
       </div>
@@ -265,7 +306,7 @@ const Bookings = () => {
             <h2 className="text-2xl font-heading font-semibold mb-6">Upcoming</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {upcomingBookings.map((booking) => (
-                <div key={booking.id} className="card-listing hover-lift cursor-pointer" onClick={() => navigate(`/${booking.category}s/${booking.listingId}`)}>
+                <div key={booking.id} className="card-listing hover-lift cursor-pointer" onClick={() => navigate(`/bookings/${booking.id}`)}>
                   <div className="relative w-full overflow-hidden rounded-t-2xl aspect-[4/3]">
                     {booking.listingImage ? (
                       <img
@@ -285,8 +326,20 @@ const Bookings = () => {
                     </div>
                   </div>
                   <div className="p-4">
-                    <span className="text-xs bg-gray-100 px-2 py-0.5 rounded-full capitalize text-gray-600">{booking.category}</span>
-                    <h3 className="font-heading text-lg font-semibold text-foreground mt-2 mb-1 line-clamp-1">{booking.listingTitle}</h3>
+                    <div className="flex items-start justify-between mb-2">
+                      <span className="text-xs bg-gray-100 px-2 py-0.5 rounded-full capitalize text-gray-600">{booking.category}</span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(`/${booking.category}s/${booking.listingId}`);
+                        }}
+                        className="p-1.5 hover:bg-gray-100 rounded-full transition-colors"
+                        title="View Listing"
+                      >
+                        <ExternalLink className="w-4 h-4 text-muted-foreground hover:text-primary" />
+                      </button>
+                    </div>
+                    <h3 className="font-heading text-lg font-semibold text-foreground mb-1 line-clamp-1">{booking.listingTitle}</h3>
                     <p className="text-sm text-muted-foreground flex items-center gap-1 mb-3">
                       <MapPin className="w-3 h-3" /> {booking.listingLocation}
                     </p>
@@ -307,12 +360,38 @@ const Bookings = () => {
                         <p className="text-xs text-muted-foreground">Total</p>
                         <p className="text-lg font-bold text-foreground">₱{(booking.totalPrice || 0).toLocaleString()}</p>
                       </div>
+                      <div className="flex items-center gap-2 flex-wrap">
                       {booking.status === 'pending' && (
+                          <>
+                            <button
+                              className="btn-outline text-xs px-3 py-1.5 text-red-600 border-red-600 hover:bg-red-50 whitespace-nowrap"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleCancelBooking(booking);
+                              }}
+                              disabled={cancellingBooking === booking.id}
+                            >
+                              {cancellingBooking === booking.id ? 'Cancelling...' : 'Cancel'}
+                            </button>
                         <span className="text-xs text-yellow-600">Pending</span>
+                          </>
                       )}
                       {booking.status === 'confirmed' && (
+                          <>
+                            <button
+                              className="btn-outline text-xs px-3 py-1.5 text-red-600 border-red-600 hover:bg-red-50 whitespace-nowrap"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleCancelBooking(booking);
+                              }}
+                              disabled={cancellingBooking === booking.id}
+                            >
+                              {cancellingBooking === booking.id ? 'Cancelling...' : 'Cancel'}
+                            </button>
                         <span className="text-xs text-green-600">✓ Confirmed</span>
+                          </>
                       )}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -327,7 +406,7 @@ const Bookings = () => {
             <h2 className="text-2xl font-heading font-semibold mb-6">Past Bookings</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {pastBookings.map((booking) => (
-                <div key={booking.id} className="card-listing hover-lift cursor-pointer" onClick={() => navigate(`/${booking.category}s/${booking.listingId}`)}>
+                <div key={booking.id} className="card-listing hover-lift cursor-pointer" onClick={() => navigate(`/bookings/${booking.id}`)}>
                   <div className="relative w-full overflow-hidden rounded-t-2xl aspect-[4/3]">
                     {booking.listingImage ? (
                       <img

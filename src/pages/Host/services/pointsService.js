@@ -144,27 +144,52 @@ export const getAllHostsWithPoints = async () => {
 };
 
 /**
- * Award points automatically when a host publishes their first listing
+ * Award points automatically when a host publishes their FIRST listing only
+ * Subsequent listings will not receive points (only milestone points apply)
  * @param {string} hostId - Host user ID
- * @returns {Promise<void>}
+ * @param {string} listingId - Listing ID (for tracking)
+ * @returns {Promise<{success: boolean, message?: string, points?: number}>}
  */
-export const awardPointsForFirstListing = async (hostId) => {
+export const awardPointsForFirstListing = async (hostId, listingId = null) => {
   try {
     const userRef = doc(db, 'users', hostId);
     const userDoc = await getDoc(userRef);
     
-    if (!userDoc.exists()) return;
+    if (!userDoc.exists()) {
+      return { success: false, message: 'User not found' };
+    }
     
     const userData = userDoc.data();
-    const hasAwardedFirstListing = userData.pointsHistory?.some(
-      entry => entry.reason === 'First listing published'
+    const pointsHistory = userData.pointsHistory || [];
+    
+    // Check if points were already awarded for ANY listing (first listing bonus)
+    // This ensures only the FIRST listing gets the 50 points bonus
+    const hasAwardedFirstListing = pointsHistory.some(
+      entry => entry.source === 'listing_published' && entry.reason === 'First listing published'
     );
     
     if (hasAwardedFirstListing) {
-      return; // Already awarded
+      console.log(`ℹ️ First listing points already awarded. This listing (${listingId}) will not receive points.`);
+      return { 
+        success: false, 
+        message: 'First listing bonus already awarded. Only the first listing receives 50 points.' 
+      };
     }
     
-    const points = 50; // Points for first listing
+    // Also check if this specific listing already got points (prevent duplicate awards)
+    if (listingId) {
+      const hasAwardedForThisListing = pointsHistory.some(
+        entry => entry.listingId === listingId && entry.source === 'listing_published'
+      );
+      
+      if (hasAwardedForThisListing) {
+        console.log(`⚠️ Points already awarded for listing ${listingId}, skipping award`);
+        return { success: false, message: 'Points already awarded for this listing' };
+      }
+    }
+    
+    // This is the first listing - award 50 points
+    const points = 50;
     const currentPoints = userData.points || 0;
     const newPoints = currentPoints + points;
     
@@ -172,12 +197,12 @@ export const awardPointsForFirstListing = async (hostId) => {
       points: points,
       totalPoints: newPoints,
       reason: 'First listing published',
-      timestamp: Timestamp.now(), // Use Timestamp.now() instead of serverTimestamp() for arrays
+      listingId: listingId,
+      timestamp: Timestamp.now(),
       type: 'auto_awarded',
-      source: 'listing_published'
+      source: 'listing_published',
+      canBeDeducted: true // Flag to indicate this can be deducted if listing is unpublished
     };
-    
-    const pointsHistory = userData.pointsHistory || [];
     
     await updateDoc(userRef, {
       points: newPoints,
@@ -185,10 +210,12 @@ export const awardPointsForFirstListing = async (hostId) => {
       lastPointsUpdate: serverTimestamp()
     });
     
+    console.log(`✅ Awarded ${points} points for first listing (${listingId})`);
     return { success: true, points, newPoints };
   } catch (error) {
     console.error('Error awarding points for first listing:', error);
     // Don't throw - this is a bonus feature, shouldn't break listing publication
+    return { success: false, message: error.message };
   }
 };
 
@@ -518,6 +545,589 @@ export const awardMilestonePoints = async (hostId, milestoneType, milestoneCount
   } catch (error) {
     console.error('Error awarding milestone points:', error);
     // Don't throw - this is a bonus feature
+  }
+};
+
+/**
+ * Points to currency conversion rate
+ * 10 points = ₱1 (PHP)
+ * 1 point = ₱0.10
+ */
+const POINTS_TO_CURRENCY_RATE = 0.1; // 10 points = ₱1
+
+/**
+ * Deduct points/value when a listing is unpublished
+ * This prevents point abuse by unpublishing and republishing listings
+ * @param {string} hostId - Host user ID
+ * @param {string} listingId - Listing ID that was unpublished
+ * @returns {Promise<{success: boolean, deductedFrom: string, amount: number}>}
+ */
+export const deductPointsForUnpublishedListing = async (hostId, listingId) => {
+  try {
+    console.log(`🔍 deductPointsForUnpublishedListing: Starting for host ${hostId}, listing ${listingId}`);
+    
+    const userRef = doc(db, 'users', hostId);
+    const userDoc = await getDoc(userRef);
+    
+    if (!userDoc.exists()) {
+      console.error(`❌ User not found: ${hostId}`);
+      return { success: false, error: 'User not found' };
+    }
+    
+    const userData = userDoc.data();
+    const pointsHistory = userData.pointsHistory || [];
+    
+    console.log(`📊 Points history entries: ${pointsHistory.length}`);
+    console.log(`📋 Looking for listingId: ${listingId}`);
+    
+    // Log all listing_published entries for debugging
+    const publishedEntries = pointsHistory.filter(entry => entry.source === 'listing_published');
+    console.log(`📝 Found ${publishedEntries.length} listing_published entries:`, 
+      publishedEntries.map(e => ({ listingId: e.listingId, points: e.points, reason: e.reason }))
+    );
+    
+    // Find the points entry for this listing
+    const listingPointsEntry = pointsHistory.find(
+      entry => entry.listingId === listingId && 
+               entry.source === 'listing_published' &&
+               entry.canBeDeducted !== false
+    );
+    
+    if (!listingPointsEntry) {
+      console.log(`⚠️ No points entry found for listing ${listingId}`);
+      console.log(`🔍 Checking if any points were awarded for this listing...`);
+      
+      // Check if points were awarded but maybe with different listingId format
+      const anyListingPoints = pointsHistory.filter(
+        entry => entry.source === 'listing_published'
+      );
+      
+      // Check if there's already an unpublished entry (to prevent duplicate tracking)
+      const hasUnpublishedEntry = pointsHistory.some(
+        entry => entry.listingId === listingId && entry.source === 'listing_unpublished'
+      );
+      
+      if (hasUnpublishedEntry) {
+        console.log(`ℹ️ Already tracked as unpublished (no points to deduct)`);
+        return { 
+          success: true, 
+          deductedFrom: 'none', 
+          amount: 0, 
+          message: 'Listing already tracked as unpublished (no points were awarded when published)' 
+        };
+      }
+      
+      if (anyListingPoints.length === 0) {
+        console.log(`ℹ️ No listing_published entries found at all. Listing may have been published before points system.`);
+        // Track that this listing was unpublished (even without points) to prevent awarding points when republished
+        const trackingEntry = {
+          points: 0,
+          totalPoints: userData.points || 0,
+          reason: `Listing unpublished (no points awarded) - ${listingId}`,
+          listingId: listingId,
+          timestamp: Timestamp.now(),
+          type: 'tracking',
+          source: 'listing_unpublished',
+          noPointsAwarded: true
+        };
+        
+        await updateDoc(userRef, {
+          pointsHistory: [trackingEntry, ...pointsHistory].slice(0, 50),
+          lastPointsUpdate: serverTimestamp()
+        });
+        
+        console.log(`✅ Tracked unpublished listing (no points to deduct)`);
+        return { 
+          success: true, 
+          deductedFrom: 'none', 
+          amount: 0, 
+          message: 'No points were awarded for this listing (published before points system). Listing tracked to prevent points on republish.' 
+        };
+      } else {
+        console.log(`⚠️ Points were awarded for other listings, but not for listing ${listingId}`);
+        // Track that this listing was unpublished (even without points) to prevent awarding points when republished
+        const trackingEntry = {
+          points: 0,
+          totalPoints: userData.points || 0,
+          reason: `Listing unpublished (no points awarded) - ${listingId}`,
+          listingId: listingId,
+          timestamp: Timestamp.now(),
+          type: 'tracking',
+          source: 'listing_unpublished',
+          noPointsAwarded: true
+        };
+        
+        await updateDoc(userRef, {
+          pointsHistory: [trackingEntry, ...pointsHistory].slice(0, 50),
+          lastPointsUpdate: serverTimestamp()
+        });
+        
+        console.log(`✅ Tracked unpublished listing (no points to deduct)`);
+        return { 
+          success: true, 
+          deductedFrom: 'none', 
+          amount: 0, 
+          message: `No points awarded for listing ${listingId}. Listing tracked to prevent points on republish.` 
+        };
+      }
+    }
+    
+    console.log(`✅ Found points entry for listing:`, {
+      listingId: listingPointsEntry.listingId,
+      points: listingPointsEntry.points,
+      reason: listingPointsEntry.reason,
+      deducted: listingPointsEntry.deducted
+    });
+    
+    // Check if points were already deducted (to prevent double deduction)
+    const alreadyDeducted = pointsHistory.some(
+      entry => entry.listingId === listingId && 
+               entry.source === 'listing_unpublished'
+    );
+    
+    if (alreadyDeducted) {
+      console.log(`⚠️ Points already deducted for listing ${listingId}`);
+      return { success: true, deductedFrom: 'already_deducted', amount: 0, message: 'Points already deducted for this listing' };
+    }
+    
+    const pointsToDeduct = listingPointsEntry.points || 50; // Default to 50 if not specified
+    const currencyValue = pointsToDeduct * POINTS_TO_CURRENCY_RATE;
+    
+    console.log(`💰 Points to deduct: ${pointsToDeduct} (currency value: ₱${currencyValue})`);
+    
+    // Try to deduct from points first
+    const currentPoints = userData.points || 0;
+    console.log(`💵 Current points balance: ${currentPoints}`);
+    
+    let pointsDeducted = 0;
+    let walletDeducted = 0;
+    let remainingDeduction = pointsToDeduct;
+    
+    // Step 1: Deduct from available points
+    if (currentPoints > 0) {
+      pointsDeducted = Math.min(currentPoints, pointsToDeduct);
+      remainingDeduction = pointsToDeduct - pointsDeducted;
+      console.log(`📉 Deducting ${pointsDeducted} points from balance. Remaining: ${remainingDeduction}`);
+    } else {
+      console.log(`⚠️ No points available to deduct. All ${pointsToDeduct} points need to be deducted from wallet or recorded as debt.`);
+    }
+    
+    // Step 2: If points are insufficient, deduct from GetPay wallet
+    if (remainingDeduction > 0) {
+      try {
+        const { getWalletBalance, deductFromWallet, initializeWallet } = await import('@/pages/Common/services/getpayService');
+        await initializeWallet(hostId);
+        
+        const walletBalance = await getWalletBalance(hostId);
+        const currencyToDeduct = remainingDeduction * POINTS_TO_CURRENCY_RATE;
+        
+        if (walletBalance >= currencyToDeduct) {
+          // Deduct from wallet (full amount)
+          await deductFromWallet(
+            hostId,
+            currencyToDeduct,
+            `Points deduction for unpublished listing`,
+            {
+              listingId: listingId,
+              pointsDeducted: remainingDeduction,
+              reason: 'listing_unpublished'
+            },
+            true // Skip auth check for system-level deduction
+          );
+          walletDeducted = remainingDeduction;
+          remainingDeduction = 0;
+        } else if (walletBalance > 0) {
+          // Deduct partial amount from wallet
+          const pointsEquivalentFromWallet = walletBalance / POINTS_TO_CURRENCY_RATE;
+          await deductFromWallet(
+            hostId,
+            walletBalance,
+            `Points deduction for unpublished listing (partial)`,
+            {
+              listingId: listingId,
+              pointsDeducted: pointsEquivalentFromWallet,
+              reason: 'listing_unpublished',
+              partial: true
+            },
+            true // Skip auth check for system-level deduction
+          );
+          walletDeducted = pointsEquivalentFromWallet;
+          remainingDeduction = pointsToDeduct - pointsDeducted - walletDeducted;
+        }
+      } catch (walletError) {
+        console.error('Error deducting from wallet:', walletError);
+        // Continue with points deduction even if wallet deduction fails
+      }
+    }
+    
+    // Step 3: Update points (deduct what we can from points)
+    const newPoints = Math.max(0, currentPoints - pointsDeducted);
+    
+    // Create deduction history entry
+    const deductionEntry = {
+      points: -pointsToDeduct,
+      totalPoints: newPoints,
+      reason: `Listing unpublished - ${listingId}`,
+      listingId: listingId,
+      timestamp: Timestamp.now(),
+      type: 'auto_deducted',
+      source: 'listing_unpublished',
+      pointsDeducted: pointsDeducted,
+      walletDeducted: walletDeducted,
+      remainingDebt: remainingDeduction,
+      originalPointsEntry: listingPointsEntry.points
+    };
+    
+    // Mark the original points entry as deducted
+    const updatedPointsHistory = pointsHistory.map(entry => {
+      if (entry.listingId === listingId && entry.source === 'listing_published') {
+        return {
+          ...entry,
+          deducted: true,
+          deductedAt: Timestamp.now()
+        };
+      }
+      return entry;
+    });
+    
+    await updateDoc(userRef, {
+      points: newPoints,
+      pointsHistory: [deductionEntry, ...updatedPointsHistory].slice(0, 50),
+      lastPointsUpdate: serverTimestamp()
+    });
+    
+    // If there's remaining debt, store it for future deduction
+    if (remainingDeduction > 0) {
+      // Store debt information in user document
+      const existingDebts = userData.pointsDebts || [];
+      const debtEntry = {
+        listingId: listingId,
+        points: remainingDeduction,
+        currencyValue: remainingDeduction * POINTS_TO_CURRENCY_RATE,
+        createdAt: Timestamp.now(),
+        status: 'pending'
+      };
+      
+      await updateDoc(userRef, {
+        pointsDebts: [debtEntry, ...existingDebts].slice(0, 50)
+      });
+    }
+    
+    const result = {
+      success: true,
+      deductedFrom: pointsDeducted > 0 ? (walletDeducted > 0 ? 'points_and_wallet' : 'points') : (walletDeducted > 0 ? 'wallet' : 'none'),
+      pointsDeducted: pointsDeducted,
+      walletDeducted: walletDeducted,
+      remainingDebt: remainingDeduction,
+      totalDeducted: pointsDeducted + walletDeducted
+    };
+    
+    console.log(`✅ Deduction completed:`, result);
+    
+    return result;
+  } catch (error) {
+    console.error('❌ Error deducting points for unpublished listing:', error);
+    console.error('Error details:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name,
+      hostId,
+      listingId
+    });
+    return { success: false, error: error.message || 'Unknown error occurred' };
+  }
+};
+
+/**
+ * Restore points/value when a listing is republished
+ * This restores the deducted points if the listing was previously unpublished
+ * @param {string} hostId - Host user ID
+ * @param {string} listingId - Listing ID that was republished
+ * @returns {Promise<{success: boolean, restored: boolean}>}
+ */
+export const restorePointsForRepublishedListing = async (hostId, listingId) => {
+  try {
+    const userRef = doc(db, 'users', hostId);
+    const userDoc = await getDoc(userRef);
+    
+    if (!userDoc.exists()) {
+      return { success: false, error: 'User not found' };
+    }
+    
+    const userData = userDoc.data();
+    const pointsHistory = userData.pointsHistory || [];
+    
+    // Check if points were already awarded for this listing (even if deducted later)
+    const hasAwardedForListing = pointsHistory.some(
+      entry => entry.listingId === listingId && 
+               entry.source === 'listing_published'
+    );
+    
+    // Check if points were deducted for this listing
+    const deductionEntry = pointsHistory.find(
+      entry => entry.listingId === listingId && 
+               entry.source === 'listing_unpublished'
+    );
+    
+    // Check if listing was tracked as unpublished without points
+    const noPointsEntry = deductionEntry && deductionEntry.noPointsAwarded === true;
+    
+    // Check if already restored
+    const alreadyRestored = pointsHistory.some(
+      entry => entry.listingId === listingId && 
+               entry.source === 'listing_republished'
+    );
+    
+    if (alreadyRestored) {
+      return { success: true, restored: false, message: 'Points already restored for this republish' };
+    }
+    
+    // If listing was unpublished without points (tracked but no points to restore)
+    if (noPointsEntry) {
+      console.log(`ℹ️ Listing was unpublished but no points were awarded, so no restoration needed`);
+      // Don't award points on republish if it was published before points system
+      return { success: true, restored: false, message: 'No points to restore (listing was published before points system)' };
+    }
+    
+    // If points were never awarded for this listing, check if this should be the first listing
+    if (!hasAwardedForListing && !deductionEntry) {
+      // Try to award points (will only work if this is truly the first listing)
+      const awardResult = await awardPointsForFirstListing(hostId, listingId);
+      if (awardResult.success) {
+        return { success: true, restored: true, pointsRestored: awardResult.points, newPoints: awardResult.newPoints };
+      } else {
+        // Not the first listing, so no points will be awarded
+        return { success: true, restored: false, message: awardResult.message || 'This listing does not qualify for first listing bonus' };
+      }
+    }
+    
+    // If points were awarded but NOT deducted, do nothing (points are still there)
+    if (hasAwardedForListing && !deductionEntry) {
+      return { success: true, restored: false, message: 'Points were never deducted, no restoration needed' };
+    }
+    
+    // Points were awarded and then deducted, so restore them
+    const pointsToRestore = Math.abs(deductionEntry.points) || 50;
+    const currentPoints = userData.points || 0;
+    const newPoints = currentPoints + pointsToRestore;
+    
+    // Create restoration entry
+    const restorationEntry = {
+      points: pointsToRestore,
+      totalPoints: newPoints,
+      reason: `Listing republished - ${listingId}`,
+      listingId: listingId,
+      timestamp: Timestamp.now(),
+      type: 'auto_restored',
+      source: 'listing_republished',
+      originalDeduction: deductionEntry.points
+    };
+    
+    await updateDoc(userRef, {
+      points: newPoints,
+      pointsHistory: [restorationEntry, ...pointsHistory].slice(0, 50),
+      lastPointsUpdate: serverTimestamp()
+    });
+    
+    // Clear any pending debts for this listing
+    const pointsDebts = userData.pointsDebts || [];
+    const updatedDebts = pointsDebts.filter(debt => debt.listingId !== listingId);
+    
+    if (updatedDebts.length !== pointsDebts.length) {
+      await updateDoc(userRef, {
+        pointsDebts: updatedDebts
+      });
+    }
+    
+    return { success: true, restored: true, pointsRestored: pointsToRestore, newPoints };
+  } catch (error) {
+    console.error('Error restoring points for republished listing:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Cash out points to GetPay wallet
+ * Converts points to currency and adds to GetPay wallet
+ * @param {string} hostId - Host user ID
+ * @param {number} points - Points to cash out
+ * @returns {Promise<{success: boolean, currencyAmount: number, newPoints: number}>}
+ */
+export const cashOutPoints = async (hostId, points) => {
+  try {
+    if (points <= 0) {
+      return { success: false, error: 'Points amount must be greater than 0' };
+    }
+
+    const userRef = doc(db, 'users', hostId);
+    const userDoc = await getDoc(userRef);
+    
+    if (!userDoc.exists()) {
+      return { success: false, error: 'User not found' };
+    }
+
+    const userData = userDoc.data();
+    const currentPoints = userData.points || 0;
+
+    if (currentPoints < points) {
+      return { 
+        success: false, 
+        error: `Insufficient points. You have ${currentPoints} points but need ${points} points.` 
+      };
+    }
+
+    // Convert points to currency (10 points = ₱1)
+    const currencyAmount = points * POINTS_TO_CURRENCY_RATE;
+    const newPoints = currentPoints - points;
+
+    // Add to GetPay wallet
+    const { addToWallet, initializeWallet } = await import('@/pages/Common/services/getpayService');
+    await initializeWallet(hostId);
+    
+    await addToWallet(
+      hostId,
+      currencyAmount,
+      `Points cashed out (${points} points)`,
+      {
+        pointsCashedOut: points,
+        conversionRate: POINTS_TO_CURRENCY_RATE,
+        reason: 'points_cashout'
+      }
+    );
+
+    // Deduct points from user
+    const historyEntry = {
+      points: -points,
+      totalPoints: newPoints,
+      reason: `Points cashed out to GetPay wallet (${points} points = ₱${currencyAmount.toFixed(2)})`,
+      timestamp: Timestamp.now(),
+      type: 'cashout',
+      source: 'points_cashout',
+      currencyAmount: currencyAmount
+    };
+
+    const pointsHistory = userData.pointsHistory || [];
+    
+    await updateDoc(userRef, {
+      points: newPoints,
+      pointsHistory: [historyEntry, ...pointsHistory].slice(0, 50),
+      lastPointsUpdate: serverTimestamp()
+    });
+
+    console.log(`✅ Cashed out ${points} points (₱${currencyAmount.toFixed(2)}) for host ${hostId}`);
+    return { success: true, currencyAmount, newPoints };
+  } catch (error) {
+    console.error('Error cashing out points:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Deduct points for payment (subscription or booking)
+ * @param {string} hostId - Host user ID
+ * @param {number} amount - Payment amount in currency
+ * @param {string} reason - Payment reason (e.g., 'subscription', 'booking')
+ * @param {Object} metadata - Additional metadata (bookingId, listingId, etc.)
+ * @returns {Promise<{success: boolean, pointsUsed: number, currencyAmount: number, newPoints: number, remainingAmount: number}>}
+ */
+export const deductPointsForPayment = async (hostId, amount, reason, metadata = {}) => {
+  try {
+    if (amount <= 0) {
+      return { success: false, error: 'Payment amount must be greater than 0' };
+    }
+
+    const userRef = doc(db, 'users', hostId);
+    const userDoc = await getDoc(userRef);
+    
+    if (!userDoc.exists()) {
+      return { success: false, error: 'User not found' };
+    }
+
+    const userData = userDoc.data();
+    const currentPoints = userData.points || 0;
+
+    // Convert currency to points (10 points = ₱1)
+    const pointsNeeded = Math.ceil(amount / POINTS_TO_CURRENCY_RATE); // Round up to ensure full payment
+    const pointsUsed = Math.min(currentPoints, pointsNeeded);
+    const currencyPaid = pointsUsed * POINTS_TO_CURRENCY_RATE;
+    const remainingAmount = Math.max(0, amount - currencyPaid);
+    const newPoints = currentPoints - pointsUsed;
+
+    if (pointsUsed === 0) {
+      return { 
+        success: false, 
+        error: `Insufficient points. You need ${pointsNeeded} points (₱${amount.toFixed(2)}) but have ${currentPoints} points.` 
+      };
+    }
+
+    // Deduct points from user
+    const historyEntry = {
+      points: -pointsUsed,
+      totalPoints: newPoints,
+      reason: `Points used for ${reason} (${pointsUsed} points = ₱${currencyPaid.toFixed(2)})`,
+      timestamp: Timestamp.now(),
+      type: 'payment',
+      source: `points_payment_${reason}`,
+      currencyAmount: currencyPaid,
+      paymentAmount: amount,
+      remainingAmount: remainingAmount,
+      metadata: metadata
+    };
+
+    const pointsHistory = userData.pointsHistory || [];
+    
+    await updateDoc(userRef, {
+      points: newPoints,
+      pointsHistory: [historyEntry, ...pointsHistory].slice(0, 50),
+      lastPointsUpdate: serverTimestamp()
+    });
+
+    console.log(`✅ Deducted ${pointsUsed} points (₱${currencyPaid.toFixed(2)}) for ${reason} for host ${hostId}`);
+    return { 
+      success: true, 
+      pointsUsed, 
+      currencyAmount: currencyPaid, 
+      newPoints, 
+      remainingAmount 
+    };
+  } catch (error) {
+    console.error('Error deducting points for payment:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Check if user has sufficient points for payment
+ * @param {string} hostId - Host user ID
+ * @param {number} amount - Payment amount in currency
+ * @returns {Promise<{hasSufficient: boolean, currentPoints: number, pointsNeeded: number, currencyAmount: number}>}
+ */
+export const checkPointsForPayment = async (hostId, amount) => {
+  try {
+    const userRef = doc(db, 'users', hostId);
+    const userDoc = await getDoc(userRef);
+    
+    if (!userDoc.exists()) {
+      return { hasSufficient: false, currentPoints: 0, pointsNeeded: 0, currencyAmount: 0 };
+    }
+
+    const userData = userDoc.data();
+    const currentPoints = userData.points || 0;
+
+    // Convert currency to points (10 points = ₱1)
+    const pointsNeeded = Math.ceil(amount / POINTS_TO_CURRENCY_RATE);
+    const hasSufficient = currentPoints >= pointsNeeded;
+    const currencyAmount = Math.min(currentPoints * POINTS_TO_CURRENCY_RATE, amount);
+
+    return { 
+      hasSufficient, 
+      currentPoints, 
+      pointsNeeded, 
+      currencyAmount 
+    };
+  } catch (error) {
+    console.error('Error checking points for payment:', error);
+    return { hasSufficient: false, currentPoints: 0, pointsNeeded: 0, currencyAmount: 0 };
   }
 };
 

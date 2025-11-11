@@ -1,5 +1,5 @@
 import { db } from '@/lib/firebase';
-import { collection, query, where, getDocs, updateDoc, doc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs, updateDoc, doc, serverTimestamp, getDoc } from 'firebase/firestore';
 
 /**
  * Automatically mark bookings as completed if checkout date has passed + 1 day
@@ -104,10 +104,76 @@ export const releaseHostEarnings = async (bookingId) => {
       return { success: false, message: 'Earnings already released for this booking' };
     }
     
-    // Calculate host earnings (total price - service fee)
+    // Get booking amount (what host should receive) and guest fee (what admin keeps)
+    // bookingAmount is stored when booking is created
+    // If not stored (for old bookings), calculate from totalPrice (assuming 14% guest fee)
     const totalPrice = booking.totalPrice || 0;
-    const serviceFee = Math.round(totalPrice * 0.033); // 3.3% service fee
-    const hostEarnings = totalPrice - serviceFee;
+    const bookingAmount = booking.bookingAmount || (totalPrice ? Math.round((totalPrice / 1.14) * 100) / 100 : 0);
+    const guestFee = booking.guestFee || (totalPrice ? Math.round((totalPrice - bookingAmount) * 100) / 100 : 0);
+    const hostEarnings = bookingAmount; // Host receives only the booking amount
+    
+    // Transfer bookingAmount from admin's GetPay wallet to host's GetPay wallet
+    try {
+      const { 
+        deductFromWallet: deductFromAdminWallet, 
+        addToWallet: addToHostWallet, 
+        initializeWallet,
+        getAdminUserId 
+      } = await import('@/pages/Common/services/getpayService');
+      
+      // Get admin user ID
+      const adminUserId = await getAdminUserId();
+      if (!adminUserId) {
+        return { success: false, message: 'Admin user not found' };
+      }
+      
+      // Initialize wallets if needed
+      await initializeWallet(adminUserId);
+      await initializeWallet(booking.ownerId);
+      
+      // Get listing info for transaction description
+      const listingRef = doc(db, 'listings', booking.listingId);
+      const listingDoc = await getDoc(listingRef);
+      const listingTitle = listingDoc.exists() ? listingDoc.data().title || 'Accommodation' : 'Accommodation';
+      
+      // Deduct bookingAmount from admin's wallet
+      await deductFromAdminWallet(
+        adminUserId,
+        bookingAmount,
+        `Earnings Release - Host Payment`,
+        {
+          bookingId: bookingId,
+          listingId: booking.listingId,
+          listingTitle: listingTitle,
+          hostId: booking.ownerId,
+          hostEmail: booking.ownerEmail,
+          paymentType: 'host_earnings_release'
+        },
+        true // skipAuthCheck for admin system operations
+      );
+      
+      // Add bookingAmount to host's wallet
+      await addToHostWallet(
+        booking.ownerId,
+        bookingAmount,
+        `Earnings from Booking - ${listingTitle}`,
+        {
+          bookingId: bookingId,
+          listingId: booking.listingId,
+          listingTitle: listingTitle,
+          guestId: booking.guestId,
+          guestEmail: booking.guestEmail,
+          paymentType: 'host_earnings',
+          checkInDate: booking.checkInDate?.toDate ? booking.checkInDate.toDate().toISOString() : (typeof booking.checkInDate === 'string' ? booking.checkInDate : new Date(booking.checkInDate).toISOString()),
+          checkOutDate: booking.checkOutDate?.toDate ? booking.checkOutDate.toDate().toISOString() : (typeof booking.checkOutDate === 'string' ? booking.checkOutDate : new Date(booking.checkOutDate).toISOString())
+        }
+      );
+      
+      console.log(`✅ Released ₱${bookingAmount.toLocaleString()} to host's GetPay wallet`);
+    } catch (walletError) {
+      console.error('Error transferring earnings to host wallet:', walletError);
+      return { success: false, message: `Failed to transfer earnings: ${walletError.message}` };
+    }
     
     // Update booking with earnings release info
     await updateDoc(bookingRef, {
@@ -115,15 +181,15 @@ export const releaseHostEarnings = async (bookingId) => {
       earningsReleasedAt: serverTimestamp(),
       earningsReleasedBy: 'admin', // Can be enhanced to track admin user ID
       hostEarnings: hostEarnings,
-      serviceFee: serviceFee,
+      guestFee: guestFee, // Store guest fee for record keeping
       updatedAt: serverTimestamp()
     });
     
     return {
       success: true,
-      message: `Earnings of ${hostEarnings.toLocaleString()} released to host`,
+      message: `Earnings of ₱${hostEarnings.toLocaleString()} released to host's GetPay wallet`,
       hostEarnings,
-      serviceFee
+      guestFee
     };
   } catch (error) {
     console.error('Error releasing host earnings:', error);
@@ -150,8 +216,10 @@ export const getPendingEarnings = async () => {
       
       if (!booking.earningsReleased) {
         const totalPrice = booking.totalPrice || 0;
-        const serviceFee = Math.round(totalPrice * 0.033);
-        const hostEarnings = totalPrice - serviceFee;
+        // Use stored bookingAmount and guestFee if available, otherwise calculate (assuming 14% guest fee)
+        const bookingAmount = booking.bookingAmount || (totalPrice ? Math.round((totalPrice / 1.14) * 100) / 100 : 0);
+        const guestFee = booking.guestFee || (totalPrice ? Math.round((totalPrice - bookingAmount) * 100) / 100 : 0);
+        const hostEarnings = bookingAmount; // Host receives only the booking amount
         
         // Get host info
         const hostDoc = await getDoc(doc(db, 'users', booking.ownerId));
@@ -173,7 +241,8 @@ export const getPendingEarnings = async () => {
           guestName: `${guestData.firstName || ''} ${guestData.lastName || ''}`.trim() || guestData.email || 'Unknown',
           listingTitle: listingData.title || 'Unknown Listing',
           totalPrice,
-          serviceFee,
+          bookingAmount: bookingAmount,
+          guestFee: guestFee,
           hostEarnings,
           completedAt: booking.autoCompletedAt || booking.updatedAt || booking.createdAt
         });
@@ -238,10 +307,10 @@ export const getReleasedEarningsSummary = async () => {
     bookingsSnapshot.forEach(bookingDoc => {
       const booking = bookingDoc.data();
       const hostEarnings = booking.hostEarnings || 0;
-      const serviceFee = booking.serviceFee || 0;
+      const guestFee = booking.guestFee || booking.serviceFee || 0; // Use guestFee, fallback to serviceFee for old bookings
       
       totalReleased += hostEarnings;
-      totalServiceFees += serviceFee;
+      totalServiceFees += guestFee; // Track guest fees (admin's earnings)
       
       if (!byHost[booking.ownerId]) {
         byHost[booking.ownerId] = {
@@ -255,7 +324,7 @@ export const getReleasedEarningsSummary = async () => {
       }
       
       byHost[booking.ownerId].totalEarnings += hostEarnings;
-      byHost[booking.ownerId].totalServiceFees += serviceFee;
+      byHost[booking.ownerId].totalServiceFees += guestFee; // Track guest fees
       byHost[booking.ownerId].bookingCount += 1;
     });
     
@@ -267,6 +336,57 @@ export const getReleasedEarningsSummary = async () => {
   } catch (error) {
     console.error('Error getting released earnings summary:', error);
     return { totalReleased: 0, totalServiceFees: 0, byHost: [] };
+  }
+};
+
+/**
+ * Get earnings release history from wallet transactions
+ * @param {string} adminUserId - Admin user ID
+ * @returns {Promise<Array>} - Array of earnings release transactions
+ */
+export const getEarningsReleaseHistory = async (adminUserId) => {
+  try {
+    if (!adminUserId) {
+      console.warn('⚠️ Admin user ID not provided for earnings history');
+      return [];
+    }
+
+    const { getWalletTransactions } = await import('@/pages/Common/services/getpayService');
+    const transactions = await getWalletTransactions(adminUserId, 1000); // Get more transactions to filter
+    
+    console.log(`📊 Loaded ${transactions.length} total transactions for admin ${adminUserId}`);
+    console.log('📋 Transaction types:', transactions.map(t => ({ type: t.type, paymentType: t.metadata?.paymentType })));
+    
+    // Filter for earnings release transactions (type: 'payment' with paymentType: 'host_earnings_release')
+    const earningsReleases = transactions.filter(t => {
+      const isPayment = t.type === 'payment';
+      const isEarningsRelease = t.metadata?.paymentType === 'host_earnings_release';
+      const matches = isPayment && isEarningsRelease;
+      
+      if (isPayment && !isEarningsRelease) {
+        console.log('⚠️ Found payment transaction but not earnings release:', {
+          type: t.type,
+          paymentType: t.metadata?.paymentType,
+          description: t.description
+        });
+      }
+      
+      return matches;
+    });
+    
+    console.log(`✅ Found ${earningsReleases.length} earnings release transactions`);
+    
+    // Sort by date (newest first)
+    earningsReleases.sort((a, b) => {
+      const dateA = a.date instanceof Date ? a.date : new Date(a.date);
+      const dateB = b.date instanceof Date ? b.date : new Date(b.date);
+      return dateB - dateA;
+    });
+    
+    return earningsReleases;
+  } catch (error) {
+    console.error('❌ Error getting earnings release history:', error);
+    return [];
   }
 };
 

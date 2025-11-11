@@ -44,22 +44,55 @@ export const createCoupon = async (couponData) => {
     throw new Error('Coupon code already exists');
   }
 
-  const couponDoc = {
-    hostId: user.uid,
-    code: code.trim().toUpperCase(),
-    description: description || '',
-    discountType,
-    discountValue: parseFloat(discountValue),
-    validFrom: validFrom ? new Date(validFrom) : new Date(),
-    validUntil: validUntil ? new Date(validUntil) : null,
-    maxUses: maxUses || null, // null = unlimited
-    currentUses: 0,
-    listingIds: Array.isArray(listingIds) ? listingIds : [],
-    active,
-    minBookingAmount: parseFloat(minBookingAmount) || 0,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp()
-  };
+    // Normalize dates to start of day in local timezone to avoid timezone issues
+    let normalizedValidFrom = new Date();
+    // Set current date to start of today (midnight local time)
+    normalizedValidFrom.setHours(0, 0, 0, 0);
+    
+    if (validFrom) {
+      // Parse date string (YYYY-MM-DD) and create date at midnight local time
+      // This avoids timezone issues when parsing date strings
+      if (typeof validFrom === 'string' && validFrom.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        // Date string format: parse manually to avoid UTC interpretation
+        const [year, month, day] = validFrom.split('-').map(Number);
+        normalizedValidFrom = new Date(year, month - 1, day, 0, 0, 0, 0);
+      } else {
+        // Date object or other format: use as-is and normalize to start of day
+        const date = new Date(validFrom);
+        normalizedValidFrom = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+      }
+    }
+
+    let normalizedValidUntil = null;
+    if (validUntil) {
+      // Parse date string (YYYY-MM-DD) and create date at end of day local time
+      if (typeof validUntil === 'string' && validUntil.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        // Date string format: parse manually to avoid UTC interpretation
+        const [year, month, day] = validUntil.split('-').map(Number);
+        normalizedValidUntil = new Date(year, month - 1, day, 23, 59, 59, 999);
+      } else {
+        // Date object or other format: use as-is and normalize to end of day
+        const date = new Date(validUntil);
+        normalizedValidUntil = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+      }
+    }
+
+    const couponDoc = {
+      hostId: user.uid,
+      code: code.trim().toUpperCase(),
+      description: description || '',
+      discountType,
+      discountValue: parseFloat(discountValue),
+      validFrom: normalizedValidFrom,
+      validUntil: normalizedValidUntil,
+      maxUses: maxUses || null, // null = unlimited
+      currentUses: 0,
+      listingIds: Array.isArray(listingIds) ? listingIds : [],
+      active,
+      minBookingAmount: parseFloat(minBookingAmount) || 0,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    };
 
   const couponsCollection = collection(db, 'coupons');
   const docRef = await addDoc(couponsCollection, couponDoc);
@@ -165,7 +198,30 @@ export const updateCoupon = async (couponId, updates) => {
         } else if (field === 'discountValue' || field === 'minBookingAmount') {
           cleanUpdates[field] = parseFloat(updates[field]);
         } else if (field === 'validFrom' || field === 'validUntil') {
-          cleanUpdates[field] = updates[field] ? new Date(updates[field]) : null;
+          if (updates[field]) {
+            // Parse date string (YYYY-MM-DD) and create date at appropriate time local time
+            if (typeof updates[field] === 'string' && updates[field].match(/^\d{4}-\d{2}-\d{2}$/)) {
+              // Date string format: parse manually to avoid UTC interpretation
+              const [year, month, day] = updates[field].split('-').map(Number);
+              if (field === 'validFrom') {
+                // Set to start of day in local timezone (midnight)
+                cleanUpdates[field] = new Date(year, month - 1, day, 0, 0, 0, 0);
+              } else {
+                // Set to end of day in local timezone (23:59:59.999)
+                cleanUpdates[field] = new Date(year, month - 1, day, 23, 59, 59, 999);
+              }
+            } else {
+              // Date object or other format: use as-is and normalize
+              const date = new Date(updates[field]);
+              if (field === 'validFrom') {
+                cleanUpdates[field] = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+              } else {
+                cleanUpdates[field] = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+              }
+            }
+          } else {
+            cleanUpdates[field] = null;
+          }
         } else if (field === 'listingIds') {
           cleanUpdates[field] = Array.isArray(updates[field]) ? updates[field] : [];
         } else {
@@ -248,6 +304,7 @@ export const validateCoupon = async (couponCode, listingId, bookingAmount) => {
       validUntil: couponDoc.data().validUntil?.toDate ? couponDoc.data().validUntil.toDate() : (couponDoc.data().validUntil ? new Date(couponDoc.data().validUntil) : null)
     };
 
+    // Get current date/time
     const now = new Date();
 
     // Check if coupon is valid for this listing
@@ -256,12 +313,35 @@ export const validateCoupon = async (couponCode, listingId, bookingAmount) => {
     }
 
     // Check validity dates
-    if (coupon.validFrom && now < coupon.validFrom) {
-      return { valid: false, error: 'Coupon is not yet valid' };
+    // Compare dates by date string (YYYY-MM-DD) to avoid timezone issues
+    if (coupon.validFrom) {
+      const validFromDate = new Date(coupon.validFrom);
+      // Get date string in local timezone (YYYY-MM-DD)
+      const validFromDateStr = `${validFromDate.getFullYear()}-${String(validFromDate.getMonth() + 1).padStart(2, '0')}-${String(validFromDate.getDate()).padStart(2, '0')}`;
+      const nowDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      
+      // Compare date strings - coupon is valid if today is on or after validFrom date
+      if (nowDateStr < validFromDateStr) {
+        console.log('❌ Coupon validation: Not yet valid', {
+          validFrom: validFromDateStr,
+          now: nowDateStr,
+          validFromDate: validFromDate.toISOString(),
+          nowDate: now.toISOString()
+        });
+        return { valid: false, error: 'Coupon is not yet valid' };
+      }
     }
 
-    if (coupon.validUntil && now > coupon.validUntil) {
-      return { valid: false, error: 'Coupon has expired' };
+    if (coupon.validUntil) {
+      const validUntilDate = new Date(coupon.validUntil);
+      // Get date string in local timezone (YYYY-MM-DD)
+      const validUntilDateStr = `${validUntilDate.getFullYear()}-${String(validUntilDate.getMonth() + 1).padStart(2, '0')}-${String(validUntilDate.getDate()).padStart(2, '0')}`;
+      const nowDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      
+      // Compare date strings - coupon is valid if today is on or before validUntil date
+      if (nowDateStr > validUntilDateStr) {
+        return { valid: false, error: 'Coupon has expired' };
+      }
     }
 
     // Check max uses

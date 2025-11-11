@@ -1,11 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { X, Save, Loader2 } from 'lucide-react';
+import { X, Save, Loader2, Check } from 'lucide-react';
 import { createCoupon, updateCoupon } from '@/pages/Host/services/couponService';
 import { toast } from '@/components/ui/sonner';
 import { format } from 'date-fns';
+import { auth, db } from '@/lib/firebase';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 
 const CouponModal = ({ isOpen, onClose, coupon, onSave }) => {
   const [loading, setLoading] = useState(false);
+  const [hostListings, setHostListings] = useState([]);
+  const [loadingListings, setLoadingListings] = useState(false);
+  const [applyToAllListings, setApplyToAllListings] = useState(true);
   const [formData, setFormData] = useState({
     code: '',
     description: '',
@@ -19,9 +24,18 @@ const CouponModal = ({ isOpen, onClose, coupon, onSave }) => {
     listingIds: []
   });
 
+  // Load host listings when modal opens
+  useEffect(() => {
+    if (isOpen && auth.currentUser) {
+      loadHostListings();
+    }
+  }, [isOpen]);
+
+  // Update form data when coupon changes
   useEffect(() => {
     if (coupon) {
       // Editing existing coupon
+      const listingIds = coupon.listingIds || [];
       setFormData({
         code: coupon.code || '',
         description: coupon.description || '',
@@ -32,8 +46,10 @@ const CouponModal = ({ isOpen, onClose, coupon, onSave }) => {
         maxUses: coupon.maxUses || '',
         minBookingAmount: coupon.minBookingAmount || '',
         active: coupon.active !== undefined ? coupon.active : true,
-        listingIds: coupon.listingIds || []
+        listingIds: listingIds
       });
+      // Set applyToAllListings based on whether listingIds is empty
+      setApplyToAllListings(listingIds.length === 0);
     } else {
       // Creating new coupon
       setFormData({
@@ -48,8 +64,87 @@ const CouponModal = ({ isOpen, onClose, coupon, onSave }) => {
         active: true,
         listingIds: []
       });
+      setApplyToAllListings(true);
     }
   }, [coupon, isOpen]);
+
+  // Load host's active listings
+  const loadHostListings = async () => {
+    if (!auth.currentUser) return;
+
+    try {
+      setLoadingListings(true);
+      const listingsRef = collection(db, 'listings');
+      
+      let querySnapshot;
+      try {
+        const q = query(
+          listingsRef,
+          where('ownerId', '==', auth.currentUser.uid),
+          where('status', '==', 'active')
+        );
+        querySnapshot = await getDocs(q);
+      } catch (error) {
+        console.warn('Error querying listings with status filter:', error);
+        // Fallback: query by ownerId only
+        const q = query(
+          listingsRef,
+          where('ownerId', '==', auth.currentUser.uid)
+        );
+        querySnapshot = await getDocs(q);
+      }
+
+      const listings = querySnapshot.docs
+        .map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            title: data.title || 'Untitled Listing',
+            location: data.location || data.locationData?.city || 'No location',
+            status: data.status || 'unknown'
+          };
+        })
+        .filter(listing => listing.status === 'active'); // Filter active listings
+
+      setHostListings(listings);
+    } catch (error) {
+      console.error('Error loading host listings:', error);
+      toast.error('Failed to load listings');
+      setHostListings([]);
+    } finally {
+      setLoadingListings(false);
+    }
+  };
+
+  // Handle listing selection toggle
+  const handleListingToggle = (listingId) => {
+    const currentIds = formData.listingIds || [];
+    if (currentIds.includes(listingId)) {
+      // Remove listing
+      setFormData({
+        ...formData,
+        listingIds: currentIds.filter(id => id !== listingId)
+      });
+    } else {
+      // Add listing
+      setFormData({
+        ...formData,
+        listingIds: [...currentIds, listingId]
+      });
+    }
+  };
+
+  // Handle "Apply to all listings" toggle
+  const handleApplyToAllToggle = (checked) => {
+    setApplyToAllListings(checked);
+    if (checked) {
+      // Clear selected listings (empty array = all listings)
+      setFormData({
+        ...formData,
+        listingIds: []
+      });
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -69,8 +164,17 @@ const CouponModal = ({ isOpen, onClose, coupon, onSave }) => {
       return;
     }
 
+    // Validate listing selection
+    if (!applyToAllListings && (!formData.listingIds || formData.listingIds.length === 0)) {
+      toast.error('Please select at least one listing or apply to all listings');
+      return;
+    }
+
     try {
       setLoading(true);
+
+      // If "Apply to all listings" is checked, set listingIds to empty array
+      const listingIds = applyToAllListings ? [] : formData.listingIds;
 
       const couponData = {
         code: formData.code.trim(),
@@ -82,7 +186,7 @@ const CouponModal = ({ isOpen, onClose, coupon, onSave }) => {
         maxUses: formData.maxUses ? parseInt(formData.maxUses) : null,
         minBookingAmount: parseFloat(formData.minBookingAmount) || 0,
         active: formData.active,
-        listingIds: formData.listingIds
+        listingIds: listingIds
       };
 
       if (coupon) {
@@ -267,6 +371,85 @@ const CouponModal = ({ isOpen, onClose, coupon, onSave }) => {
               Minimum booking total to use this coupon
             </p>
           </div>
+        </div>
+
+        {/* Listing Selection */}
+        <div className="space-y-3">
+          <label className="block text-sm font-medium text-foreground mb-2">
+            Apply to Listings
+          </label>
+          
+          {/* Apply to All Listings Toggle */}
+          <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
+            <input
+              type="checkbox"
+              id="applyToAll"
+              checked={applyToAllListings}
+              onChange={(e) => handleApplyToAllToggle(e.target.checked)}
+              className="w-4 h-4 text-primary border-border rounded focus:ring-primary"
+            />
+            <label htmlFor="applyToAll" className="text-sm font-medium text-foreground cursor-pointer flex-1">
+              Apply to all listings
+            </label>
+          </div>
+
+          {/* Specific Listings Selection */}
+          {!applyToAllListings && (
+            <div className="border border-border rounded-lg p-4 max-h-60 overflow-y-auto">
+              {loadingListings ? (
+                <div className="flex items-center justify-center py-4">
+                  <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                  <span className="ml-2 text-sm text-muted-foreground">Loading listings...</span>
+                </div>
+              ) : hostListings.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  No active listings found. Create a listing first.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {hostListings.map((listing) => {
+                    const isSelected = formData.listingIds?.includes(listing.id);
+                    return (
+                      <label
+                        key={listing.id}
+                        className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${
+                          isSelected
+                            ? 'bg-primary/10 border border-primary/20'
+                            : 'hover:bg-muted/50 border border-transparent'
+                        }`}
+                      >
+                        <div className="flex items-center justify-center w-5 h-5 border-2 rounded border-border">
+                          {isSelected && (
+                            <Check className="w-4 h-4 text-primary" />
+                          )}
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => handleListingToggle(listing.id)}
+                          className="hidden"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-foreground truncate">
+                            {listing.title}
+                          </p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {listing.location}
+                          </p>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {!applyToAllListings && formData.listingIds?.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {formData.listingIds.length} {formData.listingIds.length === 1 ? 'listing' : 'listings'} selected
+            </p>
+          )}
         </div>
 
         {/* Active Status */}

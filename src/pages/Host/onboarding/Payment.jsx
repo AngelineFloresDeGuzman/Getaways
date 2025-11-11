@@ -5,73 +5,172 @@ import { auth, db } from '@/lib/firebase';
 import { doc, getDoc, updateDoc, deleteDoc, serverTimestamp, writeBatch } from 'firebase/firestore';
 import imageCompression from 'browser-image-compression';
 import OnboardingHeader from './components/OnboardingHeader';
-import { Lock, Shield, FileText, CheckCircle, Link2, ExternalLink } from 'lucide-react';
+import { Lock, Shield, FileText, CheckCircle, Link2, ExternalLink, Wallet, AlertCircle, Award } from 'lucide-react';
 import { createListing } from '@/pages/Host/services/listing';
 import { updateSessionStorageBeforeNav } from './utils/sessionStorageHelper';
-import { PayPalScriptProvider, PayPalButtons, usePayPalScriptReducer } from '@paypal/react-paypal-js';
+import { getWalletBalance, hasSufficientBalance, initializeWallet } from '@/pages/Common/services/getpayService';
 
-// PayPal Client ID - Replace with your actual PayPal Client ID from PayPal Developer Dashboard
-// For testing, use sandbox client ID from https://developer.paypal.com/
-// Set VITE_PAYPAL_CLIENT_ID in .env file (e.g., VITE_PAYPAL_CLIENT_ID=your_client_id_here)
-// IMPORTANT: PayPal buttons require a valid client ID. If not set, PayPal payment buttons will be disabled.
-const PAYPAL_CLIENT_ID = import.meta.env.VITE_PAYPAL_CLIENT_ID || '';
-const HAS_VALID_PAYPAL_CLIENT_ID = PAYPAL_CLIENT_ID && PAYPAL_CLIENT_ID !== 'test' && PAYPAL_CLIENT_ID.length > 10;
+// GetPay Payment Button Component
+const GetPayPaymentButton = ({ amount, planName, onPayment, disabled, userId, paymentMethod, onPaymentMethodChange }) => {
+  const [walletBalance, setWalletBalance] = useState(0);
+  const [isCheckingBalance, setIsCheckingBalance] = useState(true);
+  const [hasBalance, setHasBalance] = useState(false);
+  const [pointsBalance, setPointsBalance] = useState(0);
+  const [hasPoints, setHasPoints] = useState(false);
+  const [pointsNeeded, setPointsNeeded] = useState(0);
+  const [pointsCurrencyValue, setPointsCurrencyValue] = useState(0);
+  const POINTS_TO_CURRENCY_RATE = 10; // 10 points = ₱1
 
-// PayPal Button Wrapper Component
-const PayPalButtonWrapper = ({ amount, onSuccess, onError, disabled, planName }) => {
-  const [{ isPending, isResolved }] = usePayPalScriptReducer();
-  
-  // If no valid PayPal client ID, show message instead of buttons
-  if (!HAS_VALID_PAYPAL_CLIENT_ID) {
+  useEffect(() => {
+    const checkBalance = async () => {
+      if (!userId) {
+        setIsCheckingBalance(false);
+        return;
+      }
+      try {
+        // Check GetPay wallet balance
+        await initializeWallet(userId);
+        const balance = await getWalletBalance(userId);
+        setWalletBalance(balance);
+        setHasBalance(balance >= amount);
+
+        // Check points balance
+        const { getHostPoints, checkPointsForPayment } = await import('@/pages/Host/services/pointsService');
+        const pointsData = await getHostPoints(userId);
+        const currentPoints = pointsData.points || 0;
+        setPointsBalance(currentPoints);
+        
+        const pointsCheck = await checkPointsForPayment(userId, amount);
+        setHasPoints(pointsCheck.hasSufficient);
+        setPointsNeeded(pointsCheck.pointsNeeded);
+        setPointsCurrencyValue(pointsCheck.currencyAmount);
+
+        setIsCheckingBalance(false);
+      } catch (error) {
+        console.error('Error checking balance:', error);
+        setIsCheckingBalance(false);
+      }
+    };
+    checkBalance();
+  }, [userId, amount]);
+
+  if (isCheckingBalance) {
     return (
-      <div className="text-center py-6 px-4 bg-amber-50 border-2 border-amber-200 rounded-lg">
-        <p className="text-sm text-amber-800 font-semibold mb-2">
-          PayPal payment is not configured
+      <div className="text-center py-6 px-4">
+        <div className="animate-spin rounded-full h-8 w-8 border-3 border-primary border-t-transparent mx-auto mb-3"></div>
+        <p className="text-sm text-gray-600">Checking your balance...</p>
+      </div>
+    );
+  }
+
+  const canPayWithWallet = hasBalance;
+  const canPayWithPoints = hasPoints;
+  const canPay = canPayWithWallet || canPayWithPoints;
+
+  if (!canPay) {
+    return (
+      <div className="text-center py-6 px-4 bg-red-50 border-2 border-red-300 rounded-lg">
+        <AlertCircle className="w-12 h-12 text-red-600 mx-auto mb-3" />
+        <p className="text-sm font-bold text-red-900 mb-2">
+          Insufficient Balance
         </p>
-        <p className="text-xs text-amber-700">
-          Please set VITE_PAYPAL_CLIENT_ID in your .env file with a valid PayPal Client ID from the PayPal Developer Dashboard.
+        <p className="text-xs text-red-800 mb-2">
+          You need ₱{amount.toLocaleString()} but:
         </p>
+        <ul className="text-xs text-red-700 mb-4 text-left max-w-xs mx-auto space-y-1">
+          <li>• GetPay Wallet: ₱{walletBalance.toLocaleString()}</li>
+          <li>• Points: {pointsBalance.toLocaleString()} points (≈ ₱{(pointsBalance / POINTS_TO_CURRENCY_RATE).toFixed(2)})</li>
+          <li>• Needed: {pointsNeeded.toLocaleString()} points (₱{amount.toLocaleString()})</li>
+        </ul>
+        <div className="flex gap-2 justify-center">
+          <button
+            onClick={() => window.location.href = '/ewallet'}
+            className="text-sm bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 transition-colors font-medium"
+          >
+            Go to GetPay Wallet
+          </button>
+        </div>
       </div>
     );
   }
   
   return (
-    <>
-      {isPending && <div className="text-center py-4 text-gray-600">Loading PayPal...</div>}
-      {isResolved && (
-        <PayPalButtons
-          disabled={disabled || isPending}
-          style={{
-            layout: 'vertical',
-            color: 'blue',
-            shape: 'rect',
-            label: 'paypal'
-          }}
-          createOrder={(data, actions) => {
-            return actions.order.create({
-              purchase_units: [
-                {
-                  amount: {
-                    value: typeof amount === 'string' ? amount : amount.toString(),
-                    currency_code: 'PHP'
-                  },
-                  description: `Getaways Listing Subscription - ${planName || 'Subscription'}`
-                }
-              ]
-            });
-          }}
-          onApprove={(data, actions) => {
-            return actions.order.capture().then((details) => {
-              onSuccess(details);
-            });
-          }}
-          onError={(err) => {
-            console.error('PayPal error:', err);
-            onError(err);
-          }}
-        />
-      )}
-    </>
+    <div className="space-y-4">
+      {/* Payment Method Selection */}
+      <div className="space-y-3">
+        <p className="text-sm font-semibold text-gray-900 mb-2">Choose Payment Method:</p>
+        
+        {/* GetPay Wallet Option */}
+        {canPayWithWallet && (
+          <label className={`flex items-center p-4 border-2 rounded-lg cursor-pointer transition-colors ${
+            paymentMethod === 'wallet' ? 'border-primary bg-primary/5' : 'border-gray-200 hover:border-gray-300'
+          }`}>
+            <input
+              type="radio"
+              name="paymentMethod"
+              value="wallet"
+              checked={paymentMethod === 'wallet'}
+              onChange={(e) => onPaymentMethodChange && onPaymentMethodChange(e.target.value)}
+              className="mr-3"
+            />
+            <Wallet className="w-5 h-5 text-primary mr-2" />
+            <div className="flex-1">
+              <p className="font-medium text-gray-900">GetPay Wallet</p>
+              <p className="text-xs text-gray-600">Balance: ₱{walletBalance.toLocaleString()}</p>
+            </div>
+            {hasBalance && (
+              <CheckCircle className="w-5 h-5 text-green-600" />
+            )}
+          </label>
+        )}
+
+        {/* Points Option */}
+        {canPayWithPoints && (
+          <label className={`flex items-center p-4 border-2 rounded-lg cursor-pointer transition-colors ${
+            paymentMethod === 'points' ? 'border-primary bg-primary/5' : 'border-gray-200 hover:border-gray-300'
+          }`}>
+            <input
+              type="radio"
+              name="paymentMethod"
+              value="points"
+              checked={paymentMethod === 'points'}
+              onChange={(e) => onPaymentMethodChange && onPaymentMethodChange(e.target.value)}
+              className="mr-3"
+            />
+            <Award className="w-5 h-5 text-amber-600 mr-2" />
+            <div className="flex-1">
+              <p className="font-medium text-gray-900">Points</p>
+              <p className="text-xs text-gray-600">
+                {pointsBalance.toLocaleString()} points (≈ ₱{(pointsBalance / POINTS_TO_CURRENCY_RATE).toFixed(2)}) - 
+                Need {pointsNeeded.toLocaleString()} points
+              </p>
+            </div>
+            {hasPoints && (
+              <CheckCircle className="w-5 h-5 text-green-600" />
+            )}
+          </label>
+        )}
+      </div>
+
+      {/* Payment Button */}
+      <button
+        onClick={onPayment}
+        disabled={disabled || !paymentMethod}
+        className="w-full py-3 px-6 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-bold text-lg"
+      >
+        {paymentMethod === 'points' 
+          ? `Pay with ${pointsNeeded.toLocaleString()} Points (₱${amount.toLocaleString()})`
+          : `Pay ₱${amount.toLocaleString()} with GetPay Wallet`
+        }
+      </button>
+      
+      <p className="text-xs text-gray-500 text-center">
+        {paymentMethod === 'points' 
+          ? `Payment will be deducted from your points and sent directly to admin's GetPay wallet`
+          : `Payment will be deducted from your GetPay wallet and sent directly to admin's GetPay wallet`
+        }
+      </p>
+    </div>
   );
 };
 
@@ -93,6 +192,9 @@ const Payment = () => {
   const [paypalEmailInput, setPaypalEmailInput] = useState('');
   const [isConnectingPayPal, setIsConnectingPayPal] = useState(false);
   const [uploadProgress, setUploadProgress] = useState('');
+  const [merchantPayPalEmail, setMerchantPayPalEmail] = useState('');
+  const [isMerchantAccount, setIsMerchantAccount] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState('wallet'); // 'wallet' or 'points'
   const isPublishingRef = useRef(false); // Prevent duplicate publishing
   const isAutoPublishingRef = useRef(false); // Track if publishing from checkPaymentRequirement
 
@@ -126,6 +228,59 @@ const Payment = () => {
   // Ref to prevent multiple simultaneous payment requirement checks
   const isCheckingPaymentRef = useRef(false);
   const hasCheckedPaymentRef = useRef(false);
+  
+  // Check if user is admin
+  useEffect(() => {
+    const checkAdminStatus = async () => {
+      if (auth.currentUser) {
+        try {
+          const userRef = doc(db, 'users', auth.currentUser.uid);
+          const userSnap = await getDoc(userRef);
+          if (userSnap.exists()) {
+            const userData = userSnap.data();
+            const roles = Array.isArray(userData.roles) ? userData.roles : (userData.roles ? [userData.roles] : ['guest']);
+            setIsAdmin(roles.includes('admin'));
+          }
+        } catch (error) {
+          console.error('Error checking admin status:', error);
+        }
+      }
+    };
+    checkAdminStatus();
+  }, []);
+  
+  // Check if user's PayPal account is the merchant account
+  const checkMerchantAccount = async (userPayPalEmail) => {
+    try {
+      const adminEmail = await getAdminPayPalEmail();
+      setMerchantPayPalEmail(adminEmail);
+      
+      if (adminEmail && userPayPalEmail && userPayPalEmail.toLowerCase().trim() === adminEmail.toLowerCase().trim()) {
+        // Only set as merchant account if NOT admin (admin can use merchant account)
+        setIsMerchantAccount(!isAdmin);
+      } else {
+        setIsMerchantAccount(false);
+      }
+      
+      // If admin and no PayPal connected, auto-use merchant account
+      if (isAdmin && !userPayPalEmail && adminEmail) {
+        setPaypalEmail(adminEmail);
+        setPaypalAccountConnected(true);
+      }
+    } catch (error) {
+      console.error('Error checking merchant account:', error);
+    }
+  };
+  
+  // Load merchant email and check on mount and when PayPal email or admin status changes
+  useEffect(() => {
+    if (paypalEmail) {
+      checkMerchantAccount(paypalEmail);
+    } else {
+      // Load merchant email even if user doesn't have PayPal connected
+      checkMerchantAccount('');
+    }
+  }, [paypalEmail, isAdmin]);
   
   // Check if payment is required (check user subscription, listing subscription, or edit mode)
   useEffect(() => {
@@ -162,6 +317,8 @@ const Payment = () => {
           if (userPayment.paypalEmail) {
             setPaypalEmail(userPayment.paypalEmail);
             setPaypalAccountConnected(userPayment.paypalStatus === 'connected');
+            // Check if this is the merchant account
+            checkMerchantAccount(userPayment.paypalEmail);
           }
           
           if (userPayment.status === 'active') {
@@ -183,10 +340,10 @@ const Payment = () => {
                 isAutoPublishingRef.current = false;
                 
                 // Award points for first listing (only for new listings, not edits)
-                if (!isEditMode && auth.currentUser) {
+                if (!isEditMode && auth.currentUser && listingIdResult) {
                   try {
                     const { awardPointsForFirstListing, awardMilestonePoints } = await import('@/pages/Host/services/pointsService');
-                    await awardPointsForFirstListing(auth.currentUser.uid);
+                    await awardPointsForFirstListing(auth.currentUser.uid, listingIdResult);
                     
                     // Check for listing milestones
                     const { collection, query, where, getDocs } = await import('firebase/firestore');
@@ -984,36 +1141,130 @@ const Payment = () => {
     }
   };
 
-  // Handle PayPal payment success
-  const handlePayPalSuccess = async (details) => {
-    console.log('✅ PayPal payment approved:', details);
+  // Handle GetPay wallet or points payment for subscription
+  const handleGetPayPayment = async () => {
+    if (!auth.currentUser) {
+      alert('You must be logged in to make a payment');
+      return;
+    }
+
+    const planPrice = selectedPlan === 'yearly' ? 9999 : 999;
     setIsProcessing(true);
+    setUploadProgress('Processing payment...');
     
     try {
-      // Save payment information to user document first (quick operation)
-      if (auth.currentUser) {
+      const { getAdminUserId, addToWallet: addToAdminWallet } = await import('@/pages/Common/services/getpayService');
+      let paymentProcessed = false;
+      let remainingAmount = planPrice;
+
+      // Handle points payment
+      if (paymentMethod === 'points') {
+        const { deductPointsForPayment } = await import('@/pages/Host/services/pointsService');
+        const pointsResult = await deductPointsForPayment(
+          auth.currentUser.uid,
+          planPrice,
+          'subscription',
+          {
+            subscriptionType: selectedPlan,
+            subscriptionPlan: selectedPlan === 'yearly' ? 'Yearly' : 'Monthly'
+          }
+        );
+
+        if (!pointsResult.success) {
+          setIsProcessing(false);
+          setUploadProgress('');
+          alert(pointsResult.error || 'Failed to process points payment');
+          return;
+        }
+
+        console.log(`✅ Subscription fee paid with ${pointsResult.pointsUsed} points (₱${pointsResult.currencyAmount.toFixed(2)})`);
+        remainingAmount = pointsResult.remainingAmount;
+        paymentProcessed = pointsResult.currencyAmount >= planPrice;
+      }
+
+      // Handle wallet payment (if points were insufficient or wallet was selected)
+      if (paymentMethod === 'wallet' || (!paymentProcessed && remainingAmount > 0)) {
+        const { deductFromWallet, initializeWallet, hasSufficientBalance } = await import('@/pages/Common/services/getpayService');
+        await initializeWallet(auth.currentUser.uid);
+        
+        if (paymentMethod === 'wallet') {
+          const hasBalance = await hasSufficientBalance(auth.currentUser.uid, planPrice);
+          if (!hasBalance) {
+            setIsProcessing(false);
+            setUploadProgress('');
+            alert(`Insufficient GetPay wallet balance. You need ₱${planPrice.toLocaleString()} but your current balance is insufficient. Please cash in to your GetPay wallet first.`);
+            return;
+          }
+        } else {
+          // Partial payment: points + wallet
+          if (remainingAmount > 0) {
+            const hasBalance = await hasSufficientBalance(auth.currentUser.uid, remainingAmount);
+            if (!hasBalance) {
+              setIsProcessing(false);
+              setUploadProgress('');
+              alert(`Insufficient balance. Points covered ₱${(planPrice - remainingAmount).toFixed(2)}, but you need ₱${remainingAmount.toFixed(2)} more from your GetPay wallet.`);
+              return;
+            }
+          }
+        }
+
+        // Deduct remaining amount from wallet
+        if (remainingAmount > 0) {
+          await deductFromWallet(
+            auth.currentUser.uid,
+            remainingAmount,
+            `Getaways ${selectedPlan === 'yearly' ? 'Yearly' : 'Monthly'} Subscription${paymentMethod === 'points' ? ' (Partial - remaining after points)' : ''}`,
+            {
+              subscriptionType: selectedPlan,
+              subscriptionPlan: selectedPlan === 'yearly' ? 'Yearly' : 'Monthly',
+              paymentType: 'subscription_payment',
+              paymentMethod: paymentMethod === 'points' ? 'points_and_wallet' : 'wallet'
+            }
+          );
+          console.log(`✅ Subscription fee ${paymentMethod === 'points' ? 'remaining amount' : ''} deducted from host GetPay wallet: ₱${remainingAmount.toFixed(2)}`);
+        }
+      }
+
+      // Transfer payment directly to admin's GetPay wallet (GetPay is standalone)
+      const adminUserId = await getAdminUserId();
+      if (adminUserId) {
+        const { initializeWallet: initAdminWallet } = await import('@/pages/Common/services/getpayService');
+        await initAdminWallet(adminUserId);
+        await addToAdminWallet(
+          adminUserId,
+          planPrice,
+          `Payment Received - Host Subscription`,
+          {
+            subscriptionType: selectedPlan,
+            subscriptionPlan: selectedPlan === 'yearly' ? 'Yearly' : 'Monthly',
+            hostId: auth.currentUser.uid,
+            hostEmail: auth.currentUser.email,
+            paymentType: 'subscription_payment'
+          }
+        );
+        console.log('✅ Subscription payment sent directly to admin GetPay wallet');
+      } else {
+        console.warn('⚠️ Admin user ID not found - payment not credited to admin wallet');
+      }
+
+      // Update user payment status
         const userRef = doc(db, 'users', auth.currentUser.uid);
         const userSnap = await getDoc(userRef);
-        
         if (userSnap.exists()) {
           const userData = userSnap.data();
           const existingPayment = userData.payment || {};
           
-          // Save payment info as a payment field map (preserve existing PayPal connection info)
           await updateDoc(userRef, {
             payment: {
-              ...existingPayment, // Preserve existing payment data (like paypalEmail, paypalConnectedAt, paypalStatus)
-              type: selectedPlan, // 'monthly' or 'yearly'
+            ...existingPayment,
+            type: selectedPlan,
               startDate: serverTimestamp(),
               status: 'active',
               lastPaymentDate: serverTimestamp(),
-              method: 'paypal',
-              lastPayPalTransactionId: details.id,
-              lastPayPalPayerEmail: details.payer?.email_address || existingPayment.paypalEmail || paypalEmail
+            method: 'getpay'
             }
           });
-          console.log('✅ Payment info saved to user document (payment field map)');
-        }
+        console.log('✅ Payment info saved to user document');
       }
 
       // Publish/Update the listing (this includes photo uploads which may take time)
@@ -1021,13 +1272,13 @@ const Payment = () => {
       console.log('📤 Starting listing publication/update process...');
       isAutoPublishingRef.current = false; // Ensure manual clicks are not treated as auto-publishing
       const listingId = await publishListing();
-      console.log('✅ PayPal payment processed and listing ' + (isEditMode ? 'updated' : 'published') + ':', listingId);
+      console.log('✅ GetPay payment processed and listing ' + (isEditMode ? 'updated' : 'published') + ':', listingId);
 
       // Award points for first listing (only for new listings, not edits)
-      if (!isEditMode && auth.currentUser) {
+      if (!isEditMode && auth.currentUser && listingId) {
         try {
           const { awardPointsForFirstListing, awardMilestonePoints } = await import('@/pages/Host/services/pointsService');
-          await awardPointsForFirstListing(auth.currentUser.uid);
+          await awardPointsForFirstListing(auth.currentUser.uid, listingId);
           
           // Check for listing milestones
           const { collection, query, where, getDocs } = await import('firebase/firestore');
@@ -1064,62 +1315,19 @@ const Payment = () => {
           listingUpdated: isEditMode,
           listingId: listingId,
           onboardingCompleted: true,
-          paymentMethod: 'paypal'
+          paymentMethod: 'getpay'
         }
       });
     } catch (error) {
-      console.error('❌ Error processing payment:', error);
+      console.error('❌ Error processing GetPay payment:', error);
       setIsProcessing(false);
-      alert(`Payment was successful, but there was an error publishing your listing: ${error.message}\n\nYour payment has been recorded. Please contact support with transaction ID: ${details.id}`);
-      
-      // Even if listing publication fails, navigate to listings tab
-      // User can try again or contact support
-      navigate('/host/listings', {
-        state: {
-          message: 'Payment successful, but listing publication encountered an error. Please contact support.',
-          paymentSuccessful: true,
-          paymentTransactionId: details.id,
-          error: error.message
-        }
-      });
+      setUploadProgress('');
+      alert(`Error processing payment: ${error.message}\n\nPlease try again or contact support if the issue persists.`);
     }
   };
 
-  // Handle PayPal payment error
-  const handlePayPalError = (err) => {
-    console.error('PayPal payment error:', err);
-    alert('PayPal payment failed. Please try again.');
-    setIsProcessing(false);
-  };
-
-  const selectedPlanPrice = subscriptionPlans.find(p => p.id === selectedPlan)?.price || 0;
-  // PayPal expects amount as string in decimal format (e.g., "99.99" for ₱9999)
-  const amountInDecimal = (selectedPlanPrice / 100).toFixed(2);
-
-  // PayPal SDK options - only use valid client ID to prevent errors
-  // If no valid client ID, use a safe placeholder that won't trigger OAuth popups
-  const paypalOptions = HAS_VALID_PAYPAL_CLIENT_ID ? {
-    clientId: PAYPAL_CLIENT_ID,
-    currency: 'PHP',
-    intent: 'capture',
-    enableFunding: 'paypal', // Only enable PayPal funding, disable credit/debit cards
-    disableFunding: 'card,credit,paylater,venmo' // Explicitly disable card options
-  } : {
-    // Use a placeholder that prevents SDK from initializing
-    // This avoids any OAuth popups or errors when clicking connection buttons
-    clientId: '',
-    currency: 'PHP',
-    intent: 'capture',
-    "data-sdk-integration-source": "button-factory",
-    enableFunding: 'paypal',
-    disableFunding: 'card,credit,paylater,venmo'
-  };
-
   return (
-    <PayPalScriptProvider 
-      options={paypalOptions}
-      deferLoading={!HAS_VALID_PAYPAL_CLIENT_ID}
-    >
+    <>
       <style>{`
         .custom-scrollbar::-webkit-scrollbar {
           width: 6px;
@@ -1411,27 +1619,25 @@ const Payment = () => {
                   <span className="bg-primary text-white text-sm font-bold px-4 py-1.5 rounded-full">Step 3</span>
                   <h2 className="text-2xl font-bold text-gray-900">Complete Payment & Publish Listing</h2>
                 </div>
-                <p className="text-sm text-gray-600">Complete your subscription payment to publish your listing</p>
+                <p className="text-sm text-gray-600">Pay for your subscription using your GetPay wallet to publish your listing</p>
               </div>
               
-              {/* Payment Completion Section - PayPal buttons will handle account selection/login */}
+              {/* Payment Completion Section - GetPay Wallet Payment */}
               <div className="border-2 border-primary/30 rounded-xl p-6 bg-gradient-to-br from-primary/10 via-primary/5 to-white shadow-xl">
-                <div className="mb-6 text-center">
-                  <div className="flex flex-col items-center gap-4 mb-4">
-                    <div className="w-20 h-20 bg-white rounded-xl flex items-center justify-center shadow-lg border-2 border-primary/20 p-4">
-                      <img 
-                        src="https://www.paypalobjects.com/webstatic/mktg/logo/pp_cc_mark_111x69.jpg" 
-                        alt="PayPal" 
-                        className="w-full h-full object-contain"
-                        onError={(e) => {
-                          e.target.style.display = 'none';
-                          e.target.parentElement.innerHTML = '<span class="text-primary font-bold text-2xl">PayPal</span>';
-                        }}
-                      />
-                    </div>
-                    <div className="text-center">
-                      <p className="text-base font-bold text-gray-900 mb-2">PayPal Payment</p>
-                      <p className="text-sm text-gray-600">Click the button below to login and pay with PayPal</p>
+                {/* Info about GetPay Payment */}
+                <div className="mb-6 p-4 bg-blue-50 border-2 border-blue-300 rounded-lg">
+                  <div className="flex items-start gap-3">
+                    <div className="text-blue-600 font-bold text-lg">ℹ️</div>
+                    <div className="flex-1">
+                      <p className="text-sm font-bold text-blue-900 mb-2">
+                        GetPay Wallet Payment
+                      </p>
+                      <p className="text-xs text-blue-800 mb-2">
+                        Payments are processed directly through GetPay wallet. Your payment will be sent directly to the admin's GetPay wallet.
+                      </p>
+                      <p className="text-xs text-blue-700">
+                        <strong>Note:</strong> GetPay is a standalone e-wallet system, separate from PayPal. Cash in/out operations use PayPal, but platform payments use GetPay directly.
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -1451,14 +1657,16 @@ const Payment = () => {
                   </div>
                 )}
                 
-                <div className="bg-white/90 backdrop-blur-sm rounded-lg p-5 border-2 border-gray-200 shadow-md flex justify-center">
-                  <div className="w-full max-w-md">
-                    <PayPalButtonWrapper
-                      amount={amountInDecimal}
-                      onSuccess={handlePayPalSuccess}
-                      onError={handlePayPalError}
+                <div className="bg-white/90 backdrop-blur-sm rounded-lg p-5 border-2 border-gray-200 shadow-md">
+                  <div className="w-full max-w-md mx-auto">
+                    <GetPayPaymentButton
+                      amount={subscriptionPlans.find(p => p.id === selectedPlan)?.price || 0}
+                      planName={subscriptionPlans.find(p => p.id === selectedPlan)?.name || 'Subscription'}
+                      onPayment={handleGetPayPayment}
                       disabled={!canProceed || isProcessing}
-                      planName={subscriptionPlans.find(p => p.id === selectedPlan)?.name}
+                      userId={auth.currentUser?.uid}
+                      paymentMethod={paymentMethod}
+                      onPaymentMethodChange={setPaymentMethod}
                     />
                   </div>
                 </div>
@@ -1486,7 +1694,7 @@ const Payment = () => {
         </div>
       </main>
       </div>
-    </PayPalScriptProvider>
+    </>
   );
 };
 
