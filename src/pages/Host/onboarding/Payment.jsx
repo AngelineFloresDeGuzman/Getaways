@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
 import { auth, db } from '@/lib/firebase';
-import { doc, getDoc, updateDoc, deleteDoc, serverTimestamp, writeBatch, collection, getDocs } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, deleteDoc, serverTimestamp, writeBatch, collection, getDocs, query, orderBy } from 'firebase/firestore';
 import imageCompression from 'browser-image-compression';
 import OnboardingHeader from './components/OnboardingHeader';
 import { Lock, Shield, FileText, CheckCircle, Link2, ExternalLink, Wallet, AlertCircle, Award } from 'lucide-react';
@@ -940,6 +940,33 @@ const Payment = () => {
     }
   };
 
+  const loadAccommodationPhotosFromSubcollection = async (draftIdToUse) => {
+    if (!draftIdToUse) return [];
+    try {
+      const photosRef = collection(db, 'onboardingDrafts', draftIdToUse, 'photos');
+      const photosQuery = query(photosRef, orderBy('createdAt', 'asc'));
+      const photosSnap = await getDocs(photosQuery);
+      if (photosSnap.empty) {
+        return [];
+      }
+      const loadedPhotos = photosSnap.docs.map((docSnap) => {
+        const photoData = docSnap.data() || {};
+        return {
+          id: docSnap.id,
+          name: photoData.name || 'photo',
+          url: photoData.base64 || photoData.url || '',
+          base64: photoData.base64 || '',
+          firestoreId: docSnap.id,
+        };
+      }).filter(photo => !!photo.base64);
+      console.log('📍 Payment: Loaded accommodation photos from subcollection:', loadedPhotos.length);
+      return loadedPhotos;
+    } catch (error) {
+      console.error('Error loading accommodation photos from subcollection:', error);
+      return [];
+    }
+  };
+
   // Convert draft to listing and publish it
   const publishListing = async () => {
     if (!draftId || !auth.currentUser) {
@@ -1044,12 +1071,31 @@ const Payment = () => {
         ? (data.servicePricing || data.pricing || {})
         : (data.pricing || {});
 
+      // ALWAYS prioritize photos from subcollection (they're the source of truth)
+      // This ensures edited photos are always used when updating listings
       if (category === 'service') {
-        const hasValidBase64 = Array.isArray(photos) && photos.some(photo => photo?.base64);
-        if (!hasValidBase64) {
-          const subcollectionPhotos = await loadServicePhotosFromSubcollection(draftId);
-          if (subcollectionPhotos.length > 0) {
-            photos = subcollectionPhotos;
+        const subcollectionPhotos = await loadServicePhotosFromSubcollection(draftId);
+        if (subcollectionPhotos.length > 0) {
+          photos = subcollectionPhotos;
+          console.log('📍 Payment: Using photos from servicePhotos subcollection:', photos.length);
+        } else {
+          // Fallback to main document if subcollection is empty
+          const hasValidBase64 = Array.isArray(photos) && photos.some(photo => photo?.base64);
+          if (!hasValidBase64) {
+            console.warn('⚠️ Payment: No photos found in subcollection or main document for service');
+          }
+        }
+      } else {
+        // For accommodation, load from 'photos' subcollection
+        const subcollectionPhotos = await loadAccommodationPhotosFromSubcollection(draftId);
+        if (subcollectionPhotos.length > 0) {
+          photos = subcollectionPhotos;
+          console.log('📍 Payment: Using photos from photos subcollection:', photos.length);
+        } else {
+          // Fallback to main document if subcollection is empty
+          const hasValidBase64 = Array.isArray(photos) && photos.some(photo => photo?.base64);
+          if (!hasValidBase64) {
+            console.warn('⚠️ Payment: No photos found in subcollection or main document for accommodation');
           }
         }
       }

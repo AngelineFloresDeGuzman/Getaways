@@ -374,11 +374,14 @@ export const sendPasswordResetEmail = async (email, firstName, token) => {
 export const sendBookingConfirmationEmail = async (email, firstName, lastName, bookingData) => {
   try {
     if (!email || !email.trim()) {
-      throw new Error('Recipient email address is required');
+      console.warn('⚠️ Cannot send booking confirmation email: Recipient email address is required');
+      return { success: false, error: 'Recipient email address is required' };
     }
 
-    if (!EMAILJS_BOOKING_PUBLIC_KEY) {
-      throw new Error('EmailJS booking public key is not configured');
+    // Check if EmailJS is properly configured
+    if (!EMAILJS_BOOKING_PUBLIC_KEY || !EMAILJS_BOOKING_SERVICE_ID || !EMAILJS_BOOKING_SUCCESS_TEMPLATE_ID) {
+      console.warn('⚠️ EmailJS is not configured for booking emails. Skipping email send.');
+      return { success: false, error: 'EmailJS not configured', skipped: true };
     }
 
     const fullName = `${firstName || ''} ${lastName || ''}`.trim() || 'Guest';
@@ -403,10 +406,16 @@ export const sendBookingConfirmationEmail = async (email, firstName, lastName, b
       reply_to: email.trim(),
     };
 
+    // Initialize EmailJS with booking public key if not already initialized with it
+    if (EMAILJS_BOOKING_PUBLIC_KEY) {
+      emailjs.init(EMAILJS_BOOKING_PUBLIC_KEY);
+    }
+
     console.log('Sending booking confirmation email with params:', {
       serviceId: EMAILJS_BOOKING_SERVICE_ID,
       templateId: EMAILJS_BOOKING_SUCCESS_TEMPLATE_ID,
       to_email: email.trim(),
+      publicKey: EMAILJS_BOOKING_PUBLIC_KEY ? 'configured' : 'missing'
     });
 
     const response = await emailjs.send(
@@ -415,12 +424,26 @@ export const sendBookingConfirmationEmail = async (email, firstName, lastName, b
       templateParams
     );
 
-    console.log('Booking confirmation email sent successfully:', response);
+    console.log('✅ Booking confirmation email sent successfully:', response);
     return { success: true };
   } catch (error) {
-    console.error('Error sending booking confirmation email:', error);
-    // Don't throw - email failure shouldn't break booking creation
-    return { success: false, error: error.message };
+    // Check if it's a configuration error (service not found, etc.)
+    const isConfigError = error?.text?.includes('service ID not found') || 
+                         error?.text?.includes('template') ||
+                         error?.status === 400;
+    
+    if (isConfigError) {
+      console.warn('⚠️ EmailJS is not properly configured for booking emails. Email sending skipped.', {
+        serviceId: EMAILJS_BOOKING_SERVICE_ID,
+        templateId: EMAILJS_BOOKING_SUCCESS_TEMPLATE_ID,
+        error: error.text || error.message
+      });
+      return { success: false, error: 'EmailJS not configured', skipped: true };
+    }
+    
+    // For other errors, log but don't break the booking flow
+    console.warn('⚠️ Failed to send booking confirmation email (non-critical):', error.message || error.text);
+    return { success: false, error: error.message || error.text };
   }
 };
 
@@ -437,8 +460,8 @@ export const sendSubscriptionConfirmationEmail = async (email, firstName, lastNa
       throw new Error('Recipient email address is required');
     }
 
-    if (!EMAILJS_PUBLIC_KEY) {
-      throw new Error('EmailJS public key is not configured');
+    if (!EMAILJS_BOOKING_PUBLIC_KEY) {
+      throw new Error('EmailJS booking public key is not configured');
     }
 
     const fullName = `${firstName || ''} ${lastName || ''}`.trim() || 'Host';
@@ -491,38 +514,200 @@ export const sendSubscriptionConfirmationEmail = async (email, firstName, lastNa
 export const sendCancellationEmail = async (email, firstName, lastName, cancellationData) => {
   try {
     if (!email || !email.trim()) {
-      throw new Error('Recipient email address is required');
+      console.warn('⚠️ Cannot send cancellation email: Recipient email address is required');
+      return { success: false, error: 'Recipient email address is required' };
     }
 
-    if (!EMAILJS_BOOKING_PUBLIC_KEY) {
-      throw new Error('EmailJS booking public key is not configured');
+    // Check if EmailJS is properly configured
+    if (!EMAILJS_BOOKING_PUBLIC_KEY || !EMAILJS_BOOKING_SERVICE_ID || !EMAILJS_CANCELLATION_TEMPLATE_ID) {
+      console.warn('⚠️ EmailJS is not configured for cancellation emails. Skipping email send.');
+      return { success: false, error: 'EmailJS not configured', skipped: true };
     }
 
     const fullName = `${firstName || ''} ${lastName || ''}`.trim() || 'Guest';
     const logoUrl = getLogoUrl();
-    const templateParams = {
-      to_email: email.trim(),
-      to_name: firstName || 'Guest',
-      user_name: fullName,
-      first_name: firstName || '',
-      last_name: lastName || '',
-      booking_id: cancellationData.bookingId || '',
-      listing_title: cancellationData.listingTitle || 'Accommodation',
-      check_in_date: cancellationData.checkInDate || '',
-      check_out_date: cancellationData.checkOutDate || '',
-      refund_amount: cancellationData.refundAmount ? `₱${parseFloat(cancellationData.refundAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '₱0.00',
-      refund_type: cancellationData.refundType === 'full_refund' ? 'Full Refund' : cancellationData.refundType === 'half_refund' ? 'Half Refund' : 'No Refund',
-      refund_status: cancellationData.refundPending ? 'Pending Admin Processing' : cancellationData.refundProcessed ? 'Processed' : 'Not Applicable',
-      app_name: 'Getaways',
-      support_email: SUPPORT_EMAIL,
-      logo_url: logoUrl,
-      reply_to: email.trim(),
+    
+    // Helper function to sanitize strings for EmailJS (removes problematic characters)
+    const sanitizeForEmailJS = (value) => {
+      if (value === null || value === undefined) return '';
+      try {
+        let str = String(value);
+        // Remove or replace problematic characters that EmailJS might not handle well
+        // Remove null bytes, control characters (except newlines, tabs, carriage returns)
+        str = str.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+        // Replace curly braces that aren't part of template variables (but keep {{variable}} patterns)
+        // This is tricky - we'll be more conservative and just ensure no standalone braces
+        // EmailJS uses {{variable}} so we need to be careful
+        return str.trim();
+      } catch (e) {
+        console.warn('Error sanitizing string for EmailJS:', e);
+        return '';
+      }
     };
+    
+    // Helper function to safely convert values to strings for EmailJS
+    const safeString = (value, defaultValue = '') => {
+      if (value === null || value === undefined) {
+        const sanitized = sanitizeForEmailJS(defaultValue);
+        return sanitized || '';
+      }
+      try {
+        const sanitized = sanitizeForEmailJS(value);
+        return sanitized || sanitizeForEmailJS(defaultValue) || '';
+      } catch (e) {
+        const sanitized = sanitizeForEmailJS(defaultValue);
+        return sanitized || '';
+      }
+    };
+    
+    // Safely format refund amount - use PHP instead of peso sign to avoid Unicode issues
+    let refundAmountFormatted = 'PHP 0.00';
+    if (cancellationData.refundAmount !== null && cancellationData.refundAmount !== undefined) {
+      try {
+        const refundNum = parseFloat(cancellationData.refundAmount);
+        if (!isNaN(refundNum) && isFinite(refundNum) && refundNum >= 0) {
+          // Use PHP instead of peso sign to avoid EmailJS corruption issues
+          const formatted = refundNum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          refundAmountFormatted = `PHP ${formatted}`;
+        }
+      } catch (e) {
+        console.warn('Error formatting refund amount:', e);
+        refundAmountFormatted = 'PHP 0.00';
+      }
+    }
+    
+    // Determine refund type safely - handle all possible values
+    let refundTypeText = 'No Refund';
+    const refundType = cancellationData?.refundType || '';
+    if (refundType === 'full_refund' || refundType === 'full') {
+      refundTypeText = 'Full Refund';
+    } else if (refundType === 'half_refund' || refundType === 'half') {
+      refundTypeText = 'Half Refund';
+    } else if (refundType === 'no_refund' || refundType === 'none' || !refundType) {
+      refundTypeText = 'No Refund';
+    } else {
+      // Fallback for any other value
+      refundTypeText = String(refundType) || 'No Refund';
+    }
+    
+    // Determine refund status safely
+    let refundStatusText = 'Not Applicable';
+    if (cancellationData.refundPending === true) {
+      refundStatusText = 'Pending Admin Processing';
+    } else if (cancellationData.refundProcessed === true) {
+      refundStatusText = 'Processed';
+    }
+    
+    // Create refund message based on status (EmailJS doesn't support conditionals)
+    let refundMessage = 'No refund is applicable for this cancellation.';
+    if (cancellationData.refundPending === true) {
+      refundMessage = 'Your refund request has been submitted and is pending admin processing. You will receive another email once your refund has been processed.';
+    } else if (cancellationData.refundProcessed === true) {
+      refundMessage = 'Your refund has been processed and should appear in your account within 5-7 business days.';
+    }
+    
+    // Ensure all values are strings and properly sanitized
+    // CRITICAL: All values must be non-empty strings or EmailJS will fail
+    const templateParams = {
+      to_email: safeString(email?.trim(), 'guest@example.com'),
+      to_name: safeString(firstName, 'Guest'),
+      user_name: safeString(fullName, 'Guest'),
+      first_name: safeString(firstName, 'Guest'),
+      last_name: safeString(lastName, ''),
+      booking_id: safeString(cancellationData?.bookingId, 'N/A'),
+      listing_title: safeString(cancellationData?.listingTitle, 'Accommodation'),
+      check_in_date: safeString(cancellationData?.checkInDate, 'N/A'),
+      check_out_date: safeString(cancellationData?.checkOutDate, 'N/A'),
+      refund_amount: safeString(refundAmountFormatted, 'PHP 0.00'),
+      refund_type: safeString(refundTypeText, 'No Refund'),
+      refund_status: safeString(refundStatusText, 'Not Applicable'),
+      refund_message: safeString(refundMessage, 'No refund is applicable for this cancellation.'),
+      app_name: safeString('Getaways', 'Getaways'),
+      support_email: safeString(SUPPORT_EMAIL || 'support@getaways.com', 'support@getaways.com'),
+      logo_url: safeString(logoUrl || 'https://via.placeholder.com/150', 'https://via.placeholder.com/150'),
+      reply_to: safeString(email?.trim(), 'noreply@getaways.com'),
+    };
+    
+    // Final validation: ensure no undefined, null, or empty values that could corrupt EmailJS
+    Object.keys(templateParams).forEach(key => {
+      const value = templateParams[key];
+      if (value === undefined || value === null || value === '') {
+        console.warn(`⚠️ Template param ${key} is empty, using fallback`);
+        // Use appropriate fallback based on key
+        if (key.includes('email')) {
+          templateParams[key] = 'noreply@getaways.com';
+        } else if (key.includes('url')) {
+          templateParams[key] = 'https://via.placeholder.com/150';
+        } else {
+          templateParams[key] = 'N/A';
+        }
+      }
+      // Ensure it's a string
+      templateParams[key] = String(templateParams[key]);
+    });
+    
+    // Log all template params for debugging (but mask sensitive data)
+    console.log('📧 Cancellation email template params (sanitized):', {
+      keys: Object.keys(templateParams),
+      paramCount: Object.keys(templateParams).length,
+      hasEmptyValues: Object.values(templateParams).some(v => !v || v.trim() === ''),
+      sampleValues: {
+        to_email: templateParams.to_email ? `${templateParams.to_email.substring(0, 3)}...` : 'empty',
+        booking_id: templateParams.booking_id,
+        listing_title: templateParams.listing_title?.substring(0, 30) || 'empty',
+        check_in_date: templateParams.check_in_date,
+        refund_amount: templateParams.refund_amount,
+        refund_type: templateParams.refund_type,
+      }
+    });
+    
+    // Additional validation: Check for any characters that might corrupt EmailJS
+    const problematicChars = /[{}]/g; // Curly braces outside of template variables
+    let hasProblematicChars = false;
+    Object.keys(templateParams).forEach(key => {
+      const value = templateParams[key];
+      // Check if value contains standalone curly braces (not part of template syntax)
+      // EmailJS template variables use {{variable}}, so standalone { or } are problematic
+      if (typeof value === 'string' && value.match(problematicChars)) {
+        // Check if it's NOT a template variable pattern
+        if (!value.match(/^{{[a-zA-Z_][a-zA-Z0-9_]*}}$/)) {
+          console.warn(`⚠️ Template param ${key} contains potentially problematic characters:`, value);
+          hasProblematicChars = true;
+          // Remove standalone curly braces
+          templateParams[key] = value.replace(/[{}]/g, '');
+        }
+      }
+    });
+    
+    if (hasProblematicChars) {
+      console.warn('⚠️ Some template params had problematic characters and were cleaned');
+    }
+
+    // Initialize EmailJS with booking public key if not already initialized with it
+    if (EMAILJS_BOOKING_PUBLIC_KEY) {
+      emailjs.init(EMAILJS_BOOKING_PUBLIC_KEY);
+    }
 
     console.log('Sending cancellation email with params:', {
       serviceId: EMAILJS_BOOKING_SERVICE_ID,
       templateId: EMAILJS_CANCELLATION_TEMPLATE_ID,
       to_email: email.trim(),
+      publicKey: EMAILJS_BOOKING_PUBLIC_KEY ? 'configured' : 'missing'
+    });
+
+    // Log the exact params being sent (for debugging)
+    console.log('📤 Sending to EmailJS with these params:', {
+      serviceId: EMAILJS_BOOKING_SERVICE_ID,
+      templateId: EMAILJS_CANCELLATION_TEMPLATE_ID,
+      paramKeys: Object.keys(templateParams),
+      paramValues: Object.keys(templateParams).reduce((acc, key) => {
+        const value = templateParams[key];
+        // Log first 50 chars of each value for debugging
+        acc[key] = typeof value === 'string' 
+          ? (value.length > 50 ? value.substring(0, 50) + '...' : value)
+          : String(value);
+        return acc;
+      }, {})
     });
 
     const response = await emailjs.send(
@@ -531,12 +716,73 @@ export const sendCancellationEmail = async (email, firstName, lastName, cancella
       templateParams
     );
 
-    console.log('Cancellation email sent successfully:', response);
+    console.log('✅ Cancellation email sent successfully:', response);
     return { success: true };
   } catch (error) {
-    console.error('Error sending cancellation email:', error);
-    // Don't throw - email failure shouldn't break cancellation
-    return { success: false, error: error.message };
+    // Log the full error for debugging
+    console.error('❌ EmailJS Error Details:', {
+      status: error?.status,
+      statusText: error?.statusText,
+      text: error?.text,
+      message: error?.message,
+      name: error?.name,
+      stack: error?.stack,
+    });
+    
+    // Try to parse error text if it's JSON
+    let errorDetails = null;
+    if (error?.text) {
+      try {
+        errorDetails = typeof error.text === 'string' ? JSON.parse(error.text) : error.text;
+        console.error('❌ EmailJS Error Response (parsed):', errorDetails);
+      } catch (e) {
+        console.error('❌ EmailJS Error Response (raw):', error.text);
+      }
+    }
+    
+    // Check if it's a configuration error (service not found, etc.)
+    const isConfigError = error?.text?.includes('service ID not found') || 
+                         error?.text?.includes('template') ||
+                         error?.status === 400;
+    
+    // Check for corrupted variables error
+    const isCorruptedVariablesError = error?.text?.includes('corrupted') || 
+                                      error?.text?.includes('dynamic variables') ||
+                                      error?.text?.includes('template') && error?.text?.includes('variable') ||
+                                      error?.message?.includes('corrupted') ||
+                                      error?.message?.includes('dynamic variables');
+    
+    if (isCorruptedVariablesError) {
+      console.error('❌ EmailJS template variable corruption error detected!');
+      console.error('❌ Full error:', error);
+      console.error('❌ Template params that were sent:', Object.keys(templateParams).reduce((acc, key) => {
+        const value = templateParams[key];
+        acc[key] = {
+          type: typeof value,
+          length: String(value).length,
+          isEmpty: !value || String(value).trim() === '',
+          hasSpecialChars: /[<>{}]/.test(String(value)),
+          value: String(value).substring(0, 100) // First 100 chars for debugging
+        };
+        return acc;
+      }, {}));
+      
+      // Return error but don't break cancellation flow
+      return { success: false, error: 'Template variable error: ' + (error.text || error.message || 'Unknown error') };
+    }
+    
+    if (isConfigError) {
+      console.warn('⚠️ EmailJS is not properly configured for cancellation emails. Email sending skipped.', {
+        serviceId: EMAILJS_BOOKING_SERVICE_ID,
+        templateId: EMAILJS_CANCELLATION_TEMPLATE_ID,
+        error: error.text || error.message
+      });
+      return { success: false, error: 'EmailJS not configured', skipped: true };
+    }
+    
+    // For other errors, log but don't break the cancellation flow
+    console.warn('⚠️ Failed to send cancellation email (non-critical):', error.message || error.text);
+    return { success: false, error: error.message || error.text };
   }
 };
 

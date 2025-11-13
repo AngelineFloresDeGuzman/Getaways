@@ -1,7 +1,7 @@
 import { db, auth } from '@/lib/firebase';
 import { collection, addDoc, query, where, getDocs, serverTimestamp, orderBy, doc, getDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { deductFromWallet, hasSufficientBalance, initializeWallet } from '@/pages/Common/services/getpayService';
-import { sendBookingConfirmationEmail, sendCancellationEmail } from '@/lib/emailService';
+import { sendCancellationEmail } from '@/lib/emailService';
 
 /**
  * Create a new booking/reservation with GetPay wallet payment
@@ -18,15 +18,18 @@ export const createBooking = async (bookingData) => {
   const user = auth.currentUser;
   if (!user) throw new Error('User must be authenticated to create a booking');
 
-  const { listingId, checkInDate, checkOutDate, guests, totalPrice, useWallet = true, message, paymentProvider, paymentMethod } = bookingData;
+  const { listingId, checkInDate, checkOutDate, guests, totalPrice, bookingAmount: providedBookingAmount, guestFee: providedGuestFee, useWallet = true, message, paymentProvider, paymentMethod, paypalOrderId, paypalTransactionId } = bookingData;
 
   if (!listingId || !checkInDate || !checkOutDate) {
     throw new Error('Missing required booking information');
   }
 
-  // Validate dates
+  // Validate dates - convert to Date objects and normalize to midnight
   const checkIn = new Date(checkInDate);
   const checkOut = new Date(checkOutDate);
+  checkIn.setHours(0, 0, 0, 0);
+  checkOut.setHours(0, 0, 0, 0);
+  
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -55,7 +58,8 @@ export const createBooking = async (bookingData) => {
   const listingData = listingSnap.data();
   const ownerId = listingData.ownerId || listingData.userId;
   
-  // Calculate booking amount and guest fee
+  // Use provided bookingAmount and guestFee if available (from BookingRequest page)
+  // Otherwise, calculate from totalPrice (backward compatibility)
   // Guest fee is a percentage of the booking amount (default 14% like Airbnb-style service fee)
   // Guest pays: bookingAmount + guestFee
   // Admin receives: bookingAmount + guestFee (total)
@@ -63,14 +67,31 @@ export const createBooking = async (bookingData) => {
   // Admin keeps: guestFee
   const GUEST_FEE_PERCENTAGE = 0.14; // 14% guest service fee
   
-  // If totalPrice includes the guest fee, calculate backwards
-  // totalPrice = bookingAmount + guestFee
-  // totalPrice = bookingAmount + (bookingAmount * 0.14)
-  // totalPrice = bookingAmount * 1.14
-  // bookingAmount = totalPrice / 1.14
-  const bookingAmount = Math.round((totalPrice / (1 + GUEST_FEE_PERCENTAGE)) * 100) / 100;
-  const guestFee = Math.round((totalPrice - bookingAmount) * 100) / 100;
-  const totalAmount = bookingAmount + guestFee; // This should equal totalPrice (with rounding)
+  let bookingAmount;
+  let guestFee;
+  let totalAmount;
+  
+  if (providedBookingAmount !== undefined && providedGuestFee !== undefined) {
+    // Use exact values provided from BookingRequest page
+    bookingAmount = Math.round(providedBookingAmount * 100) / 100;
+    guestFee = Math.round(providedGuestFee * 100) / 100;
+    totalAmount = Math.round((bookingAmount + guestFee) * 100) / 100;
+    // Ensure totalAmount matches totalPrice (with rounding tolerance)
+    if (Math.abs(totalAmount - totalPrice) > 0.01) {
+      console.warn('⚠️ Price mismatch: totalAmount from breakdown does not match totalPrice. Using totalPrice.');
+      totalAmount = Math.round(totalPrice * 100) / 100;
+    }
+  } else {
+    // Fallback: calculate from totalPrice (backward compatibility)
+    // If totalPrice includes the guest fee, calculate backwards
+    // totalPrice = bookingAmount + guestFee
+    // totalPrice = bookingAmount + (bookingAmount * 0.14)
+    // totalPrice = bookingAmount * 1.14
+    // bookingAmount = totalPrice / 1.14
+    bookingAmount = Math.round((totalPrice / (1 + GUEST_FEE_PERCENTAGE)) * 100) / 100;
+    guestFee = Math.round((totalPrice - bookingAmount) * 100) / 100;
+    totalAmount = Math.round((bookingAmount + guestFee) * 100) / 100;
+  }
   
   const listingTitle = listingData.title || 'Accommodation';
   
@@ -101,98 +122,79 @@ export const createBooking = async (bookingData) => {
       // Coupon information (if applied)
       couponCode: bookingData.couponCode || null,
       couponDiscount: bookingData.couponDiscount || 0,
-      couponId: bookingData.couponId || null
+      couponId: bookingData.couponId || null,
+      // PayPal payment information (if PayPal was used)
+      paypalOrderId: paypalOrderId || null, // PayPal order ID from authorization
+      paypalTransactionId: paypalTransactionId || null // PayPal transaction ID if payment was captured
     };
 
     const bookingsCollection = collection(db, 'bookings');
     const docRef = await addDoc(bookingsCollection, bookingDoc);
     const bookingId = docRef.id;
 
-    // Check if user is a host and has points (can pay with points)
-    let paymentProcessed = false;
-    let remainingAmount = totalAmount;
-    let paymentMethodUsed = 'getpay';
+    // Check payment availability but DO NOT deduct yet - payment will only be deducted when host confirms
+    let paymentMethodUsed = 'wallet';
     let pointsUsed = 0;
+    let remainingAmount = totalAmount;
+    let canPayWithPoints = false;
 
-    // Check if user has points (they're a host with points)
+    // Check if user has points (they're a host with points) - but don't deduct yet
     try {
-      const { getHostPoints, checkPointsForPayment, deductPointsForPayment } = await import('@/pages/Host/services/pointsService');
+      const { getHostPoints, checkPointsForPayment } = await import('@/pages/Host/services/pointsService');
       const pointsData = await getHostPoints(user.uid);
       const currentPoints = pointsData.points || 0;
 
       if (currentPoints > 0) {
-        // Check if they have sufficient points
+        // Check if they have sufficient points (but don't deduct yet)
         const pointsCheck = await checkPointsForPayment(user.uid, totalAmount);
         
         if (pointsCheck.hasSufficient || pointsCheck.currentPoints > 0) {
-          // User has points - try to pay with points first (now we have bookingId)
-          const pointsResult = await deductPointsForPayment(
-            user.uid,
-            totalAmount,
-            'booking',
-            {
-              bookingId: bookingId,
-              listingId: listingId,
-              listingTitle: listingTitle
-            }
-          );
-
-          if (pointsResult.success) {
-            pointsUsed = pointsResult.pointsUsed;
-            remainingAmount = pointsResult.remainingAmount;
-            paymentProcessed = pointsResult.currencyAmount >= totalAmount;
-            paymentMethodUsed = pointsResult.remainingAmount > 0 ? 'points_and_wallet' : 'points';
-            console.log(`✅ Booking payment: ${pointsUsed} points used (₱${pointsResult.currencyAmount.toFixed(2)})`);
-          }
+          canPayWithPoints = true;
+          // Calculate how much points would cover
+          const POINTS_TO_CURRENCY_RATE = 0.1; // 10 points = ₱1
+          const pointsNeeded = Math.ceil(totalAmount / POINTS_TO_CURRENCY_RATE);
+          const pointsAvailable = Math.min(currentPoints, pointsNeeded);
+          const currencyFromPoints = pointsAvailable * POINTS_TO_CURRENCY_RATE;
+          remainingAmount = Math.max(0, totalAmount - currencyFromPoints);
+          pointsUsed = pointsAvailable;
+          paymentMethodUsed = remainingAmount > 0 ? 'points_and_wallet' : 'points';
+          console.log(`ℹ️ Points available: ${pointsAvailable} (₱${currencyFromPoints.toFixed(2)}), remaining from wallet: ₱${remainingAmount.toFixed(2)}`);
         }
       }
     } catch (pointsError) {
-      console.warn('Error checking/using points for booking:', pointsError);
-      // Continue with wallet payment if points fail
+      console.warn('Error checking points for booking:', pointsError);
+      // Continue with wallet payment check if points check fails
     }
 
-    // Initialize wallet if needed (for wallet payment or partial payment)
+    // Initialize wallet if needed (for balance check)
     await initializeWallet(user.uid);
     
-    // Handle wallet payment (if points were insufficient or not used)
-    if (!paymentProcessed || remainingAmount > 0) {
-      // Check if user has sufficient wallet balance
+    // Check wallet balance but DO NOT deduct yet - payment will only be deducted when host confirms
+    if (remainingAmount > 0) {
+      // Check if user has sufficient wallet balance (but don't deduct yet)
       const hasBalance = await hasSufficientBalance(user.uid, remainingAmount);
       if (!hasBalance) {
-        // Delete the booking document if payment fails
+        // Delete the booking document if balance is insufficient
         await deleteDoc(docRef);
         throw new Error(
-          paymentProcessed 
-            ? `Insufficient balance. Points covered ₱${(totalAmount - remainingAmount).toFixed(2)}, but you need ₱${remainingAmount.toFixed(2)} more from your GetPay wallet.`
+          canPayWithPoints
+            ? `Insufficient balance. Points would cover ₱${(totalAmount - remainingAmount).toFixed(2)}, but you need ₱${remainingAmount.toFixed(2)} more in your GetPay wallet.`
             : `Insufficient GetPay wallet balance. You need ₱${totalAmount.toLocaleString()} but your current balance is insufficient. Please cash in to your GetPay wallet first.`
         );
       }
 
-      // Deduct remaining amount from wallet if points were insufficient
-      if (remainingAmount > 0) {
-        await deductFromWallet(
-          user.uid,
-          remainingAmount,
-          `Booking Payment - ${listingTitle}${pointsUsed > 0 ? ' (Partial - remaining after points)' : ''}`,
-          {
-            bookingId: bookingId,
-            listingId: listingId,
-            listingTitle: listingTitle,
-            category: listingData.category || 'accommodation',
-            checkInDate: checkIn.toISOString(),
-            checkOutDate: checkOut.toISOString(),
-            guests: guests || 1,
-            bookingAmount: bookingAmount,
-            guestFee: guestFee,
-            pointsUsed: pointsUsed > 0 ? pointsUsed : null
-          }
-        );
-        console.log(`✅ Booking payment: ₱${remainingAmount.toFixed(2)} deducted from wallet`);
-      }
+      // Store payment info in booking for later processing when host confirms
+      // Payment will be deducted when host confirms the booking
+      console.log(`ℹ️ Payment will be processed when host confirms booking. Required: ₱${remainingAmount.toFixed(2)}`);
     }
     
-    // Do NOT deduct payment or update payment status here. Payment will be processed only after host confirms.
-    // Status will be changed to 'confirmed' and payment deducted when host accepts the booking request.
+    // Payment will NOT be deducted here. It will be deducted only when host confirms the booking.
+    // Update booking with payment method info (but keep paymentStatus as 'pending')
+    await updateDoc(docRef, {
+      paymentMethod: paymentMethodUsed,
+      pointsUsed: pointsUsed > 0 ? pointsUsed : null,
+      remainingAmount: remainingAmount > 0 ? remainingAmount : 0
+    });
     // Notify host of booking request (send email or notification)
     try {
       // Create notification for host in Firestore
@@ -211,41 +213,8 @@ export const createBooking = async (bookingData) => {
       console.error('Error notifying host of booking request:', notifyError);
     }
     
-    // Transfer payment directly to admin's GetPay wallet (GetPay is standalone)
-    // Admin receives total amount (bookingAmount + guestFee)
-    // Host will receive bookingAmount later when admin manually releases earnings after booking completion
-    try {
-      const { addToWallet: addToAdminWallet, initializeWallet: initAdminWallet, getAdminUserId } = await import('@/pages/Common/services/getpayService');
-      const adminUserId = await getAdminUserId();
-      if (adminUserId) {
-        await initAdminWallet(adminUserId);
-        await addToAdminWallet(
-          adminUserId,
-          totalAmount,
-          `Payment Received - Guest Booking`,
-          {
-            bookingId: docRef.id,
-            listingId: listingId,
-            listingTitle: listingTitle,
-            category: listingData.category || 'accommodation',
-            guestId: user.uid,
-            guestEmail: user.email,
-            hostId: ownerId,
-            paymentType: 'booking_payment',
-            bookingAmount: bookingAmount, // Amount host will receive
-            guestFee: guestFee, // Fee kept by admin
-            checkInDate: checkIn.toISOString(),
-            checkOutDate: checkOut.toISOString()
-          }
-        );
-        console.log('✅ Payment sent directly to admin GetPay wallet (bookingAmount + guestFee)');
-      } else {
-        console.warn('⚠️ Admin user ID not found - payment not credited to admin wallet');
-      }
-    } catch (error) {
-      console.error('Error crediting admin GetPay wallet for booking payment:', error);
-      // Don't fail the booking if admin wallet credit fails - this can be handled later
-    }
+    // Payment will NOT be transferred to admin wallet here.
+    // Payment will only be deducted from guest and added to admin wallet when host confirms the booking.
     
     // Send message to host via messaging system (if message provided)
     // Only send after payment is successful (for "pay now" bookings)
@@ -258,47 +227,31 @@ export const createBooking = async (bookingData) => {
         // Don't fail the booking if message sending fails - message is still stored in booking
       }
     }
-    
-    // Send booking confirmation email to guest
-    try {
-      const userDoc = await getDoc(doc(db, 'users', user.uid));
-      const userData = userDoc.exists() ? userDoc.data() : {};
-      const firstName = userData.firstName || '';
-      const lastName = userData.lastName || '';
-      
-      await sendBookingConfirmationEmail(
-        user.email,
-        firstName,
-        lastName,
-        {
-          bookingId: docRef.id,
-          listingTitle: listingTitle,
-          checkInDate: checkIn.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
-          checkOutDate: checkOut.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
-          guests: guests || 1,
-          totalPrice: totalAmount,
-          bookingAmount: bookingAmount,
-          paymentMethod: paymentMethodUsed === 'wallet' ? 'GetPay Wallet' : paymentMethodUsed === 'points' ? 'GetPay Points' : paymentMethodUsed === 'paypal' ? 'PayPal' : 'GetPay Wallet'
-        }
-      );
-      console.log('✅ Booking confirmation email sent to guest');
-    } catch (error) {
-      console.error('Error sending booking confirmation email:', error);
-      // Don't fail the booking if email sending fails
-    }
+    // NOTE: Booking confirmation email will be sent when host confirms the booking
+    // This ensures guests only receive confirmation emails when their booking is actually confirmed
     
     console.log('✅ Booking created successfully:', docRef.id);
     return docRef.id;
   } else {
-    // Create booking without payment (for free bookings or when useWallet is false)
-    // This is for "pay later" bookings where payment happens at a later date
+    // Create booking without immediate payment processing
+    // This is for PayPal bookings or "pay later" bookings where payment happens when host confirms
     const listingTitleForMessage = listingData.title || 'Accommodation';
     
-    // Calculate booking amount and guest fee for "pay later" bookings
-    // Same calculation as "pay now" bookings - totalPrice includes guest fee
-    const bookingAmount = Math.round((totalPrice / (1 + GUEST_FEE_PERCENTAGE)) * 100) / 100;
-    const guestFee = Math.round((totalPrice - bookingAmount) * 100) / 100;
-    const totalAmount = bookingAmount + guestFee; // This should equal totalPrice (with rounding)
+    // Use provided bookingAmount and guestFee if available, otherwise calculate
+    let bookingAmount;
+    let guestFee;
+    let totalAmount;
+    
+    if (providedBookingAmount !== undefined && providedGuestFee !== undefined) {
+      bookingAmount = Math.round(providedBookingAmount * 100) / 100;
+      guestFee = Math.round(providedGuestFee * 100) / 100;
+      totalAmount = Math.round((bookingAmount + guestFee) * 100) / 100;
+    } else {
+      // Fallback: calculate from totalPrice
+      bookingAmount = Math.round((totalPrice / (1 + GUEST_FEE_PERCENTAGE)) * 100) / 100;
+      guestFee = Math.round((totalPrice - bookingAmount) * 100) / 100;
+      totalAmount = Math.round((bookingAmount + guestFee) * 100) / 100;
+    }
     
     const bookingDoc = {
       guestId: user.uid,
@@ -313,7 +266,8 @@ export const createBooking = async (bookingData) => {
       bookingAmount: bookingAmount, // Amount host will receive (released by admin)
       guestFee: guestFee, // Fee kept by admin
       status: 'pending',
-      paymentMethod: 'pending',
+      paymentProvider: paymentProvider || 'getpay', // 'getpay' or 'paypal' - IMPORTANT: This determines payment method
+      paymentMethod: 'pending', // Always pending until host confirms
       paymentStatus: 'pending', // Will be updated to 'paid' when payment is processed
       earningsReleased: false, // Earnings not released yet
       message: message || null, // Guest's message to host
@@ -323,7 +277,10 @@ export const createBooking = async (bookingData) => {
       // Coupon information (if applied)
       couponCode: bookingData.couponCode || null,
       couponDiscount: bookingData.couponDiscount || 0,
-      couponId: bookingData.couponId || null
+      couponId: bookingData.couponId || null,
+      // PayPal payment information (if PayPal was used)
+      paypalOrderId: paypalOrderId || null, // PayPal order ID from authorization
+      paypalTransactionId: paypalTransactionId || null // PayPal transaction ID if payment was captured
     };
 
   const bookingsCollection = collection(db, 'bookings');
@@ -496,25 +453,39 @@ export const checkDateConflict = async (listingId, checkIn, checkOut) => {
     for (const docSnap of querySnapshot.docs) {
       const booking = docSnap.data();
       
-      // Only check confirmed and pending bookings (not cancelled or completed)
-      // This prevents guests from booking dates that are already reserved
-      if (booking.status !== 'confirmed' && booking.status !== 'pending') {
+      // Only check confirmed bookings (not pending, cancelled, or completed)
+      // Pending bookings don't block dates - only confirmed bookings do
+      // Payment is only deducted when host confirms, so dates are only unavailable when confirmed
+      if (booking.status !== 'confirmed') {
         continue;
       }
       
       const existingCheckIn = booking.checkInDate?.toDate ? booking.checkInDate.toDate() : new Date(booking.checkInDate);
       const existingCheckOut = booking.checkOutDate?.toDate ? booking.checkOutDate.toDate() : new Date(booking.checkOutDate);
 
+      // Normalize dates to midnight for accurate comparison
+      existingCheckIn.setHours(0, 0, 0, 0);
+      existingCheckOut.setHours(0, 0, 0, 0);
+      
+      // Ensure incoming dates are also Date objects and normalized
+      const normalizedCheckIn = checkIn instanceof Date ? new Date(checkIn) : new Date(checkIn);
+      const normalizedCheckOut = checkOut instanceof Date ? new Date(checkOut) : new Date(checkOut);
+      normalizedCheckIn.setHours(0, 0, 0, 0);
+      normalizedCheckOut.setHours(0, 0, 0, 0);
+
       // Check for overlap: new check-in is before existing check-out AND new check-out is after existing check-in
-      if (checkIn < existingCheckOut && checkOut > existingCheckIn) {
+      if (normalizedCheckIn < existingCheckOut && normalizedCheckOut > existingCheckIn) {
         console.log('⚠️ Date conflict detected:', {
           existing: { 
-            checkIn: existingCheckIn, 
-            checkOut: existingCheckOut,
+            checkIn: existingCheckIn.toISOString().split('T')[0], 
+            checkOut: existingCheckOut.toISOString().split('T')[0],
             status: booking.status,
             bookingId: docSnap.id
           },
-          requested: { checkIn, checkOut }
+          requested: { 
+            checkIn: normalizedCheckIn.toISOString().split('T')[0], 
+            checkOut: normalizedCheckOut.toISOString().split('T')[0] 
+          }
         });
         return true;
       }
@@ -655,14 +626,15 @@ export const getUnavailableDates = async (listingId) => {
     querySnapshot.forEach((doc) => {
       const booking = doc.data();
       
-      // Include both confirmed and pending bookings (not cancelled or completed)
-      // This prevents guests from seeing dates as available when they're already reserved
-      if (booking.status !== 'confirmed' && booking.status !== 'pending') {
-        console.log(`⏭️ Skipping booking ${doc.id} with status: ${booking.status}`);
+      // Only include confirmed bookings (not pending, cancelled, or completed)
+      // Pending bookings don't block dates - only confirmed bookings do
+      // Payment is only deducted when host confirms, so dates are only unavailable when confirmed
+      if (booking.status !== 'confirmed') {
+        console.log(`⏭️ Skipping booking ${doc.id} with status: ${booking.status} (only confirmed bookings block dates)`);
         return;
       }
 
-      console.log(`📌 Processing booking ${doc.id} with status: ${booking.status}`);
+      console.log(`📌 Processing confirmed booking ${doc.id} - marking dates as unavailable`);
 
       const checkIn = booking.checkInDate?.toDate ? booking.checkInDate.toDate() : new Date(booking.checkInDate);
       const checkOut = booking.checkOutDate?.toDate ? booking.checkOutDate.toDate() : new Date(booking.checkOutDate);
@@ -819,88 +791,155 @@ export const cancelBooking = async (bookingId) => {
     const listingDoc = await getDoc(listingRef);
     const listingTitle = listingDoc.exists() ? listingDoc.data().title || 'Accommodation' : 'Accommodation';
     
-    // Check if booking was paid
-    if (booking.paymentStatus !== 'paid') {
-      // If not paid, just update status to cancelled
-      await updateDoc(bookingRef, {
-        status: 'cancelled',
-        cancelledAt: serverTimestamp(),
-        cancelledBy: user.uid,
-        updatedAt: serverTimestamp()
-      });
-      return { success: true, message: 'Booking cancelled successfully' };
-    }
-    
-    // Booking was paid - calculate refund amount and mark as pending for admin processing
+    // Calculate refund amount based on booking status and payment status
     const totalPrice = booking.totalPrice || 0;
     const bookingAmount = booking.bookingAmount || 0;
     const earningsReleased = booking.earningsReleased || false;
+    const isPaid = booking.paymentStatus === 'paid';
     
     let refundAmount = 0;
     let refundType = '';
     let hostRefundAmount = null;
     
-    if (booking.status === 'pending') {
-      // Pending booking: Full refund
-      refundAmount = totalPrice;
-      refundType = 'full_refund';
-    } else if (booking.status === 'confirmed') {
-      // Confirmed booking: Half refund
-      refundAmount = Math.round((totalPrice / 2) * 100) / 100;
-      refundType = 'half_refund';
-      
-      // If earnings were released, calculate host refund amount (half of bookingAmount)
-      if (earningsReleased) {
-        hostRefundAmount = Math.round((bookingAmount / 2) * 100) / 100;
+    if (isPaid) {
+      // Booking was paid - calculate refund amount
+      if (booking.status === 'pending') {
+        // Pending booking: Full refund
+        refundAmount = totalPrice;
+        refundType = 'full_refund';
+      } else if (booking.status === 'confirmed') {
+        // Confirmed booking: Half refund
+        refundAmount = Math.round((totalPrice / 2) * 100) / 100;
+        refundType = 'half_refund';
+        
+        // If earnings were released, calculate host refund amount (half of bookingAmount)
+        if (earningsReleased) {
+          hostRefundAmount = Math.round((bookingAmount / 2) * 100) / 100;
+        }
       }
+      
+      // Update booking status - mark refund as pending for admin to process
+      await updateDoc(bookingRef, {
+        status: 'cancelled',
+        cancelledAt: serverTimestamp(),
+        cancelledBy: user.uid,
+        refundPending: true,
+        refundRequestedAt: serverTimestamp(),
+        refundAmount: refundAmount,
+        refundType: refundType,
+        hostRefundAmount: hostRefundAmount,
+        earningsReleased: earningsReleased,
+        originalStatus: booking.status, // Store original status (pending or confirmed)
+        updatedAt: serverTimestamp()
+      });
+    } else {
+      // If not paid, just update status to cancelled (no refund needed)
+      await updateDoc(bookingRef, {
+        status: 'cancelled',
+        cancelledAt: serverTimestamp(),
+        cancelledBy: user.uid,
+        refundPending: false,
+        refundAmount: 0,
+        refundType: 'no_refund',
+        updatedAt: serverTimestamp()
+      });
     }
     
-    // Update booking status - mark refund as pending for admin to process
-    await updateDoc(bookingRef, {
-      status: 'cancelled',
-      cancelledAt: serverTimestamp(),
-      cancelledBy: user.uid,
-      refundPending: true,
-      refundRequestedAt: serverTimestamp(),
-      refundAmount: refundAmount,
-      refundType: refundType,
-      hostRefundAmount: hostRefundAmount,
-      earningsReleased: earningsReleased,
-      originalStatus: booking.status, // Store original status (pending or confirmed)
-      updatedAt: serverTimestamp()
-    });
+    // Return success message
+    const refundMessage = isPaid
+      ? (booking.status === 'pending'
+          ? `Booking cancelled. A full refund of ₱${refundAmount.toLocaleString()} has been requested and will be processed by admin.`
+          : `Booking cancelled. A half refund of ₱${refundAmount.toLocaleString()} has been requested and will be processed by admin.`)
+      : 'Booking cancelled successfully. No payment was processed, so no refund is needed.';
     
-    // Return success message indicating refund is pending admin approval
-    const refundMessage = booking.status === 'pending'
-      ? `Booking cancelled. A full refund of ₱${refundAmount.toLocaleString()} has been requested and will be processed by admin.`
-      : `Booking cancelled. A half refund of ₱${refundAmount.toLocaleString()} has been requested and will be processed by admin.`;
-    
-    // Send cancellation email to guest
+    // Send cancellation email to guest (ALWAYS send email, regardless of payment status)
     try {
       const userDoc = await getDoc(doc(db, 'users', user.uid));
       const userData = userDoc.exists() ? userDoc.data() : {};
       const firstName = userData.firstName || '';
       const lastName = userData.lastName || '';
       
-      await sendCancellationEmail(
+      // Format dates properly for email - use simple format to avoid special characters
+      let checkInDateFormatted = '';
+      let checkOutDateFormatted = '';
+      
+      try {
+        if (booking.checkInDate?.toDate) {
+          const date = booking.checkInDate.toDate();
+          checkInDateFormatted = `${date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`;
+        } else if (booking.checkInDate) {
+          const date = new Date(booking.checkInDate);
+          if (!isNaN(date.getTime())) {
+            checkInDateFormatted = `${date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`;
+          }
+        }
+      } catch (e) {
+        console.warn('Error formatting check-in date:', e);
+        checkInDateFormatted = 'N/A';
+      }
+      
+      try {
+        if (booking.checkOutDate?.toDate) {
+          const date = booking.checkOutDate.toDate();
+          checkOutDateFormatted = `${date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`;
+        } else if (booking.checkOutDate) {
+          const date = new Date(booking.checkOutDate);
+          if (!isNaN(date.getTime())) {
+            checkOutDateFormatted = `${date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`;
+          }
+        }
+      } catch (e) {
+        console.warn('Error formatting check-out date:', e);
+        checkOutDateFormatted = 'N/A';
+      }
+      
+      // Ensure dates are not empty
+      if (!checkInDateFormatted) checkInDateFormatted = 'N/A';
+      if (!checkOutDateFormatted) checkOutDateFormatted = 'N/A';
+      
+      const emailResult = await sendCancellationEmail(
         booking.guestEmail || user.email,
         firstName,
         lastName,
         {
           bookingId: bookingId,
           listingTitle: listingTitle,
-          checkInDate: booking.checkInDate?.toDate ? booking.checkInDate.toDate().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '',
-          checkOutDate: booking.checkOutDate?.toDate ? booking.checkOutDate.toDate().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '',
+          checkInDate: checkInDateFormatted,
+          checkOutDate: checkOutDateFormatted,
+          totalPrice: booking.totalPrice || 0,
           refundAmount: refundAmount,
           refundType: refundType,
-          refundPending: true,
-          refundProcessed: false
+          refundPending: isPaid ? true : false, // Only pending if booking was paid
+          refundProcessed: false,
+          paymentMethod: booking.paymentMethod || 'GetPay Wallet',
+          cancellationReason: 'Guest cancelled booking.'
         }
       );
-      console.log('✅ Cancellation email sent to guest');
+      
+      if (emailResult.success) {
+        console.log('✅ Cancellation email sent to guest successfully');
+      } else if (emailResult.skipped) {
+        // EmailJS not configured - log this clearly
+        console.warn('⚠️ Cancellation email skipped - EmailJS not configured. Please check your .env file for VITE_EMAILJS_BOOKING_PUBLIC_KEY, VITE_EMAILJS_BOOKING_SERVICE_ID, and VITE_EMAILJS_CANCELLATION_TEMPLATE_ID');
+      } else {
+        // Other email errors - log with full details
+        console.error('❌ Failed to send cancellation email:', emailResult.error);
+        console.error('Email details:', {
+          email: booking.guestEmail || user.email,
+          bookingId: bookingId,
+          listingTitle: listingTitle
+        });
+      }
     } catch (error) {
-      console.error('Error sending cancellation email:', error);
-      // Don't fail the cancellation if email sending fails
+      // Catch any unexpected errors in email sending
+      console.error('❌ Error in cancellation email sending process:', error);
+      console.error('Error details:', {
+        message: error.message,
+        stack: error.stack,
+        email: booking.guestEmail || user.email,
+        bookingId: bookingId
+      });
+      // Don't fail cancellation if email sending fails
     }
     
     return { 

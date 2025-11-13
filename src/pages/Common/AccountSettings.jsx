@@ -20,7 +20,7 @@ import { toast } from "@/components/ui/sonner";
 import LogIn from "@/pages/Auth/LogIn";
 import { startConversationFromHost } from "@/pages/Guest/services/messagingService";
 import { createReview, getReviewByBookingId, getUserReviews } from "@/pages/Guest/services/reviewService";
-import { getGuestBookings } from "@/pages/Guest/services/bookingService";
+import { getGuestBookings, cancelBooking } from "@/pages/Guest/services/bookingService";
 import ReviewModal from "@/components/ReviewModal";
 import CouponModal from "@/components/CouponModal";
 import Recommendations from "@/components/Recommendations";
@@ -92,6 +92,9 @@ const AccountSettings = () => {
   // Review modal state (for guest bookings)
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [selectedBookingForReview, setSelectedBookingForReview] = useState(null);
+  
+  // Cancel booking state
+  const [cancellingBooking, setCancellingBooking] = useState(null);
   
   // User reviews modal state
   const [showUserReviewsModal, setShowUserReviewsModal] = useState(false);
@@ -363,13 +366,18 @@ const AccountSettings = () => {
         let phoneNumber = userData.phone || '';
         let countryCode = userData.phoneCountryCode || '+1';
         
+        // Ensure phoneNumber is a string
+        if (typeof phoneNumber !== 'string') {
+          phoneNumber = String(phoneNumber || '');
+        }
+        
         // If phoneCountryCode exists in userData, use it
         if (userData.phoneCountryCode) {
           countryCode = userData.phoneCountryCode;
         }
         
         // If phone starts with + and we don't have phoneCountryCode, try to extract it
-        if (phoneNumber.startsWith('+') && !userData.phoneCountryCode) {
+        if (phoneNumber && phoneNumber.startsWith('+') && !userData.phoneCountryCode) {
           // Common country codes (sorted by length, longest first to match correctly)
           const commonCodes = ['+1242', '+1246', '+1264', '+1268', '+1284', '+1340', '+1345', '+1441', '+1473', '+1649', '+1664', '+1670', '+1671', '+1684', '+1721', '+1758', '+1767', '+1784', '+1787', '+1809', '+1829', '+1849', '+1868', '+1869', '+1876', '+1939', '+852', '+853', '+886', '+971', '+972', '+973', '+974', '+975', '+976', '+977', '+992', '+993', '+994', '+995', '+996', '+998', '+1', '+7', '+20', '+27', '+30', '+31', '+32', '+33', '+34', '+39', '+41', '+43', '+44', '+45', '+46', '+47', '+48', '+49', '+51', '+52', '+54', '+55', '+56', '+57', '+58', '+60', '+61', '+62', '+63', '+64', '+65', '+66', '+81', '+82', '+84', '+86', '+91', '+234', '+351', '+358'];
           
@@ -905,15 +913,358 @@ const AccountSettings = () => {
   const handleUpdateBookingStatus = async (bookingId, newStatus) => {
     try {
       const bookingRef = doc(db, 'bookings', bookingId);
-      await updateDoc(bookingRef, {
-        status: newStatus,
-        updatedAt: new Date().toISOString()
-      });
+      
+      // Get booking data before updating to check if status is changing to 'confirmed'
+      const bookingDoc = await getDoc(bookingRef);
+      const bookingData = bookingDoc.data();
+      const previousStatus = bookingData.status;
+      
+      // If host is confirming the booking, process payment now
+      if (newStatus === 'confirmed' && previousStatus === 'pending') {
+        try {
+          const { serverTimestamp } = await import('firebase/firestore');
+          // Check payment provider first - this is the source of truth for payment method
+          const paymentProvider = bookingData.paymentProvider || 'getpay';
+          const paymentMethod = bookingData.paymentMethod || 'pending';
+          const guestId = bookingData.guestId;
+          const totalAmount = bookingData.totalPrice || 0;
+          const bookingAmount = bookingData.bookingAmount || 0;
+          const guestFee = bookingData.guestFee || 0;
+          const listingTitle = bookingData.listingTitle || 'Accommodation';
+          
+          console.log('🔍 Processing payment on booking confirmation:', {
+            bookingId,
+            paymentProvider,
+            paymentMethod,
+            totalAmount
+          });
+          
+          // Handle PayPal payment differently
+          // Check paymentProvider first as it's the source of truth
+          if (paymentProvider === 'paypal' || paymentMethod === 'paypal') {
+            // Check if PayPal payment was already authorized/captured when booking was created
+            const paypalOrderId = bookingData.paypalOrderId;
+            const paypalTransactionId = bookingData.paypalTransactionId;
+            
+            if (paypalOrderId && paypalTransactionId) {
+              // PayPal payment was already captured when booking was created
+              // Just mark booking as confirmed and payment as paid
+              await updateDoc(bookingRef, {
+                status: newStatus,
+                paymentStatus: 'paid', // Payment was already captured
+                paymentMethod: 'paypal',
+                paymentProvider: 'paypal',
+                updatedAt: serverTimestamp()
+              });
+              
+              // Transfer payment to admin's GetPay wallet (same as GetPay flow)
+              const { 
+                addToWallet: addToAdminWallet,
+                initializeWallet: initAdminWallet,
+                getAdminUserId
+              } = await import('@/pages/Common/services/getpayService');
+              
+              const adminUserId = await getAdminUserId();
+              if (adminUserId) {
+                await initAdminWallet(adminUserId);
+                await addToAdminWallet(
+                  adminUserId,
+                  totalAmount,
+                  `Payment Received - Guest Booking (PayPal)`,
+                  {
+                    bookingId: bookingId,
+                    listingId: bookingData.listingId,
+                    listingTitle: listingTitle,
+                    category: bookingData.category || 'accommodation',
+                    guestId: guestId,
+                    guestEmail: bookingData.guestEmail,
+                    hostId: bookingData.ownerId,
+                    paymentType: 'booking_payment',
+                    paymentMethod: 'paypal',
+                    paypalOrderId: paypalOrderId,
+                    paypalTransactionId: paypalTransactionId,
+                    bookingAmount: bookingAmount,
+                    guestFee: guestFee,
+                    checkInDate: bookingData.checkInDate?.toDate ? bookingData.checkInDate.toDate().toISOString() : bookingData.checkInDate,
+                    checkOutDate: bookingData.checkOutDate?.toDate ? bookingData.checkOutDate.toDate().toISOString() : bookingData.checkOutDate
+                  }
+                );
+                console.log('✅ PayPal payment sent to admin GetPay wallet');
+              }
+              
+              toast.success('Booking confirmed. PayPal payment processed successfully.');
+              console.log('✅ Booking confirmed with PayPal payment - payment already captured');
+            } else {
+              // PayPal payment was not authorized/captured yet
+              // Mark booking as confirmed but payment as pending
+              // Set 24-hour deadline for payment completion
+              const paymentDeadline = new Date();
+              paymentDeadline.setHours(paymentDeadline.getHours() + 24);
+              
+              await updateDoc(bookingRef, {
+                status: newStatus,
+                paymentStatus: 'pending', // PayPal payment needs to be processed
+                paymentMethod: 'paypal',
+                paymentProvider: 'paypal',
+                paypalPaymentDeadline: paymentDeadline.toISOString(), // 24-hour deadline
+                updatedAt: serverTimestamp()
+              });
+              
+              toast.success('Booking confirmed. Guest needs to complete PayPal payment within 24 hours.');
+              console.log('⚠️ Booking confirmed but PayPal payment not yet processed. Deadline:', paymentDeadline.toISOString());
+            }
+            // IMPORTANT: Return early to prevent GetPay wallet processing
+            // Continue to email sending and booking reload below
+          } else {
+            // Handle GetPay wallet/points payment
+            const { 
+              deductFromWallet, 
+              initializeWallet, 
+              hasSufficientBalance,
+              addToWallet: addToAdminWallet,
+              initializeWallet: initAdminWallet,
+              getAdminUserId
+            } = await import('@/pages/Common/services/getpayService');
+            
+            const remainingAmount = bookingData.remainingAmount || totalAmount;
+            let pointsUsed = bookingData.pointsUsed || 0;
+            
+            // Process points payment first (if points were planned to be used)
+            let actualPointsUsed = pointsUsed;
+            let actualRemainingAmount = remainingAmount;
+            
+            if (pointsUsed > 0) {
+              try {
+                const { deductPointsForPayment } = await import('@/pages/Host/services/pointsService');
+                const pointsResult = await deductPointsForPayment(
+                  guestId,
+                  totalAmount,
+                  'booking',
+                  {
+                    bookingId: bookingId,
+                    listingId: bookingData.listingId,
+                    listingTitle: listingTitle
+                  }
+                );
+                
+                if (pointsResult.success) {
+                  actualPointsUsed = pointsResult.pointsUsed;
+                  const currencyFromPoints = pointsResult.currencyAmount;
+                  actualRemainingAmount = Math.max(0, totalAmount - currencyFromPoints);
+                  console.log(`✅ Points deducted: ${actualPointsUsed} points (₱${currencyFromPoints.toFixed(2)})`);
+                } else {
+                  // Points deduction failed, need full wallet payment
+                  actualRemainingAmount = totalAmount;
+                  actualPointsUsed = 0;
+                  console.warn('⚠️ Points deduction failed, will use wallet payment');
+                }
+              } catch (pointsError) {
+                console.error('Error deducting points:', pointsError);
+                // If points fail, use wallet for full amount
+                actualRemainingAmount = totalAmount;
+                actualPointsUsed = 0;
+              }
+            }
+            
+            // Initialize guest wallet
+            await initializeWallet(guestId);
+            
+            // Check if guest still has sufficient balance for remaining amount
+            if (actualRemainingAmount > 0) {
+              const hasBalance = await hasSufficientBalance(guestId, actualRemainingAmount);
+              if (!hasBalance) {
+                toast.error('Guest has insufficient balance. Cannot confirm booking.');
+                return;
+              }
+              
+              // Deduct remaining amount from guest's wallet
+              await deductFromWallet(
+                guestId,
+                actualRemainingAmount,
+                `Booking Payment - ${listingTitle}${actualPointsUsed > 0 ? ' (Partial - remaining after points)' : ''}`,
+                {
+                  bookingId: bookingId,
+                  listingId: bookingData.listingId,
+                  listingTitle: listingTitle,
+                  category: bookingData.category || 'accommodation',
+                  checkInDate: bookingData.checkInDate?.toDate ? bookingData.checkInDate.toDate().toISOString() : bookingData.checkInDate,
+                  checkOutDate: bookingData.checkOutDate?.toDate ? bookingData.checkOutDate.toDate().toISOString() : bookingData.checkOutDate,
+                  guests: bookingData.guests || 1,
+                  bookingAmount: bookingAmount,
+                  guestFee: guestFee,
+                  pointsUsed: actualPointsUsed > 0 ? actualPointsUsed : null
+                }
+              );
+              console.log(`✅ Payment deducted from guest wallet: ₱${actualRemainingAmount.toFixed(2)}`);
+            }
+            
+            // Transfer payment to admin's GetPay wallet
+            const adminUserId = await getAdminUserId();
+            if (adminUserId) {
+              await initAdminWallet(adminUserId);
+              await addToAdminWallet(
+                adminUserId,
+                totalAmount,
+                `Payment Received - Guest Booking`,
+                {
+                  bookingId: bookingId,
+                  listingId: bookingData.listingId,
+                  listingTitle: listingTitle,
+                  category: bookingData.category || 'accommodation',
+                  guestId: guestId,
+                  guestEmail: bookingData.guestEmail,
+                  hostId: bookingData.ownerId,
+                  paymentType: 'booking_payment',
+                  bookingAmount: bookingAmount,
+                  guestFee: guestFee,
+                  checkInDate: bookingData.checkInDate?.toDate ? bookingData.checkInDate.toDate().toISOString() : bookingData.checkInDate,
+                  checkOutDate: bookingData.checkOutDate?.toDate ? bookingData.checkOutDate.toDate().toISOString() : bookingData.checkOutDate
+                }
+              );
+              console.log('✅ Payment sent to admin GetPay wallet');
+            }
+            
+            // Update booking with payment status
+            await updateDoc(bookingRef, {
+              status: newStatus,
+              paymentStatus: 'paid',
+              paymentMethod: bookingData.paymentMethod || 'wallet',
+              paymentProvider: paymentProvider, // Ensure paymentProvider is preserved
+              updatedAt: serverTimestamp()
+            });
+          }
+          
+          // Continue to email sending and booking reload (for both PayPal and GetPay)
+        } catch (paymentError) {
+          console.error('❌ Error processing payment on booking confirmation:', paymentError);
+          toast.error('Failed to process payment. Booking confirmation cancelled.');
+          return; // Don't update status if payment fails
+        }
+      } else {
+        // For other status changes, just update the status
+        await updateDoc(bookingRef, {
+          status: newStatus,
+          updatedAt: new Date().toISOString()
+        });
+      }
+
+      // Send booking confirmation/cancellation email to guest
+      try {
+        const { sendBookingConfirmationEmail, sendCancellationEmail } = await import('@/lib/emailService');
+        const guestEmail = bookingData.guestEmail;
+        const firstName = bookingData.guestFirstName || '';
+        const lastName = bookingData.guestLastName || '';
+        const listingTitle = bookingData.listingTitle || 'Accommodation';
+        
+        // Format dates properly for email
+        const checkInDateFormatted = bookingData.checkInDate?.toDate 
+          ? bookingData.checkInDate.toDate().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+          : (bookingData.checkInDate ? new Date(bookingData.checkInDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '');
+        const checkOutDateFormatted = bookingData.checkOutDate?.toDate 
+          ? bookingData.checkOutDate.toDate().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+          : (bookingData.checkOutDate ? new Date(bookingData.checkOutDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '');
+        
+        if (newStatus === 'confirmed') {
+          const emailResult = await sendBookingConfirmationEmail(
+            guestEmail,
+            firstName,
+            lastName,
+            {
+              bookingId: bookingId,
+              listingTitle: listingTitle,
+              checkInDate: checkInDateFormatted,
+              checkOutDate: checkOutDateFormatted,
+              guests: bookingData.guests || 1,
+              totalPrice: bookingData.totalPrice || 0,
+              bookingAmount: bookingData.bookingAmount || 0,
+              paymentMethod: bookingData.paymentMethod || 'GetPay Wallet'
+            }
+          );
+          
+          if (emailResult.success) {
+            console.log('✅ Booking confirmation email sent to guest');
+          } else if (emailResult.skipped) {
+            console.log('ℹ️ Email sending skipped (EmailJS not configured)');
+          } else {
+            console.warn('⚠️ Failed to send booking confirmation email (non-critical):', emailResult.error);
+          }
+        } else if (newStatus === 'cancelled') {
+          const emailResult = await sendCancellationEmail(
+            guestEmail,
+            firstName,
+            lastName,
+            {
+              bookingId: bookingId,
+              listingTitle: listingTitle,
+              checkInDate: checkInDateFormatted,
+              checkOutDate: checkOutDateFormatted,
+              totalPrice: bookingData.totalPrice || 0,
+              paymentMethod: bookingData.paymentMethod || 'GetPay Wallet',
+              cancellationReason: 'Host declined booking request.'
+            }
+          );
+          
+          if (emailResult.success) {
+            console.log('✅ Booking cancellation email sent to guest');
+          } else if (emailResult.skipped) {
+            console.log('ℹ️ Email sending skipped (EmailJS not configured)');
+          } else {
+            console.warn('⚠️ Failed to send booking cancellation email (non-critical):', emailResult.error);
+          }
+        }
+      } catch (emailError) {
+        console.error('❌ Error sending booking status email:', emailError);
+        // Don't fail the booking status update if email fails
+      }
+      
       toast.success(`Booking ${newStatus}`);
       await loadHostBookings();
     } catch (error) {
       console.error('❌ Error updating booking status:', error);
       toast.error('Failed to update booking status');
+    }
+  };
+
+  // Handle cancelling guest booking
+  const handleCancelGuestBooking = async (booking) => {
+    if (cancellingBooking === booking.id) return;
+    
+    // Check if booking was paid (has paymentStatus === 'paid' or has totalPrice > 0)
+    const isPaid = booking.paymentStatus === 'paid' || (booking.totalPrice && booking.totalPrice > 0);
+    
+    // Confirm cancellation with appropriate message
+    let confirmMessage = '';
+    if (booking.status === 'pending') {
+      // Pending booking: No money effect (guest is only deducted when host confirms)
+      confirmMessage = `Cancel this pending booking? No payment has been processed yet, so no refund is needed.`;
+    } else if (booking.status === 'confirmed') {
+      // Confirmed booking: Half refund
+      const refundAmount = Math.round(((booking.totalPrice || 0) / 2) * 100) / 100;
+      confirmMessage = `Cancel this confirmed booking? A half refund of ₱${refundAmount.toLocaleString()} will be requested and processed by admin.`;
+    } else {
+      toast.error('This booking cannot be cancelled');
+      return;
+    }
+    
+    if (!window.confirm(confirmMessage)) {
+      return;
+    }
+    
+    setCancellingBooking(booking.id);
+    try {
+      const result = await cancelBooking(booking.id);
+      if (result.success) {
+        toast.success(result.message);
+        // Reload bookings
+        await loadGuestBookings();
+      } else {
+        toast.error(result.message || 'Failed to cancel booking');
+      }
+    } catch (error) {
+      console.error('Error cancelling booking:', error);
+      toast.error(error.message || 'Failed to cancel booking');
+    } finally {
+      setCancellingBooking(null);
     }
   };
 
@@ -1057,7 +1408,7 @@ const AccountSettings = () => {
         bio: profile.bio.trim(),
         profileImage: profile.profileImage.trim(),
         gender: profile.gender.trim(),
-        birthday: profile.birthday.trim() || null,
+        birthday: profile.birthday && profile.birthday.trim() ? profile.birthday.trim() : null,
         updatedAt: new Date().toISOString()
       };
 
@@ -1087,6 +1438,8 @@ const AccountSettings = () => {
 
       toast.success('Profile updated successfully!');
       setIsEditing(false);
+      // Reload profile data to reflect changes
+      await loadUserProfile(user.uid);
       await loadStats(user.uid);
     } catch (error) {
       console.error('Error saving profile:', error);
@@ -1390,19 +1743,44 @@ const AccountSettings = () => {
                     )}
                   </div>
                 </div>
-                <button
-                  onClick={() => {
-                    if (isEditing) {
-                      setIsEditing(false);
-                    } else {
-                      setIsEditing(true);
-                    }
-                  }}
-                  className="btn-outline flex items-center gap-2"
-                >
-                  {isEditing ? <X className="w-4 h-4" /> : <Edit3 className="w-4 h-4" />}
-                  {isEditing ? 'Cancel' : 'Edit Profile'}
-                </button>
+                <div className="flex items-center gap-2">
+                  {isEditing && (
+                    <button
+                      onClick={handleSaveProfile}
+                      disabled={saving}
+                      className="btn-primary flex items-center gap-2"
+                    >
+                      {saving ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <Save className="w-4 h-4" />
+                          Save Changes
+                        </>
+                      )}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      if (isEditing) {
+                        setIsEditing(false);
+                        // Reload profile data to discard changes
+                        if (user) {
+                          loadUserProfile(user.uid);
+                        }
+                      } else {
+                        setIsEditing(true);
+                      }
+                    }}
+                    className="btn-outline flex items-center gap-2"
+                  >
+                    {isEditing ? <X className="w-4 h-4" /> : <Edit3 className="w-4 h-4" />}
+                    {isEditing ? 'Cancel' : 'Edit Profile'}
+                  </button>
+                </div>
               </div>
 
               {/* Stats - Only Reviews */}
@@ -2025,7 +2403,7 @@ const AccountSettings = () => {
                           const listing = listings.find(l => l.id === booking.listingId);
                           
                           return (
-                            <div key={booking.id} className="card-listing hover-lift border border-gray-200 rounded-lg overflow-hidden">
+                            <div key={booking.id} className="card-listing hover-lift cursor-pointer border border-gray-200 rounded-lg overflow-hidden" onClick={() => navigate(`/bookings/${booking.id}`)}>
                               {/* Image */}
                               <div className="relative w-full overflow-hidden rounded-t-2xl aspect-[4/3]">
                                 {listing?.mainImage ? (
@@ -2087,28 +2465,29 @@ const AccountSettings = () => {
                                   <div className="flex gap-2">
                                     <button
                                       className="btn-primary flex-1 px-4 py-2 text-sm font-medium"
-                                      onClick={() => handleUpdateBookingStatus(booking.id, 'confirmed')}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleUpdateBookingStatus(booking.id, 'confirmed');
+                                      }}
                                     >
                                       Confirm
                                     </button>
                                     <button
                                       className="btn-outline flex-1 px-4 py-2 text-sm font-medium text-red-600 hover:text-red-700 hover:border-red-300"
-                                      onClick={() => handleUpdateBookingStatus(booking.id, 'cancelled')}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleUpdateBookingStatus(booking.id, 'cancelled');
+                                      }}
                                     >
                                       Decline
                                     </button>
                                   </div>
                                 )}
                                 {booking.status === 'confirmed' && (
-                                  <button
-                                    className="btn-outline w-full px-4 py-2 text-sm font-medium"
-                                    onClick={() => handleUpdateBookingStatus(booking.id, 'completed')}
-                                  >
-                                    Mark Complete
-                                  </button>
+                                  <span className="text-sm text-muted-foreground font-medium block text-center py-2">Awaiting guest to mark as completed</span>
                                 )}
                                 {booking.status === 'completed' && (
-                                  <span className="text-sm text-green-600 font-medium block text-center">✓ Completed</span>
+                                  <span className="text-sm text-green-600 font-medium block text-center py-2">✓ Completed by guest</span>
                                 )}
                                 {booking.status === 'cancelled' && (
                                   <span className="text-sm text-red-600 font-medium block text-center">✕ Cancelled</span>
@@ -2116,17 +2495,20 @@ const AccountSettings = () => {
                                 
                                 {booking.guestId && (
                                   <button
-                                    onClick={async () => {
-                                      try {
-                                        const conversationId = await startConversationFromHost(
-                                          booking.guestId,
-                                          booking.listingId,
-                                          booking.id
-                                        );
-                                        navigate(`/host/messages?conversation=${conversationId}`);
-                                      } catch (error) {
-                                        console.error('Error starting conversation:', error);
-                                      }
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      (async () => {
+                                        try {
+                                          const conversationId = await startConversationFromHost(
+                                            booking.guestId,
+                                            booking.listingId,
+                                            booking.id
+                                          );
+                                          navigate(`/host/messages?conversation=${conversationId}`);
+                                        } catch (error) {
+                                          console.error('Error starting conversation:', error);
+                                        }
+                                      })();
                                     }}
                                     className="btn-outline w-full px-4 py-2 text-sm font-medium flex items-center justify-center gap-2 mt-2"
                                   >
@@ -2145,7 +2527,7 @@ const AccountSettings = () => {
                           const listing = listings.find(l => l.id === booking.listingId);
                           
                           return (
-                            <div key={booking.id} className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow">
+                            <div key={booking.id} className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow cursor-pointer" onClick={() => navigate(`/bookings/${booking.id}`)}>
                               <div className="flex items-start justify-between mb-4">
                                 <div className="flex items-start gap-4 flex-1">
                                   <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center text-white font-semibold flex-shrink-0">
@@ -2196,17 +2578,20 @@ const AccountSettings = () => {
                                       </div>
                                       {booking.guestId && (
                                         <button
-                                          onClick={async () => {
-                                            try {
-                                              const conversationId = await startConversationFromHost(
-                                                booking.guestId,
-                                                booking.listingId,
-                                                booking.id
-                                              );
-                                              navigate(`/host/messages?conversation=${conversationId}`);
-                                            } catch (error) {
-                                              console.error('Error starting conversation:', error);
-                                            }
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            (async () => {
+                                              try {
+                                                const conversationId = await startConversationFromHost(
+                                                  booking.guestId,
+                                                  booking.listingId,
+                                                  booking.id
+                                                );
+                                                navigate(`/host/messages?conversation=${conversationId}`);
+                                              } catch (error) {
+                                                console.error('Error starting conversation:', error);
+                                              }
+                                            })();
                                           }}
                                           className="btn-outline px-4 py-2 text-sm font-medium flex items-center gap-2 mt-2 w-full"
                                         >
@@ -2222,13 +2607,19 @@ const AccountSettings = () => {
                                     <>
                                       <button
                                         className="btn-primary px-4 py-2 text-sm font-medium"
-                                        onClick={() => handleUpdateBookingStatus(booking.id, 'confirmed')}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleUpdateBookingStatus(booking.id, 'confirmed');
+                                        }}
                                       >
                                         Confirm
                                       </button>
                                       <button
                                         className="btn-outline px-4 py-2 text-sm font-medium text-red-600 hover:text-red-700 hover:border-red-300"
-                                        onClick={() => handleUpdateBookingStatus(booking.id, 'cancelled')}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleUpdateBookingStatus(booking.id, 'cancelled');
+                                        }}
                                       >
                                         Decline
                                       </button>
@@ -2237,7 +2628,10 @@ const AccountSettings = () => {
                                   {booking.status === 'confirmed' && (
                                     <button
                                       className="btn-outline px-4 py-2 text-sm font-medium"
-                                      onClick={() => handleUpdateBookingStatus(booking.id, 'completed')}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleUpdateBookingStatus(booking.id, 'completed');
+                                      }}
                                     >
                                       Mark Complete
                                     </button>
@@ -2275,7 +2669,7 @@ const AccountSettings = () => {
                   {upcomingGuestBookings.length > 0 ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                       {upcomingGuestBookings.map((booking) => (
-                        <div key={booking.id} className="card-listing hover-lift cursor-pointer" onClick={() => navigate(`/${booking.category}s/${booking.listingId}`)}>
+                        <div key={booking.id} className="card-listing hover-lift cursor-pointer" onClick={() => navigate(`/bookings/${booking.id}`)}>
                           <div className="relative w-full overflow-hidden rounded-t-2xl aspect-[4/3]">
                             {booking.listingImage ? (
                               <img
@@ -2312,7 +2706,7 @@ const AccountSettings = () => {
                               </div>
                             </div>
 
-                            <div className="flex items-center justify-between pt-3 border-t border-border">
+                            <div className="flex items-center justify-between pt-3 border-t border-border mb-3">
                               <div className="flex-1">
                                 <p className="text-xs text-muted-foreground">Total</p>
                                 <p className="text-lg font-bold text-foreground">₱{(booking.totalPrice || 0).toLocaleString()}</p>
@@ -2324,6 +2718,30 @@ const AccountSettings = () => {
                                 <span className="text-xs text-green-600">✓ Confirmed</span>
                               )}
                             </div>
+                            
+                            {/* Cancel button for pending and confirmed bookings */}
+                            {(booking.status === 'pending' || booking.status === 'confirmed') && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleCancelGuestBooking(booking);
+                                }}
+                                disabled={cancellingBooking === booking.id}
+                                className="w-full px-4 py-2 text-sm font-medium text-red-600 border border-red-300 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                              >
+                                {cancellingBooking === booking.id ? (
+                                  <>
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    Cancelling...
+                                  </>
+                                ) : (
+                                  <>
+                                    <X className="w-4 h-4" />
+                                    Cancel Booking
+                                  </>
+                                )}
+                              </button>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -2339,7 +2757,7 @@ const AccountSettings = () => {
                   {pastGuestBookings.length > 0 ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                       {pastGuestBookings.map((booking) => (
-                        <div key={booking.id} className="card-listing hover-lift cursor-pointer" onClick={() => navigate(`/${booking.category}s/${booking.listingId}`)}>
+                        <div key={booking.id} className="card-listing hover-lift cursor-pointer" onClick={() => navigate(`/bookings/${booking.id}`)}>
                           <div className="relative w-full overflow-hidden rounded-t-2xl aspect-[4/3]">
                             {booking.listingImage ? (
                               <img
@@ -2376,7 +2794,7 @@ const AccountSettings = () => {
                               </div>
                             </div>
 
-                            <div className="flex items-center justify-between pt-3 border-t border-border">
+                            <div className="flex items-center justify-between pt-3 border-t border-border mb-3">
                               <div className="flex-1">
                                 <p className="text-xs text-muted-foreground">Total</p>
                                 <p className="text-lg font-bold text-foreground">₱{(booking.totalPrice || 0).toLocaleString()}</p>
@@ -2388,6 +2806,30 @@ const AccountSettings = () => {
                                 <span className="text-xs text-green-600">✓ Confirmed</span>
                               )}
                             </div>
+                            
+                            {/* Cancel button for pending and confirmed bookings */}
+                            {(booking.status === 'pending' || booking.status === 'confirmed') && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleCancelGuestBooking(booking);
+                                }}
+                                disabled={cancellingBooking === booking.id}
+                                className="w-full px-4 py-2 text-sm font-medium text-red-600 border border-red-300 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                              >
+                                {cancellingBooking === booking.id ? (
+                                  <>
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    Cancelling...
+                                  </>
+                                ) : (
+                                  <>
+                                    <X className="w-4 h-4" />
+                                    Cancel Booking
+                                  </>
+                                )}
+                              </button>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -2403,7 +2845,7 @@ const AccountSettings = () => {
                   {cancelledGuestBookings.length > 0 ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                       {cancelledGuestBookings.map((booking) => (
-                        <div key={booking.id} className="card-listing opacity-75" onClick={() => navigate(`/${booking.category}s/${booking.listingId}`)}>
+                        <div key={booking.id} className="card-listing opacity-75 cursor-pointer hover-lift" onClick={() => navigate(`/bookings/${booking.id}`)}>
                           <div className="relative w-full overflow-hidden rounded-t-2xl aspect-[4/3]">
                             {booking.listingImage ? (
                               <img

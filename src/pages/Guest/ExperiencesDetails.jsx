@@ -1,39 +1,267 @@
 import React, { useState, useEffect } from 'react';
-import { experiences } from './sharedData';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import Navigation from '@/components/Navigation';
 import Footer from '@/components/Footer';
+import Loading from '@/components/Loading';
 import WishlistSection from '@/components/WishlistSection';
 import {
   MapPin, Star, Heart, Share2, Clock, Users, ArrowLeft, X, Check, ChevronLeft, ChevronRight
 } from 'lucide-react';
-import { auth } from '@/lib/firebase';
+import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
+import { doc, getDoc, onSnapshot, collection, query, where } from 'firebase/firestore';
 import LogIn from '@/pages/Auth/LogIn';
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faFacebookF, faInstagram, faFacebookMessenger, faXTwitter } from "@fortawesome/free-brands-svg-icons";
 import { Calendar } from '@/components/ui/calendar';
 import { format } from 'date-fns';
+import { getUnavailableDates } from '@/pages/Guest/services/bookingService';
+import { toast } from '@/components/ui/sonner';
+import { getListingReviews } from '@/pages/Guest/services/reviewService';
 
 const ExperiencesDetails = () => {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [isFavorite, setIsFavorite] = useState(false);
   const [activeShare, setActiveShare] = useState(null);
   const [copied, setCopied] = useState(false);
-  const shareUrl = `${window.location.origin}/experiences/${activeShare}`;
-  const [checkInDate, setCheckInDate] = useState(null);
-  const [checkOutDate, setCheckOutDate] = useState(null);
-  const [selectedDateRange, setSelectedDateRange] = useState(null);
-  const [guests, setGuests] = useState(1);
+  const [experience, setExperience] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [reviews, setReviews] = useState([]);
+  const [reviewsLoading, setReviewsLoading] = useState(false);
+  const [hostProfile, setHostProfile] = useState(null);
+  const [favorites, setFavorites] = useState([]);
+  const [selectedDate, setSelectedDate] = useState(null);
+  const [selectedTime, setSelectedTime] = useState('');
+  const [participants, setParticipants] = useState(1);
+  const [unavailableDates, setUnavailableDates] = useState([]);
+  const [totalPrice, setTotalPrice] = useState(0);
   const [defaultMonth, setDefaultMonth] = useState(new Date());
 
+  // Load unavailable dates when experience loads
+  useEffect(() => {
+    if (!id) return;
 
+    const loadUnavailableDates = async () => {
+      try {
+        console.log('📅 Loading unavailable dates for experience:', id);
+        const dates = await getUnavailableDates(id);
+        console.log('📅 Loaded unavailable dates:', dates.length, 'dates');
+        setUnavailableDates(dates);
+      } catch (error) {
+        console.error('❌ Error loading unavailable dates:', error);
+        setUnavailableDates([]);
+      }
+    };
+    
+    loadUnavailableDates();
+    
+    // Set up real-time listener for bookings
+    let unsubscribe;
+    try {
+      const bookingsQuery = query(
+        collection(db, 'bookings'),
+        where('listingId', '==', id)
+      );
 
-  const experience = experiences.find(item => item.id === Number(id));
+      unsubscribe = onSnapshot(
+        bookingsQuery,
+        async () => {
+          const dates = await getUnavailableDates(id);
+          setUnavailableDates(dates);
+        },
+        (error) => {
+          console.error('Error listening to bookings:', error);
+        }
+      );
+    } catch (error) {
+      console.error('Error setting up bookings listener:', error);
+    }
+    
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
+  }, [id]);
 
-  // Firebase auth listener
+  // Calculate total price when date/participants change
+  useEffect(() => {
+    if (experience && selectedDate && participants > 0) {
+      const pricePerGuest = experience.pricePerGuest || experience.price || 0;
+      const total = pricePerGuest * participants;
+      setTotalPrice(total);
+    } else {
+      setTotalPrice(0);
+    }
+  }, [experience, selectedDate, participants]);
+
+  // Fetch experience from Firestore
+  useEffect(() => {
+    const fetchExperience = async () => {
+      if (!id) {
+        setError('No experience ID provided');
+        setLoading(false);
+        return;
+      }
+
+      try {
+        setLoading(true);
+        console.log('📦 ExperiencesDetails: Fetching experience with ID:', id);
+        
+        const docRef = doc(db, 'listings', id);
+        const docSnap = await getDoc(docRef);
+        
+        if (!docSnap.exists()) {
+          console.error('❌ Experience not found:', id);
+          setError('Experience not found');
+          setLoading(false);
+          return;
+        }
+        
+        const data = docSnap.data();
+        
+        // Verify it's an experience
+        if (data.category !== 'experience') {
+          setError('This listing is not an experience');
+          setLoading(false);
+          return;
+        }
+        
+        const locationData = data.locationData || data.meetingLocationData || {};
+        const photosData = data.photos || [];
+        
+        // Format location display
+        const location = data.location || 
+          (locationData.city && locationData.province 
+            ? `${locationData.city}, ${locationData.province}`
+            : locationData.city || locationData.country || 'No location');
+        
+        // Get main price
+        const price = data.pricePerGuest || data.price || 0;
+        
+        // Get image
+        const image = (() => {
+          const firstPhoto = photosData[0];
+          if (firstPhoto?.base64) return firstPhoto.base64;
+          if (firstPhoto?.url) return firstPhoto.url;
+          if (data.image) return data.image;
+          return "fallback.jpg";
+        })();
+        
+        const experienceData = {
+          id: docSnap.id,
+          title: data.experienceTitle || data.title || 'Untitled Experience',
+          description: data.experienceDescription || data.description || '',
+          location: location,
+          locationData: locationData,
+          price: price,
+          pricePerGuest: data.pricePerGuest || price,
+          rating: data.rating || 0,
+          reviews: data.reviews || 0,
+          image: image,
+          images: photosData.map(p => p.base64 || p.url).filter(Boolean),
+          photos: photosData,
+          category: data.experienceCategory || data.category || 'Experience',
+          host: data.ownerName || data.ownerEmail?.split('@')[0] || 'Host',
+          duration: data.duration || data.experienceDuration || '2 hours',
+          groupSize: data.maxGuests || data.maxParticipants || 10,
+          maxParticipants: data.maxGuests || data.maxParticipants || 10,
+          status: data.status,
+          publishedAt: data.publishedAt,
+          createdAt: data.createdAt,
+          ownerId: data.ownerId,
+          ownerEmail: data.ownerEmail,
+          ownerName: data.ownerName,
+          itineraryItems: data.itineraryItems || [],
+          amenities: data.amenities || [],
+          experienceCategory: data.experienceCategory,
+          yearsOfExperience: data.yearsOfExperience,
+          introTitle: data.introTitle,
+          expertise: data.expertise,
+          recognition: data.recognition
+        };
+        
+        console.log('✅ ExperiencesDetails: Loaded experience:', experienceData.title);
+        setExperience(experienceData);
+        
+        // Load reviews
+        try {
+          setReviewsLoading(true);
+          const listingReviews = await getListingReviews(docSnap.id);
+          setReviews(listingReviews);
+          if (listingReviews.length > 0) {
+            const totalRating = listingReviews.reduce((sum, r) => sum + r.rating, 0);
+            const avgRating = totalRating / listingReviews.length;
+            setExperience(prev => ({
+              ...prev,
+              rating: Math.round(avgRating * 10) / 10,
+              reviews: listingReviews.length
+            }));
+          }
+        } catch (error) {
+          console.error('Error loading reviews:', error);
+        } finally {
+          setReviewsLoading(false);
+        }
+        
+        // Fetch host profile
+        if (experienceData.ownerId) {
+          try {
+            const hostDoc = await getDoc(doc(db, 'users', experienceData.ownerId));
+            if (hostDoc.exists()) {
+              const hostData = hostDoc.data();
+              const hostName = hostData.firstName && hostData.lastName
+                ? `${hostData.firstName} ${hostData.lastName}`
+                : hostData.firstName || hostData.lastName || experienceData.ownerEmail?.split('@')[0] || 'Host';
+              
+              let hostSinceDate = null;
+              if (hostData.createdAt) {
+                hostSinceDate = hostData.createdAt?.toDate ? hostData.createdAt.toDate() : new Date(hostData.createdAt);
+              } else if (experienceData.publishedAt) {
+                if (experienceData.publishedAt?.toDate) {
+                  hostSinceDate = experienceData.publishedAt.toDate();
+                } else if (experienceData.publishedAt?.seconds) {
+                  hostSinceDate = new Date(experienceData.publishedAt.seconds * 1000);
+                } else {
+                  hostSinceDate = new Date(experienceData.publishedAt);
+                }
+              }
+              
+              setHostProfile({
+                name: hostName,
+                firstName: hostData.firstName || '',
+                lastName: hostData.lastName || '',
+                email: hostData.email || experienceData.ownerEmail || '',
+                profileImage: hostData.profileImage || hostData.photoURL || null,
+                hostSinceDate: hostSinceDate,
+                createdAt: hostData.createdAt
+              });
+            }
+          } catch (hostError) {
+            console.warn('Could not load host profile:', hostError);
+            setHostProfile({
+              name: experienceData.ownerEmail?.split('@')[0] || 'Host',
+              email: experienceData.ownerEmail || '',
+              hostSinceDate: null
+            });
+          }
+        }
+      } catch (err) {
+        console.error('❌ Error fetching experience:', err);
+        setError('Failed to load experience');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchExperience();
+  }, [id]);
+
+  // Firebase Auth Listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
@@ -41,31 +269,30 @@ const ExperiencesDetails = () => {
     return () => unsubscribe();
   }, []);
 
-  // Handle favorite state
+  // Load favorites from localStorage
   useEffect(() => {
-    if (!user || !experience) {
-      setIsFavorite(false);
-      return;
-    }
+    if (!user || !experience) return;
     const storedFavorites = JSON.parse(localStorage.getItem(`favorites_${user.uid}`)) || [];
-    const found = storedFavorites.find(fav => fav && fav.id === experience.id && fav.type === "experience");
-    setIsFavorite(!!found);
-  }, [experience?.id, user]);
+    setFavorites(storedFavorites);
+    setIsFavorite(!!storedFavorites.find(fav => fav && fav.id === experience.id && fav.type === "experience"));
+  }, [user, experience?.id]);
 
-  // Listen to localStorage changes from other pages
+  // Listen to localStorage changes
   useEffect(() => {
+    if (!experience) return;
+    
     const handleStorage = (e) => {
       if (e.key === `favorites_${user?.uid}`) {
         const storedFavorites = JSON.parse(e.newValue) || [];
-        const found = storedFavorites.find(fav => fav.id === experience?.id && fav.type === "experience");
-        setIsFavorite(!!found);
+        setFavorites(storedFavorites);
+        setIsFavorite(!!storedFavorites.find(fav => fav.id === experience.id && fav.type === "experience"));
       }
     };
     
     const handleFavoritesChanged = (e) => {
       if (e.detail.userId === user?.uid) {
-        const found = e.detail.favorites.find(fav => fav.id === experience?.id && fav.type === "experience");
-        setIsFavorite(!!found);
+        setFavorites(e.detail.favorites);
+        setIsFavorite(!!e.detail.favorites.find(fav => fav.id === experience.id && fav.type === "experience"));
       }
     };
     
@@ -93,41 +320,104 @@ const ExperiencesDetails = () => {
       storedFavorites.push({
         ...experience,
         type: "experience",
-        image: experience.image || experience.images[0], // Use main card image
+        image: experience.image || experience.images?.[0],
         savedDate: new Date().toLocaleDateString(),
       });
       setIsFavorite(true);
     }
     
     localStorage.setItem(key, JSON.stringify(storedFavorites));
+    setFavorites(storedFavorites);
     
-    // Dispatch custom event for same-tab synchronization
     window.dispatchEvent(new CustomEvent('favoritesChanged', {
-        detail: { favorites: storedFavorites, userId: user.uid }
+      detail: { favorites: storedFavorites, userId: user.uid }
     }));
   };
 
-  // If experience not found
-  if (!experience) {
+  const handleCopy = () => {
+    navigator.clipboard.writeText(`${window.location.origin}/experiences/${experience.id}`);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  // Handle booking
+  const handleReserve = () => {
+    if (!user) {
+      setShowLoginModal(true);
+      return;
+    }
+
+    if (!selectedDate) {
+      toast.error('Please select a date');
+      return;
+    }
+
+    if (!experience || !experience.id) {
+      toast.error('Experience information is missing');
+      return;
+    }
+
+    // For experiences, we use the same date for check-in and check-out
+    // The booking service expects both dates
+    const bookingDate = new Date(selectedDate);
+    bookingDate.setHours(0, 0, 0, 0);
+    
+    // Check-out is same day (experiences are single-day)
+    const checkOutDate = new Date(bookingDate);
+    checkOutDate.setDate(checkOutDate.getDate() + 1); // Next day for check-out
+
+    // Navigate to booking request page
+    navigate('/booking-request', {
+      state: {
+        listingId: experience.id,
+        listing: experience,
+        checkInDate: bookingDate.toISOString().split('T')[0],
+        checkOutDate: checkOutDate.toISOString().split('T')[0],
+        guests: participants,
+        totalPrice: totalPrice,
+        nightlyPrice: experience.pricePerGuest || experience.price || 0,
+        category: 'experience',
+        selectedTime: selectedTime,
+        experienceDate: bookingDate.toISOString().split('T')[0]
+      }
+    });
+  };
+
+  // Show loading or error state
+  if (loading) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-background text-foreground">
+      <div className="min-h-screen bg-background">
         <Navigation />
-        <div className="text-center mt-20">
-          <h1 className="text-3xl font-heading font-bold mb-4">Experience Not Found</h1>
-          <p className="text-muted-foreground mb-6">The experience you’re looking for doesn’t exist or has been removed.</p>
-          <Link
-            to="/experiences"
-            className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
-          >
-            Back to Experiences
-          </Link>
+        <div className="pt-36">
+          <Loading message="Loading experience..." />
         </div>
         <Footer />
       </div>
     );
   }
 
-  const reviews = experience.reviewsList || [];
+  if (error || !experience) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Navigation />
+        <div className="flex items-center justify-center min-h-screen pt-36">
+          <div className="text-center">
+            <p className="text-foreground text-lg">{error || 'Experience not found.'}</p>
+            <Link
+              to="/experiences"
+              className="mt-4 inline-block px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+            >
+              Back to Experiences
+            </Link>
+          </div>
+        </div>
+        <Footer />
+      </div>
+    );
+  }
+
+  const mainImage = experience.image || experience.images?.[0] || "fallback.jpg";
+  const imageUrls = experience.images || [mainImage].filter(Boolean);
 
   return (
     <div className="min-h-screen bg-background">
@@ -168,7 +458,7 @@ const ExperiencesDetails = () => {
                 {isFavorite ? "Saved" : "Save"}
               </button>
               <button
-                onClick={() => setActiveShare(id)} // ← Add this
+                onClick={() => setActiveShare(experience.id)}
                 className="flex items-center gap-2 px-4 py-2 border border-border rounded-xl hover:bg-muted/50 transition-colors"
               >
                 <Share2 className="w-4 h-4 text-muted-foreground" />
@@ -181,9 +471,8 @@ const ExperiencesDetails = () => {
         {/* Image Gallery */}
         <div className="max-w-7xl mx-auto px-6 mb-8">
           <div className="grid grid-cols-3 gap-2 h-80 rounded-2xl overflow-hidden">
-            <img src={experience.image} alt={experience.title} className="w-full h-full object-cover hover:scale-105 transition-transform duration-300" />
-            {experience.images.slice(1).map((img, i) => (
-              <img key={i+1} src={img} alt={experience.title} className="w-full h-full object-cover hover:scale-105 transition-transform duration-300" />
+            {imageUrls.slice(0, 3).map((img, i) => (
+              <img key={i} src={img} alt={experience.title} className="w-full h-full object-cover hover:scale-105 transition-transform duration-300" />
             ))}
           </div>
         </div>
@@ -199,55 +488,69 @@ const ExperiencesDetails = () => {
 
             <div className="flex items-center gap-6 text-muted-foreground">
               <div className="flex items-center gap-1"><Clock className="w-4 h-4" />{experience.duration}</div>
-              <div className="flex items-center gap-1"><Users className="w-4 h-4" />{experience.groupSize}</div>
+              <div className="flex items-center gap-1"><Users className="w-4 h-4" />Up to {experience.groupSize} participants</div>
             </div>
             
-            {/* Amenities */}
+            {/* Itinerary */}
+            {experience.itineraryItems && experience.itineraryItems.length > 0 && (
+              <div className="space-y-4 pt-6 border-t border-border">
+                <h2 className="font-heading text-2xl font-bold text-foreground">What you'll do</h2>
+                <div className="space-y-3">
+                  {experience.itineraryItems.map((item, index) => (
+                    <div key={index} className="flex gap-3">
+                      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold">
+                        {index + 1}
+                      </div>
+                      <div>
+                        <h3 className="font-medium text-foreground">{item.title || `Step ${index + 1}`}</h3>
+                        {item.description && (
+                          <p className="text-sm text-muted-foreground mt-1">{item.description}</p>
+                        )}
+                        {item.durationMinutes && (
+                          <p className="text-xs text-muted-foreground mt-1">{item.durationMinutes} minutes</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* What's included */}
             <div className="space-y-4 pt-6 border-t border-border">
               <h2 className="font-heading text-2xl font-bold text-foreground">What's included</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {(experience.amenities || [
-                  { name: "Equipment", icon: Users, available: true },
-                  { name: "Refreshments", icon: Users, available: true },
-                  { name: "Transportation", icon: Users, available: experience.id % 2 === 0 },
-                  { name: "Photos", icon: Users, available: true },
-                  { name: "Souvenirs", icon: Users, available: experience.id % 3 === 0 }
-                ]).map((amenity, index) => (
-                  <div key={index} className="flex items-center gap-3">
-                    <amenity.icon className="w-5 h-5 text-muted-foreground" />
-                    <span className="text-muted-foreground">{amenity.name}</span>
-                    {amenity.available ? (
-                      <Check className="w-4 h-4 text-green-500 ml-auto" />
-                    ) : (
-                      <X className="w-4 h-4 text-red-500 ml-auto" />
-                    )}
-                  </div>
-                ))}
+                {(experience.amenities || []).length > 0 ? (
+                  experience.amenities.map((amenity, index) => {
+                    const amenityName = typeof amenity === 'string' ? amenity : (amenity.name || amenity);
+                    return (
+                      <div key={index} className="flex items-center gap-3">
+                        <Check className="w-5 h-5 text-green-500" />
+                        <span className="text-muted-foreground capitalize">{amenityName.replace(/_/g, ' ')}</span>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <p className="text-muted-foreground">No amenities listed.</p>
+                )}
               </div>
             </div>
 
-            {/* Select Check-in Date Section */}
+            {/* Select Date Section */}
             <div className="space-y-4 pt-8 border-t border-border">
               <div>
-                <h2 className="font-heading text-2xl font-bold text-foreground mb-2">Select check-in date</h2>
-                <p className="text-muted-foreground">Add your travel dates for exact pricing</p>
+                <h2 className="font-heading text-2xl font-bold text-foreground mb-2">Select a date</h2>
+                <p className="text-muted-foreground">Choose when you'd like to experience this</p>
               </div>
               
               <div className="flex justify-center w-full">
                 <div className="bg-white rounded-xl border border-gray-200 shadow-lg p-6 w-full max-w-4xl mx-auto relative">
                   <Calendar
-                    mode="range"
-                    selected={selectedDateRange}
-                    onSelect={(range) => {
-                      setSelectedDateRange(range);
-                      if (range?.from) {
-                        setCheckInDate(range.from);
-                      }
-                      if (range?.to) {
-                        setCheckOutDate(range.to);
-                      } else if (range?.from && !range?.to) {
-                        setCheckOutDate(null);
-                      }
+                    mode="single"
+                    selected={selectedDate}
+                    onSelect={(date) => {
+                      setSelectedDate(date);
+                      setDefaultMonth(date);
                     }}
                     numberOfMonths={2}
                     showOutsideDays={true}
@@ -270,12 +573,10 @@ const ExperiencesDetails = () => {
                       row: "flex w-full mt-1",
                       cell: "h-10 w-10 text-center text-sm p-0 relative [&:has([aria-selected].day-range-end)]:rounded-r-md [&:has([aria-selected].day-outside)]:bg-accent/50 [&:has([aria-selected])]:bg-accent first:[&:has([aria-selected])]:rounded-l-md last:[&:has([aria-selected])]:rounded-r-md focus-within:relative focus-within:z-20",
                       day: "h-10 w-10 p-0 font-normal rounded-md hover:bg-gray-100 transition-colors aria-selected:opacity-100",
-                      day_range_end: "day-range-end rounded-r-md",
                       day_selected: "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground focus:bg-primary focus:text-primary-foreground font-semibold",
                       day_today: "bg-blue-50 text-blue-700 font-semibold border-2 border-blue-500",
                       day_outside: "day-outside text-gray-400 opacity-50 aria-selected:bg-accent/50 aria-selected:text-muted-foreground aria-selected:opacity-30",
                       day_disabled: "!bg-amber-200 !text-amber-800 !opacity-75 !cursor-not-allowed hover:!bg-amber-200 !font-medium !border !border-amber-400 !line-through",
-                      day_range_middle: "aria-selected:bg-primary/20 aria-selected:text-primary-foreground rounded-none",
                       day_hidden: "invisible"
                     }}
                     components={{
@@ -283,29 +584,58 @@ const ExperiencesDetails = () => {
                       IconRight: () => <ChevronRight className="h-5 w-5 text-gray-700" />
                     }}
                     disabled={(date) => {
-                      // Disable all dates before today
                       const today = new Date();
                       today.setHours(0, 0, 0, 0);
                       const dateToCheck = new Date(date);
                       dateToCheck.setHours(0, 0, 0, 0);
-                      return dateToCheck < today;
+                      
+                      if (dateToCheck < today) return true;
+                      
+                      // Check if date is unavailable
+                      if (unavailableDates.length > 0) {
+                        const year = dateToCheck.getFullYear();
+                        const month = String(dateToCheck.getMonth() + 1).padStart(2, '0');
+                        const day = String(dateToCheck.getDate()).padStart(2, '0');
+                        const dateStr = `${year}-${month}-${day}`;
+                        
+                        return unavailableDates.some((unavailableDate) => {
+                          try {
+                            let unavailableDateObj;
+                            if (unavailableDate instanceof Date) {
+                              unavailableDateObj = new Date(unavailableDate);
+                            } else {
+                              unavailableDateObj = new Date(unavailableDate);
+                            }
+                            unavailableDateObj.setHours(0, 0, 0, 0);
+                            
+                            const unavailableYear = unavailableDateObj.getFullYear();
+                            const unavailableMonth = String(unavailableDateObj.getMonth() + 1).padStart(2, '0');
+                            const unavailableDay = String(unavailableDateObj.getDate()).padStart(2, '0');
+                            const unavailableStr = `${unavailableYear}-${unavailableMonth}-${unavailableDay}`;
+                            
+                            return dateStr === unavailableStr;
+                          } catch (error) {
+                            return false;
+                          }
+                        });
+                      }
+                      
+                      return false;
                     }}
                     modifiersClassNames={{
                       selected: "bg-primary text-white",
                       today: "bg-blue-50 text-blue-700 border-2 border-blue-500"
                     }}
                   />
-                  {(checkInDate || checkOutDate) && (
+                  {selectedDate && (
                     <div className="absolute bottom-4 right-6">
                       <button
                         onClick={() => {
-                          setCheckInDate(null);
-                          setCheckOutDate(null);
-                          setSelectedDateRange(null);
+                          setSelectedDate(null);
                         }}
                         className="text-primary hover:underline text-sm font-medium"
                       >
-                        Clear dates
+                        Clear date
                       </button>
                     </div>
                   )}
@@ -316,22 +646,39 @@ const ExperiencesDetails = () => {
             {/* Reviews */}
             <div className="space-y-4 pt-6 border-t border-border">
               <h2 className="font-heading text-2xl font-bold text-foreground">Reviews</h2>
-              {reviews.length > 0 ? (
-                reviews.map(r => (
-                  <div key={r.id} className="space-y-2">
+              {reviewsLoading ? (
+                <p className="text-muted-foreground">Loading reviews...</p>
+              ) : reviews.length > 0 ? (
+                reviews.map((review) => (
+                  <div key={review.id} className="space-y-2">
                     <div className="flex items-center gap-3">
-                      <img src={r.avatar} alt={r.author} className="w-10 h-10 rounded-full" />
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center text-white font-semibold">
+                        {review.reviewerImage ? (
+                          <img src={review.reviewerImage} alt={review.reviewerName} className="w-10 h-10 rounded-full object-cover" />
+                        ) : (
+                          <span>{review.reviewerName?.[0]?.toUpperCase() || 'U'}</span>
+                        )}
+                      </div>
                       <div>
-                        <p className="font-medium text-foreground">{r.author}</p>
-                        <p className="text-sm text-muted-foreground">{r.date}</p>
+                        <p className="font-medium text-foreground">{review.reviewerName || 'Anonymous'}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {review.createdAt ? format(review.createdAt, 'MMM dd, yyyy') : 'Recently'}
+                        </p>
                       </div>
                       <div className="flex gap-1 ml-auto">
-                        {[...Array(r.rating)].map((_, i) => (
-                          <Star key={i} className="w-4 h-4 fill-yellow-400 text-yellow-400" />
+                        {[...Array(5)].map((_, i) => (
+                          <Star 
+                            key={i} 
+                            className={`w-4 h-4 ${
+                              i < review.rating 
+                                ? 'fill-yellow-400 text-yellow-400' 
+                                : 'text-gray-300'
+                            }`} 
+                          />
                         ))}
                       </div>
                     </div>
-                    <p className="text-muted-foreground">{r.comment}</p>
+                    <p className="text-muted-foreground">{review.comment}</p>
                   </div>
                 ))
               ) : (
@@ -353,7 +700,7 @@ const ExperiencesDetails = () => {
             <div className="card-listing p-6 sticky top-24">
               <div className="mb-6">
                 <div className="flex items-baseline gap-2 mb-2">
-                  <span className="font-heading text-3xl font-bold text-foreground">${experience.price}</span>
+                  <span className="font-heading text-3xl font-bold text-foreground">₱{experience.pricePerGuest?.toLocaleString() || experience.price?.toLocaleString() || '0'}</span>
                   <span className="text-muted-foreground">/ person</span>
                 </div>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -362,33 +709,63 @@ const ExperiencesDetails = () => {
                 </div>
               </div>
               
-              {/* Calendar Availability */}
+              {/* Date Selection */}
               <div className="space-y-4 mb-6">
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="p-3 border border-border rounded-xl">
-                    <label className="block text-xs font-medium text-foreground mb-1">Date</label>
-                    <input type="date" className="w-full bg-transparent text-sm text-muted-foreground" />
-                  </div>
-                  <div className="p-3 border border-border rounded-xl">
-                    <label className="block text-xs font-medium text-foreground mb-1">Time</label>
-                    <select className="w-full bg-transparent text-sm text-muted-foreground">
-                      <option value="morning">Morning</option>
-                      <option value="afternoon">Afternoon</option>
-                      <option value="evening">Evening</option>
-                    </select>
+                <div className="p-3 border border-border rounded-xl">
+                  <label className="block text-xs font-medium text-foreground mb-1">Date</label>
+                  <div className={`text-sm ${selectedDate ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
+                    {selectedDate ? format(selectedDate, 'MMM dd, yyyy') : 'Select a date'}
                   </div>
                 </div>
                 <div className="p-3 border border-border rounded-xl">
-                  <label className="block text-xs font-medium text-foreground mb-1">Guests</label>
-                  <select className="w-full bg-transparent text-sm text-muted-foreground">
-                    {[...Array(10)].map((_, i) => (
-                      <option key={i} value={i + 1}>{i + 1} guest{i > 0 ? 's' : ''}</option>
+                  <label className="block text-xs font-medium text-foreground mb-1">Time</label>
+                  <select 
+                    className="w-full bg-transparent text-sm text-muted-foreground"
+                    value={selectedTime}
+                    onChange={(e) => setSelectedTime(e.target.value)}
+                  >
+                    <option value="">Select time</option>
+                    <option value="morning">Morning</option>
+                    <option value="afternoon">Afternoon</option>
+                    <option value="evening">Evening</option>
+                  </select>
+                </div>
+                <div className="p-3 border border-border rounded-xl">
+                  <label className="block text-xs font-medium text-foreground mb-1">Participants</label>
+                  <select 
+                    className="w-full bg-transparent text-sm text-muted-foreground"
+                    value={participants}
+                    onChange={(e) => setParticipants(parseInt(e.target.value))}
+                  >
+                    {[...Array(experience.maxParticipants || 10)].map((_, i) => (
+                      <option key={i} value={i + 1}>{i + 1} {i === 0 ? 'participant' : 'participants'}</option>
                     ))}
                   </select>
                 </div>
               </div>
+
+              {/* Price Summary */}
+              {totalPrice > 0 && (
+                <div className="mb-6 pb-6 border-b border-border">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">
+                      {participants} {participants === 1 ? 'person' : 'people'} × ₱{experience.pricePerGuest?.toLocaleString() || experience.price?.toLocaleString() || '0'}
+                    </span>
+                    <span className="font-semibold text-foreground">
+                      ₱{totalPrice.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              )}
               
-              <button className="btn-primary w-full">Book Experience</button>
+              <button 
+                className="btn-primary w-full"
+                onClick={handleReserve}
+                disabled={!selectedDate}
+              >
+                Book Experience
+              </button>
+              <p className="text-center text-sm text-muted-foreground mt-4">You won't be charged yet</p>
             </div>
           </div>
         </div>
@@ -404,7 +781,6 @@ const ExperiencesDetails = () => {
             className="bg-white rounded-2xl p-6 shadow-xl w-full max-w-sm text-center relative"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* ❌ Close Button */}
             <button
               onClick={() => setActiveShare(null)}
               className="absolute top-4 right-4 p-1 rounded-full hover:bg-gray-100"
@@ -413,7 +789,7 @@ const ExperiencesDetails = () => {
             </button>
 
             <h2 className="text-xl font-heading font-bold mb-4">
-              Share this Accommodation
+              Share this Experience
             </h2>
             <p className="text-muted-foreground text-sm mb-6">
               Choose a platform to share on or copy the link below.
@@ -422,66 +798,40 @@ const ExperiencesDetails = () => {
             {/* Social Buttons */}
             <div className="flex justify-center gap-4 mb-6 flex-wrap">
               <a
-                href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(`${window.location.origin}/accommodations/${activeShare}`)}`}
+                href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(`${window.location.origin}/experiences/${activeShare}`)}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center justify-center w-12 h-12 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition"
-                title="Share on Facebook"
               >
                 <FontAwesomeIcon icon={faFacebookF} />
               </a>
 
               <a
-                href={`https://twitter.com/intent/tweet?url=${encodeURIComponent(`${window.location.origin}/accommodations/${activeShare}`)}`}
+                href={`https://twitter.com/intent/tweet?url=${encodeURIComponent(`${window.location.origin}/experiences/${activeShare}`)}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center justify-center w-12 h-12 bg-black text-white rounded-full hover:bg-gray-800 transition"
-                title="Share on X"
               >
                 <FontAwesomeIcon icon={faXTwitter} />
               </a>
 
               <a
-                href={`https://www.instagram.com/`}
+                href="https://www.instagram.com/"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center justify-center w-12 h-12 bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 text-white rounded-full hover:opacity-90 transition"
-                title="Share on Instagram"
               >
                 <FontAwesomeIcon icon={faInstagram} />
               </a>
 
               <a
-                href={`https://www.messenger.com/t/?link=${encodeURIComponent(`${window.location.origin}/accommodations/${activeShare}`)}`}
+                href={`https://www.messenger.com/t/?link=${encodeURIComponent(`${window.location.origin}/experiences/${activeShare}`)}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center justify-center w-12 h-12 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition"
-                title="Share on Messenger"
               >
                 <FontAwesomeIcon icon={faFacebookMessenger} />
               </a>
-
-              <button
-                onClick={async () => {
-                  if (navigator.share) {
-                    try {
-                      await navigator.share({
-                        title: "Check out this accommodation on Getaways!",
-                        text: "Explore this amazing accommodation!",
-                        url: `${window.location.origin}/accommodations/${activeShare}`,
-                      });
-                    } catch (error) {
-                      console.error("Share cancelled or failed:", error);
-                    }
-                  } else {
-                    alert("Sharing via device apps is not supported on this browser.");
-                  }
-                }}
-                className="flex items-center justify-center w-12 h-12 bg-gray-300 text-gray-800 rounded-full hover:bg-gray-400 transition font-bold"
-                title="More Options"
-              >
-                ⋮
-              </button>
             </div>
 
             {/* Copy Link Section */}
@@ -490,15 +840,11 @@ const ExperiencesDetails = () => {
                 <input
                   type="text"
                   readOnly
-                  value={shareUrl}
+                  value={`${window.location.origin}/experiences/${activeShare}`}
                   className="border border-border rounded-lg px-3 py-2 w-full text-sm"
                 />
                 <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(shareUrl);
-                    setCopied(true);
-                    setTimeout(() => setCopied(false), 2000); // hide after 2 seconds
-                  }}
+                  onClick={handleCopy}
                   className="btn-outline px-4 py-2 text-sm"
                 >
                   Copy

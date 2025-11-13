@@ -235,7 +235,11 @@ const ServiceAddress = () => {
 
   return (
     <div className="h-screen bg-white flex flex-col overflow-hidden">
-      <OnboardingHeader showProgress={true} currentStepNameOverride="service-address" />
+      <OnboardingHeader 
+        showProgress={true} 
+        currentStepNameOverride="service-address" 
+        customSaveAndExit={handleSaveAndExit}
+      />
 
       <main className="flex-1 flex items-center justify-center overflow-y-auto py-20 pt-32 pb-24">
         <div className="w-full max-w-2xl px-6">

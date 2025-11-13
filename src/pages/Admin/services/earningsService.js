@@ -110,7 +110,10 @@ export const releaseHostEarnings = async (bookingId) => {
     const totalPrice = booking.totalPrice || 0;
     const bookingAmount = booking.bookingAmount || (totalPrice ? Math.round((totalPrice / 1.14) * 100) / 100 : 0);
     const guestFee = booking.guestFee || (totalPrice ? Math.round((totalPrice - bookingAmount) * 100) / 100 : 0);
-    const hostEarnings = bookingAmount; // Host receives only the booking amount
+    
+    // Admin keeps 10% commission from bookingAmount
+    const adminCommission = Math.round((bookingAmount * 0.10) * 100) / 100;
+    const hostEarnings = Math.round((bookingAmount - adminCommission) * 100) / 100; // Host receives 90% of booking amount
     
     // Transfer bookingAmount from admin's GetPay wallet to host's GetPay wallet
     try {
@@ -136,11 +139,11 @@ export const releaseHostEarnings = async (bookingId) => {
       const listingDoc = await getDoc(listingRef);
       const listingTitle = listingDoc.exists() ? listingDoc.data().title || 'Accommodation' : 'Accommodation';
       
-      // Deduct bookingAmount from admin's wallet
+      // Deduct hostEarnings (90% of bookingAmount) from admin's wallet
       await deductFromAdminWallet(
         adminUserId,
-        bookingAmount,
-        `Earnings Release - Host Payment`,
+        hostEarnings,
+        `Earnings Release - Host Payment (Admin commission: ₱${adminCommission.toFixed(2)})`,
         {
           bookingId: bookingId,
           listingId: booking.listingId,
@@ -152,10 +155,10 @@ export const releaseHostEarnings = async (bookingId) => {
         true // skipAuthCheck for admin system operations
       );
       
-      // Add bookingAmount to host's wallet
+      // Add hostEarnings (90% of bookingAmount) to host's wallet
       await addToHostWallet(
         booking.ownerId,
-        bookingAmount,
+        hostEarnings,
         `Earnings from Booking - ${listingTitle}`,
         {
           bookingId: bookingId,
@@ -169,7 +172,7 @@ export const releaseHostEarnings = async (bookingId) => {
         }
       );
       
-      console.log(`✅ Released ₱${bookingAmount.toLocaleString()} to host's GetPay wallet`);
+      console.log(`✅ Released ₱${hostEarnings.toLocaleString()} to host's GetPay wallet (Admin commission: ₱${adminCommission.toFixed(2)})`);
     } catch (walletError) {
       console.error('Error transferring earnings to host wallet:', walletError);
       return { success: false, message: `Failed to transfer earnings: ${walletError.message}` };
@@ -180,7 +183,9 @@ export const releaseHostEarnings = async (bookingId) => {
       earningsReleased: true,
       earningsReleasedAt: serverTimestamp(),
       earningsReleasedBy: 'admin', // Can be enhanced to track admin user ID
+      earningsReleasePending: false, // Clear pending flag
       hostEarnings: hostEarnings,
+      adminCommission: adminCommission, // Store admin commission (10%)
       guestFee: guestFee, // Store guest fee for record keeping
       updatedAt: serverTimestamp()
     });
@@ -214,12 +219,16 @@ export const getPendingEarnings = async () => {
     for (const bookingDoc of bookingsSnapshot.docs) {
       const booking = bookingDoc.data();
       
-      if (!booking.earningsReleased) {
+      // Only show bookings that are pending earnings release
+      if (booking.earningsReleasePending && !booking.earningsReleased) {
         const totalPrice = booking.totalPrice || 0;
         // Use stored bookingAmount and guestFee if available, otherwise calculate (assuming 14% guest fee)
         const bookingAmount = booking.bookingAmount || (totalPrice ? Math.round((totalPrice / 1.14) * 100) / 100 : 0);
         const guestFee = booking.guestFee || (totalPrice ? Math.round((totalPrice - bookingAmount) * 100) / 100 : 0);
-        const hostEarnings = bookingAmount; // Host receives only the booking amount
+        
+        // Admin keeps 10% commission from bookingAmount
+        const adminCommission = Math.round((bookingAmount * 0.10) * 100) / 100;
+        const hostEarnings = Math.round((bookingAmount - adminCommission) * 100) / 100; // Host receives 90% of booking amount
         
         // Get host info
         const hostDoc = await getDoc(doc(db, 'users', booking.ownerId));
@@ -243,6 +252,7 @@ export const getPendingEarnings = async () => {
           totalPrice,
           bookingAmount: bookingAmount,
           guestFee: guestFee,
+          adminCommission: adminCommission,
           hostEarnings,
           completedAt: booking.autoCompletedAt || booking.updatedAt || booking.createdAt
         });

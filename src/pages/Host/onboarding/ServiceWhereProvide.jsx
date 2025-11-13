@@ -552,7 +552,8 @@ const ServiceWhereProvide = () => {
             currentStep: "service-where-provide", // Save CURRENT step
             lastModified: new Date(),
           });
-    } catch (error) {
+          console.log("✅ ServiceWhereProvide: Draft saved successfully on Save & Exit");
+        } catch (error) {
           console.error("Error saving currentStep:", error);
         }
       }
@@ -640,13 +641,21 @@ const ServiceWhereProvide = () => {
                   </div>
                   {savedAddress && (savedAddress.streetAddress || savedAddress.city) ? (
                     <div className="mt-3 p-3 bg-white rounded-lg border border-gray-200 relative">
-                      <button
+                      <div
                         onClick={handleRemoveAddress}
-                        className="absolute top-2 right-2 text-gray-400 hover:text-gray-600 transition-colors"
+                        className="absolute top-2 right-2 text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
                         aria-label="Remove address"
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            handleRemoveAddress(e);
+                          }
+                        }}
                       >
                         <X className="w-4 h-4" />
-                      </button>
+                      </div>
                       <div className="space-y-1 text-sm pr-6">
                         {savedAddress.streetAddress && (
                           <p className="text-gray-900 font-medium">{savedAddress.streetAddress}</p>

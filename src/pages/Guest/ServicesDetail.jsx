@@ -1,22 +1,27 @@
 import React, { useState, useEffect } from 'react';
-import { services } from './sharedData';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import Navigation from '@/components/Navigation';
 import Footer from '@/components/Footer';
+import Loading from '@/components/Loading';
 import WishlistSection from '@/components/WishlistSection';
 import {
   MapPin, Star, Heart, Share2, Clock, Users, ArrowLeft, X, Check, ChevronLeft, ChevronRight
 } from 'lucide-react';
-import { auth } from '@/lib/firebase';
+import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
+import { doc, getDoc, collection, query, where, onSnapshot } from 'firebase/firestore';
+import { getUnavailableDates } from '@/pages/Guest/services/bookingService';
 import LogIn from '@/pages/Auth/LogIn';
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faFacebookF, faInstagram, faFacebookMessenger, faXTwitter } from "@fortawesome/free-brands-svg-icons";
 import { Calendar } from '@/components/ui/calendar';
 import { format } from 'date-fns';
+import { toast } from '@/components/ui/sonner';
+import { getListingReviews } from '@/pages/Guest/services/reviewService';
 
 const ServicesDetail = () => {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [isFavorite, setIsFavorite] = useState(false);
@@ -28,15 +33,174 @@ const ServicesDetail = () => {
   const [selectedDateRange, setSelectedDateRange] = useState(null);
   const [guests, setGuests] = useState(1);
   const [defaultMonth, setDefaultMonth] = useState(new Date());
-
-
-  const service = services.find(item => item.id === Number(id));
-  const storedFavorites = JSON.parse(localStorage.getItem("favorites")) || [];
+  const [service, setService] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [reviews, setReviews] = useState([]);
+  const [reviewsLoading, setReviewsLoading] = useState(false);
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [unavailableDates, setUnavailableDates] = useState([]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, currentUser => setUser(currentUser));
     return () => unsubscribe();
   }, []);
+
+  // Fetch service from Firestore
+  useEffect(() => {
+    const fetchService = async () => {
+      if (!id) {
+        setError('No service ID provided');
+        setLoading(false);
+        return;
+      }
+
+      try {
+        setLoading(true);
+        console.log('📦 ServicesDetail: Fetching service with ID:', id);
+        
+        const docRef = doc(db, 'listings', id);
+        const docSnap = await getDoc(docRef);
+        
+        if (!docSnap.exists()) {
+          console.error('❌ Service not found:', id);
+          setError('Service not found');
+          setLoading(false);
+          return;
+        }
+        
+        const data = docSnap.data();
+        
+        // Only show services
+        if (data.category !== 'service') {
+          setError('This is not a service listing');
+          setLoading(false);
+          return;
+        }
+        
+        const locationData = data.locationData || {};
+        const photos = data.photos || [];
+        
+        // Format location display
+        const location = data.location || 
+          (locationData.city && locationData.province 
+            ? `${locationData.city}, ${locationData.province}`
+            : locationData.city || locationData.country || 'No location');
+        
+        // Get images
+        const imageUrls = photos.map(p => p.base64 || p.url).filter(Boolean);
+        const mainImage = imageUrls[0] || "fallback.jpg";
+        
+        // Get price
+        const price = data.price || data.pricing?.basePrice || data.pricing?.price || 0;
+        
+        const serviceData = {
+          id: docSnap.id,
+          title: data.title || 'Untitled Service',
+          description: data.description || '',
+          location: location,
+          locationData: locationData,
+          price: price,
+          rating: data.rating || 0,
+          reviews: data.reviews || 0,
+          image: mainImage,
+          images: imageUrls,
+          category: data.serviceCategory || 'Service',
+          provider: data.ownerName || data.ownerEmail?.split('@')[0] || 'Provider',
+          duration: data.duration || '1 hour',
+          serviceCategory: data.serviceCategory,
+          serviceYearsOfExperience: data.serviceYearsOfExperience,
+          serviceExperience: data.serviceExperience,
+          serviceDegree: data.serviceDegree,
+          serviceCareerHighlight: data.serviceCareerHighlight,
+          serviceProfilePicture: data.serviceProfilePicture,
+          serviceProfiles: data.serviceProfiles || [],
+          serviceAddress: data.serviceAddress,
+          serviceWhereProvide: data.serviceWhereProvide,
+          serviceOfferings: data.serviceOfferings || [],
+          descriptionHighlights: data.descriptionHighlights || [],
+          ownerId: data.ownerId,
+          ownerEmail: data.ownerEmail,
+        };
+        
+        setService(serviceData);
+        setLoading(false);
+      } catch (error) {
+        console.error('Error fetching service:', error);
+        setError('Failed to load service');
+        setLoading(false);
+      }
+    };
+
+    fetchService();
+  }, [id]);
+
+  // Load unavailable dates when service loads and listen for real-time updates
+  useEffect(() => {
+    if (!id) return;
+
+    const loadUnavailableDates = async () => {
+      try {
+        console.log('📅 ServicesDetail: Loading unavailable dates for listing:', id);
+        const dates = await getUnavailableDates(id);
+        console.log('📅 ServicesDetail: Loaded unavailable dates:', dates.length, 'dates');
+        setUnavailableDates(dates);
+      } catch (error) {
+        console.error('❌ ServicesDetail: Error loading unavailable dates:', error);
+        setUnavailableDates([]);
+      }
+    };
+    
+    // Initial load
+    loadUnavailableDates();
+    
+    // Set up real-time listener for bookings on this listing
+    let unsubscribe;
+    try {
+      const bookingsQuery = query(
+        collection(db, 'bookings'),
+        where('listingId', '==', id)
+      );
+
+      unsubscribe = onSnapshot(
+        bookingsQuery,
+        () => {
+          // When bookings change, reload unavailable dates
+          loadUnavailableDates();
+        },
+        (error) => {
+          console.error('❌ ServicesDetail: Error in bookings snapshot:', error);
+        }
+      );
+    } catch (error) {
+      console.error('❌ ServicesDetail: Error setting up bookings listener:', error);
+    }
+
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
+  }, [id]);
+
+  // Load reviews
+  useEffect(() => {
+    if (!id) return;
+    
+    const loadReviews = async () => {
+      try {
+        setReviewsLoading(true);
+        const reviewsData = await getListingReviews(id);
+        setReviews(reviewsData);
+      } catch (error) {
+        console.error('Error loading reviews:', error);
+      } finally {
+        setReviewsLoading(false);
+      }
+    };
+
+    loadReviews();
+  }, [id]);
 
   useEffect(() => {
     if (!user || !service) return setIsFavorite(false);
@@ -96,23 +260,70 @@ const ServicesDetail = () => {
     }));
   };
 
-  if (!service) {
+  // Handle reservation/booking
+  const handleReserve = () => {
+    if (!user) {
+      setShowLoginModal(true);
+      return;
+    }
+
+    if (!checkInDate || !checkOutDate) {
+      toast.error('Please select check-in and check-out dates');
+      return;
+    }
+
+    if (!service || !service.id) {
+      toast.error('Service information is missing');
+      return;
+    }
+
+    // Calculate total price (for services, it's usually per session, but we'll use the dates for booking)
+    const totalPrice = service.price || 0;
+
+    // Navigate to booking request page
+    navigate('/booking-request', {
+      state: {
+        listingId: service.id,
+        listing: service,
+        checkInDate: checkInDate,
+        checkOutDate: checkOutDate,
+        guests: guests,
+        totalPrice: totalPrice,
+        nightlyPrice: service.price,
+        category: 'service'
+      }
+    });
+  };
+
+  // Show loading or error state
+  if (loading) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-background text-foreground">
+      <div className="min-h-screen bg-background">
         <Navigation />
-        <div className="text-center mt-20">
-          <h1 className="text-3xl font-heading font-bold mb-4">Service Not Found</h1>
-          <p className="text-muted-foreground mb-6">The service you’re looking for doesn’t exist or has been removed.</p>
-          <Link to="/services" className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors">
-            Back to Services
-          </Link>
+        <div className="pt-36">
+          <Loading message="Loading service..." />
         </div>
         <Footer />
       </div>
     );
   }
 
-  const reviews = service.reviewsList || [];
+  if (error || !service) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Navigation />
+        <div className="flex items-center justify-center min-h-screen pt-36">
+          <div className="text-center">
+            <p className="text-foreground text-lg">{error || 'Service not found.'}</p>
+            <Link to="/services" className="mt-4 inline-block px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors">
+              Back to Services
+            </Link>
+          </div>
+        </div>
+        <Footer />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -165,13 +376,45 @@ const ServicesDetail = () => {
 
         {/* Image Gallery */}
         <div className="max-w-7xl mx-auto px-6 mb-8">
-          <div className="grid grid-cols-3 gap-2 h-80 rounded-2xl overflow-hidden">
-            <img src={service.image} alt={service.title} className="w-full h-full object-cover hover:scale-105 transition-transform duration-300" />
-            {service.images.slice(1).map((img, i) => (
-              <img key={i+1} src={img} alt={service.title} className="w-full h-full object-cover hover:scale-105 transition-transform duration-300" />
-            ))}
-          </div>
+          {service.images && service.images.length > 0 ? (
+            <div className="grid grid-cols-3 gap-2 h-80 rounded-2xl overflow-hidden">
+              {service.images.slice(0, 5).map((img, i) => (
+                <img 
+                  key={i} 
+                  src={img} 
+                  alt={service.title} 
+                  className="w-full h-full object-cover hover:scale-105 transition-transform duration-300 cursor-pointer"
+                  onClick={() => setSelectedImage(img)}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="h-80 rounded-2xl overflow-hidden bg-gray-200 flex items-center justify-center">
+              <span className="text-muted-foreground">No images available</span>
+            </div>
+          )}
         </div>
+
+        {/* Image Modal */}
+        {selectedImage && (
+          <div 
+            className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4"
+            onClick={() => setSelectedImage(null)}
+          >
+            <button
+              onClick={() => setSelectedImage(null)}
+              className="absolute top-4 right-4 text-white p-2 hover:bg-white/10 rounded-full"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <img 
+              src={selectedImage} 
+              alt={service.title}
+              className="max-w-full max-h-full object-contain"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+        )}
 
         {/* Main Content */}
         <div className="max-w-7xl mx-auto px-6 grid grid-cols-1 lg:grid-cols-3 gap-12 mb-12">
@@ -182,39 +425,43 @@ const ServicesDetail = () => {
             </div>
 
             <div className="flex items-center gap-6 text-muted-foreground">
-              <div className="flex items-center gap-1"><Clock className="w-4 h-4" />{service.duration}</div>
-              <div className="flex items-center gap-1"><Users className="w-4 h-4" />{service.groupSize}</div>
-            </div>
-            
-            {/* Amenities */}
-            <div className="space-y-4 pt-6 border-t border-border">
-              <h2 className="font-heading text-2xl font-bold text-foreground">What's included</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {(service.amenities || [
-                  { name: "Professional Staff", icon: Users, available: true },
-                  { name: "Premium Equipment", icon: Users, available: true },
-                  { name: "Refreshments", icon: Users, available: service.id % 2 === 0 },
-                  { name: "Transportation", icon: Users, available: service.id % 3 === 0 },
-                  { name: "Complimentary Items", icon: Users, available: true }
-                ]).map((amenity, index) => (
-                  <div key={index} className="flex items-center gap-3">
-                    <amenity.icon className="w-5 h-5 text-muted-foreground" />
-                    <span className="text-muted-foreground">{amenity.name}</span>
-                    {amenity.available ? (
-                      <Check className="w-4 h-4 text-green-500 ml-auto" />
-                    ) : (
-                      <X className="w-4 h-4 text-red-500 ml-auto" />
-                    )}
-                  </div>
-                ))}
-              </div>
+              {service.duration && (
+                <div className="flex items-center gap-1"><Clock className="w-4 h-4" />{service.duration}</div>
+              )}
             </div>
 
-            {/* Select Check-in Date Section */}
+            {/* Service Offerings */}
+            {service.serviceOfferings && service.serviceOfferings.length > 0 && (
+              <div className="space-y-4 pt-6 border-t border-border">
+                <h2 className="font-heading text-2xl font-bold text-foreground">Service Offerings</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {service.serviceOfferings.map((offering, index) => (
+                    <div key={index} className="flex items-center gap-3">
+                      <Check className="w-5 h-5 text-green-500" />
+                      <span className="text-muted-foreground">{offering.title || offering.name || `Offering ${index + 1}`}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Description Highlights */}
+            {service.descriptionHighlights && service.descriptionHighlights.length > 0 && (
+              <div className="space-y-4 pt-6 border-t border-border">
+                <h2 className="font-heading text-2xl font-bold text-foreground">Highlights</h2>
+                <ul className="list-disc list-inside space-y-2 text-muted-foreground">
+                  {service.descriptionHighlights.map((highlight, index) => (
+                    <li key={index}>{highlight}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Select Dates Section */}
             <div className="space-y-4 pt-8 border-t border-border">
               <div>
-                <h2 className="font-heading text-2xl font-bold text-foreground mb-2">Select check-in date</h2>
-                <p className="text-muted-foreground">Add your travel dates for exact pricing</p>
+                <h2 className="font-heading text-2xl font-bold text-foreground mb-2">Select dates</h2>
+                <p className="text-muted-foreground">Choose your preferred dates for this service</p>
               </div>
               
               <div className="flex justify-center w-full">
@@ -253,30 +500,78 @@ const ServicesDetail = () => {
                       head_cell: "text-gray-600 rounded-md w-10 h-10 font-medium text-xs flex items-center justify-center",
                       row: "flex w-full mt-1",
                       cell: "h-10 w-10 text-center text-sm p-0 relative [&:has([aria-selected].day-range-end)]:rounded-r-md [&:has([aria-selected].day-outside)]:bg-accent/50 [&:has([aria-selected])]:bg-accent first:[&:has([aria-selected])]:rounded-l-md last:[&:has([aria-selected])]:rounded-r-md focus-within:relative focus-within:z-20",
-                      day: "h-10 w-10 p-0 font-normal rounded-md hover:bg-gray-100 transition-colors aria-selected:opacity-100 flex items-center justify-center",
+                      day: "h-10 w-10 p-0 font-normal rounded-md hover:bg-gray-100 transition-colors aria-selected:opacity-100",
                       day_range_end: "day-range-end rounded-r-md",
-                      day_selected: "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground focus:bg-primary focus:text-primary-foreground font-semibold",
+                      day_selected: "!bg-blue-500 !text-white hover:!bg-blue-600 hover:!text-white focus:!bg-blue-500 focus:!text-white font-semibold",
                       day_today: "bg-blue-50 text-blue-700 font-semibold border-2 border-blue-500",
                       day_outside: "day-outside text-gray-400 opacity-50 aria-selected:bg-accent/50 aria-selected:text-muted-foreground aria-selected:opacity-30",
                       day_disabled: "!bg-amber-200 !text-amber-800 !opacity-75 !cursor-not-allowed hover:!bg-amber-200 !font-medium !border !border-amber-400 !line-through",
-                      day_range_middle: "aria-selected:bg-primary/20 aria-selected:text-primary-foreground rounded-none",
+                      day_unavailable: "!bg-red-600 !text-white !line-through !opacity-100 !cursor-not-allowed hover:!bg-red-700 hover:!text-white !font-bold !border-2 !border-red-800 !shadow-lg !relative !z-10",
+                      day_range_middle: "aria-selected:!bg-blue-200 aria-selected:!text-blue-900 rounded-none",
                       day_hidden: "invisible"
+                    }}
+                    modifiers={{
+                      unavailable: unavailableDates.map(d => {
+                        let dateObj;
+                        if (d instanceof Date) {
+                          dateObj = new Date(d);
+                        } else {
+                          dateObj = new Date(d);
+                        }
+                        dateObj.setHours(0, 0, 0, 0);
+                        return dateObj;
+                      })
                     }}
                     components={{
                       IconLeft: () => <ChevronLeft className="h-5 w-5 text-gray-700" />,
                       IconRight: () => <ChevronRight className="h-5 w-5 text-gray-700" />
                     }}
                     disabled={(date) => {
-                      // Disable all dates before today
-                      const today = new Date();
-                      today.setHours(0, 0, 0, 0);
                       const dateToCheck = new Date(date);
                       dateToCheck.setHours(0, 0, 0, 0);
-                      return dateToCheck < today;
+                      
+                      const year = dateToCheck.getFullYear();
+                      const month = String(dateToCheck.getMonth() + 1).padStart(2, '0');
+                      const day = String(dateToCheck.getDate()).padStart(2, '0');
+                      const dateStr = `${year}-${month}-${day}`;
+                      
+                      const today = new Date();
+                      today.setHours(0, 0, 0, 0);
+                      const isPast = dateToCheck < today;
+                      
+                      let isUnavailable = false;
+                      if (unavailableDates.length > 0) {
+                        isUnavailable = unavailableDates.some((unavailableDate) => {
+                          try {
+                            let unavailableDateObj;
+                            if (unavailableDate instanceof Date) {
+                              unavailableDateObj = new Date(unavailableDate);
+                            } else if (typeof unavailableDate === 'string') {
+                              unavailableDateObj = new Date(unavailableDate);
+                            } else {
+                              unavailableDateObj = new Date(unavailableDate);
+                            }
+                            unavailableDateObj.setHours(0, 0, 0, 0);
+                            
+                            const unavailableYear = unavailableDateObj.getFullYear();
+                            const unavailableMonth = String(unavailableDateObj.getMonth() + 1).padStart(2, '0');
+                            const unavailableDay = String(unavailableDateObj.getDate()).padStart(2, '0');
+                            const unavailableStr = `${unavailableYear}-${unavailableMonth}-${unavailableDay}`;
+                            
+                            return dateStr === unavailableStr;
+                          } catch (error) {
+                            console.warn('Error comparing unavailable date:', error);
+                            return false;
+                          }
+                        });
+                      }
+                      
+                      return isPast || isUnavailable;
                     }}
                     modifiersClassNames={{
-                      selected: "bg-primary text-white",
-                      today: "bg-blue-50 text-blue-700 border-2 border-blue-500"
+                      selected: "!bg-blue-500 !text-white",
+                      today: "bg-blue-50 text-blue-700 border-2 border-blue-500",
+                      unavailable: "!bg-red-600 !text-white !line-through !opacity-100 !cursor-not-allowed hover:!bg-red-700 hover:!text-white !font-bold !border-2 !border-red-800 !shadow-lg !relative !z-10"
                     }}
                   />
                   {(checkInDate || checkOutDate) && (
@@ -299,22 +594,26 @@ const ServicesDetail = () => {
 
             <div className="space-y-4 pt-6 border-t border-border">
               <h2 className="font-heading text-2xl font-bold text-foreground">Reviews</h2>
-              {reviews.length > 0 ? (
+              {reviewsLoading ? (
+                <p className="text-muted-foreground">Loading reviews...</p>
+              ) : reviews.length > 0 ? (
                 reviews.map(r => (
                   <div key={r.id} className="space-y-2">
                     <div className="flex items-center gap-3">
-                      <img src={r.avatar} alt={r.author} className="w-10 h-10 rounded-full" />
+                      {r.userPhoto && (
+                        <img src={r.userPhoto} alt={r.userName} className="w-10 h-10 rounded-full" />
+                      )}
                       <div>
-                        <p className="font-medium text-foreground">{r.author}</p>
-                        <p className="text-sm text-muted-foreground">{r.date}</p>
+                        <p className="font-medium text-foreground">{r.userName || 'Anonymous'}</p>
+                        <p className="text-sm text-muted-foreground">{r.createdAt ? format(r.createdAt.toDate(), 'MMM d, yyyy') : 'Recently'}</p>
                       </div>
                       <div className="flex gap-1 ml-auto">
-                        {[...Array(r.rating)].map((_, i) => (
+                        {[...Array(Math.floor(r.rating || 0))].map((_, i) => (
                           <Star key={i} className="w-4 h-4 fill-yellow-400 text-yellow-400" />
                         ))}
                       </div>
                     </div>
-                    <p className="text-muted-foreground">{r.comment}</p>
+                    <p className="text-muted-foreground">{r.comment || r.review || 'No comment'}</p>
                   </div>
                 ))
               ) : (
@@ -322,12 +621,43 @@ const ServicesDetail = () => {
               )}
             </div>
 
+            {/* Provider Information */}
+            {service.provider && (
+              <div className="space-y-4 pt-6 border-t border-border">
+                <h2 className="font-heading text-2xl font-bold text-foreground">Service Provider</h2>
+                <div className="flex items-center gap-3">
+                  {service.serviceProfilePicture && (
+                    <img 
+                      src={service.serviceProfilePicture} 
+                      alt={service.provider}
+                      className="w-16 h-16 rounded-full object-cover"
+                    />
+                  )}
+                  <div>
+                    <p className="font-medium text-foreground">{service.provider}</p>
+                    {service.serviceYearsOfExperience && (
+                      <p className="text-sm text-muted-foreground">{service.serviceYearsOfExperience} years of experience</p>
+                    )}
+                  </div>
+                </div>
+                {service.serviceExperience && (
+                  <p className="text-muted-foreground">{service.serviceExperience}</p>
+                )}
+                {service.serviceDegree && (
+                  <p className="text-sm text-muted-foreground">Education: {service.serviceDegree}</p>
+                )}
+                {service.serviceCareerHighlight && (
+                  <p className="text-sm text-muted-foreground">Career Highlight: {service.serviceCareerHighlight}</p>
+                )}
+              </div>
+            )}
+
             {/* Wishlist Section */}
             <WishlistSection
               listingId={service.id}
               listingTitle={service.title}
               listingType="service"
-              hostName={service.host}
+              hostName={service.provider}
             />
           </div>
 
@@ -336,42 +666,55 @@ const ServicesDetail = () => {
             <div className="card-listing p-6 sticky top-24">
               <div className="mb-6">
                 <div className="flex items-baseline gap-2 mb-2">
-                  <span className="font-heading text-3xl font-bold text-foreground">${service.price}</span>
-                  <span className="text-muted-foreground">/ person</span>
+                  <span className="font-heading text-3xl font-bold text-foreground">₱{service.price?.toLocaleString() || '0'}</span>
+                  <span className="text-muted-foreground">/ session</span>
                 </div>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-                  <span>{service.rating} ({service.reviews} reviews)</span>
+                  <span>{service.rating || 0} ({service.reviews || 0} reviews)</span>
                 </div>
               </div>
               
-              {/* Calendar Availability */}
+              {/* Date Selection */}
               <div className="space-y-4 mb-6">
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="p-3 border border-border rounded-xl">
-                    <label className="block text-xs font-medium text-foreground mb-1">Date</label>
-                    <input type="date" className="w-full bg-transparent text-sm text-muted-foreground" />
-                  </div>
-                  <div className="p-3 border border-border rounded-xl">
-                    <label className="block text-xs font-medium text-foreground mb-1">Time</label>
-                    <select className="w-full bg-transparent text-sm text-muted-foreground">
-                      <option value="morning">Morning</option>
-                      <option value="afternoon">Afternoon</option>
-                      <option value="evening">Evening</option>
-                    </select>
-                  </div>
+                <div className="p-3 border border-border rounded-xl">
+                  <label className="block text-xs font-medium text-foreground mb-2">Check-in</label>
+                  {checkInDate ? (
+                    <div className="text-sm text-foreground">{format(new Date(checkInDate), 'MMM d, yyyy')}</div>
+                  ) : (
+                    <div className="text-sm text-muted-foreground">Select dates above</div>
+                  )}
+                </div>
+                <div className="p-3 border border-border rounded-xl">
+                  <label className="block text-xs font-medium text-foreground mb-2">Check-out</label>
+                  {checkOutDate ? (
+                    <div className="text-sm text-foreground">{format(new Date(checkOutDate), 'MMM d, yyyy')}</div>
+                  ) : (
+                    <div className="text-sm text-muted-foreground">Select dates above</div>
+                  )}
                 </div>
                 <div className="p-3 border border-border rounded-xl">
                   <label className="block text-xs font-medium text-foreground mb-1">Guests</label>
-                  <select className="w-full bg-transparent text-sm text-muted-foreground">
-                    {[...Array(service.groupSize ? parseInt(service.groupSize.match(/\d+/)[0]) : 6)].map((_, i) => (
+                  <select 
+                    value={guests} 
+                    onChange={(e) => setGuests(Number(e.target.value))}
+                    className="w-full bg-transparent text-sm text-foreground"
+                  >
+                    {[...Array(10)].map((_, i) => (
                       <option key={i} value={i + 1}>{i + 1} guest{i > 0 ? 's' : ''}</option>
                     ))}
                   </select>
                 </div>
               </div>
               
-              <button className="btn-primary w-full">Book Service</button>
+              <button 
+                className="btn-primary w-full"
+                onClick={handleReserve}
+                disabled={!checkInDate || !checkOutDate}
+              >
+                Reserve
+              </button>
+              <p className="text-center text-sm text-muted-foreground mt-4">You won't be charged yet</p>
             </div>
           </div>
         </div>
@@ -396,7 +739,7 @@ const ServicesDetail = () => {
             </button>
 
             <h2 className="text-xl font-heading font-bold mb-4">
-              Share this Accommodation
+              Share this Service
             </h2>
             <p className="text-muted-foreground text-sm mb-6">
               Choose a platform to share on or copy the link below.

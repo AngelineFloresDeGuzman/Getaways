@@ -3,15 +3,32 @@ import { useNavigate, useLocation, Link } from 'react-router-dom';
 import Navigation from '@/components/Navigation';
 import { calculateTotalPrice } from '@/pages/Guest/services/bookingService';
 import Footer from '@/components/Footer';
-import { ArrowLeft, ChevronRight, CreditCard, MessageSquare, User, CheckCircle2, Camera, X, CheckCircle, AlertCircle, ExternalLink, Wallet } from 'lucide-react';
+import { ArrowLeft, ChevronRight, ChevronLeft, CreditCard, MessageSquare, User, CheckCircle2, Camera, X, CheckCircle, AlertCircle, ExternalLink, Wallet } from 'lucide-react';
 import { format } from 'date-fns';
 import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
-import { createBooking, checkDateConflict } from '@/pages/Guest/services/bookingService';
+import { doc, getDoc, updateDoc, serverTimestamp, collection, query, where, onSnapshot } from 'firebase/firestore';
+import { createBooking, checkDateConflict, getUnavailableDates } from '@/pages/Guest/services/bookingService';
+import { Calendar } from '@/components/ui/calendar';
 import { toast } from '@/components/ui/sonner';
 import { PayPalScriptProvider, PayPalButtons, usePayPalScriptReducer } from '@paypal/react-paypal-js';
 import { getWalletBalance, hasSufficientBalance, initializeWallet, deductFromWallet } from '@/pages/Common/services/getpayService';
+
+// PayPal Client ID - defined outside component to avoid re-creation
+const PAYPAL_CLIENT_ID = import.meta.env.VITE_PAYPAL_CLIENT_ID || '';
+const HAS_VALID_PAYPAL_CLIENT_ID = PAYPAL_CLIENT_ID && PAYPAL_CLIENT_ID !== 'test' && PAYPAL_CLIENT_ID.length > 10;
+
+// Wrapper component to conditionally include PayPalScriptProvider - defined outside to prevent re-creation
+const ContentWrapper = ({ children }) => {
+  if (HAS_VALID_PAYPAL_CLIENT_ID) {
+    return (
+      <PayPalScriptProvider options={{ clientId: PAYPAL_CLIENT_ID, currency: 'PHP' }}>
+        {children}
+      </PayPalScriptProvider>
+    );
+  }
+  return <>{children}</>;
+};
 
 const BookingRequest = () => {
   const navigate = useNavigate();
@@ -27,10 +44,48 @@ const BookingRequest = () => {
   const [pendingCheckOut, setPendingCheckOut] = useState(checkOutDate);
   const [pendingGuests, setPendingGuests] = useState(guests);
 
+  // Helper function to format date for date input (YYYY-MM-DD) without timezone issues
+  const formatDateForInput = (dateString) => {
+    if (!dateString) return '';
+    // If already in YYYY-MM-DD format, return as-is
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+      return dateString;
+    }
+    // Otherwise, parse and format using local date to avoid timezone shifts
+    const date = new Date(dateString);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  // Helper function to convert date string to Date object without timezone issues
+  const stringToDate = (dateString) => {
+    if (!dateString) return undefined;
+    // If it's already a Date object, return it
+    if (dateString instanceof Date) return dateString;
+    // If it's in YYYY-MM-DD format, parse it as local date
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+      const [year, month, day] = dateString.split('-').map(Number);
+      return new Date(year, month - 1, day);
+    }
+    // Otherwise, parse normally
+    return new Date(dateString);
+  };
+
   // When opening pickers, set pending values to current
   const openDatePicker = () => {
     setPendingCheckIn(checkInDate);
     setPendingCheckOut(checkOutDate);
+    // Set default month to show the check-in date month, or current month if no check-in date
+    if (checkInDate) {
+      const checkInDateObj = stringToDate(checkInDate);
+      if (checkInDateObj) {
+        setDefaultMonth(checkInDateObj);
+      }
+    } else {
+      setDefaultMonth(new Date());
+    }
     setShowDatePicker(true);
   };
   const openGuestPicker = () => {
@@ -51,6 +106,8 @@ const BookingRequest = () => {
   // Use React state for dates and guests to allow dynamic changes
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showGuestPicker, setShowGuestPicker] = useState(false);
+  const [unavailableDates, setUnavailableDates] = useState([]);
+  const [defaultMonth, setDefaultMonth] = useState(new Date());
 
   // Handle date change and recompute nights/pricing
   const handleDateChange = (type, value) => {
@@ -76,7 +133,10 @@ const BookingRequest = () => {
     totalPrice,
     nightlyPrice,
     couponCode,
-    couponDiscount
+    couponDiscount,
+    category = 'accommodation', // Default to accommodation for backward compatibility
+    selectedTime,
+    experienceDate
   } = location.state || {};
 
 
@@ -190,6 +250,63 @@ const BookingRequest = () => {
       setProfilePhotoPreview(profilePhoto);
     }
   }, [currentStep, profilePhoto]);
+
+  // Sync pending dates when main dates change (but only if date picker is not open)
+  useEffect(() => {
+    if (!showDatePicker) {
+      setPendingCheckIn(checkInDate);
+      setPendingCheckOut(checkOutDate);
+    }
+  }, [checkInDate, checkOutDate, showDatePicker]);
+
+  // Load unavailable dates when listing is available
+  useEffect(() => {
+    if (!listingId) return;
+
+    const loadUnavailableDates = async () => {
+      try {
+        console.log('📅 Loading unavailable dates for listing:', listingId);
+        const dates = await getUnavailableDates(listingId);
+        console.log('📅 Loaded unavailable dates:', dates.length, 'dates');
+        setUnavailableDates(dates);
+      } catch (error) {
+        console.error('❌ Error loading unavailable dates:', error);
+        setUnavailableDates([]);
+      }
+    };
+    
+    // Initial load
+    loadUnavailableDates();
+    
+    // Set up real-time listener for bookings on this listing
+    let unsubscribe;
+    try {
+      const bookingsQuery = query(
+        collection(db, 'bookings'),
+        where('listingId', '==', listingId)
+      );
+
+      unsubscribe = onSnapshot(
+        bookingsQuery,
+        async () => {
+          // Reload unavailable dates when bookings change
+          const dates = await getUnavailableDates(listingId);
+          setUnavailableDates(dates);
+        },
+        (error) => {
+          console.error('Error listening to bookings:', error);
+        }
+      );
+    } catch (error) {
+      console.error('Error setting up bookings listener:', error);
+    }
+    
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
+  }, [listingId]);
 
   // Handle photo file selection
   const handlePhotoSelect = (e) => {
@@ -378,7 +495,7 @@ const BookingRequest = () => {
     }
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (paypalOrderId = null, paypalTransactionId = null) => {
     if (!user) {
       toast.error('Please log in to complete booking');
       return;
@@ -397,13 +514,41 @@ const BookingRequest = () => {
     try {
       setIsSubmitting(true);
 
+      // Convert date strings to Date objects and normalize to midnight for accurate comparison
+      const checkInDateObj = stringToDate(checkInDate);
+      const checkOutDateObj = stringToDate(checkOutDate);
+      
+      if (!checkInDateObj || !checkOutDateObj) {
+        toast.error('Invalid dates selected');
+        setIsSubmitting(false);
+        return;
+      }
+      
+      // Normalize to midnight to avoid timezone issues
+      checkInDateObj.setHours(0, 0, 0, 0);
+      checkOutDateObj.setHours(0, 0, 0, 0);
+
       // Double-check for conflicts
-      const hasConflict = await checkDateConflict(listingId, checkInDate, checkOutDate);
+      console.log('🔍 Checking date conflict:', {
+        listingId,
+        checkIn: checkInDateObj.toISOString().split('T')[0],
+        checkOut: checkOutDateObj.toISOString().split('T')[0],
+        checkInDateString: checkInDate,
+        checkOutDateString: checkOutDate
+      });
+      
+      const hasConflict = await checkDateConflict(listingId, checkInDateObj, checkOutDateObj);
       if (hasConflict) {
+        console.error('❌ Date conflict detected for dates:', {
+          checkIn: checkInDateObj.toISOString().split('T')[0],
+          checkOut: checkOutDateObj.toISOString().split('T')[0]
+        });
         toast.error('Selected dates are not available. Please choose different dates.');
         setIsSubmitting(false);
         return;
       }
+      
+      console.log('✅ No date conflict, proceeding with booking');
 
       // Handle payment based on provider and option
       if (paymentOption === 'now') {
@@ -427,30 +572,47 @@ const BookingRequest = () => {
             return;
           }
         } else if (paymentProvider === 'paypal') {
-          // For PayPal direct payment, we need to handle it before creating booking
-          // The PayPal button will handle the payment, then call handleSubmit
-          // For now, we'll create the booking and mark it as pending PayPal payment
-          // In a real implementation, you'd handle PayPal payment first, then create booking
-          console.log('✅ PayPal direct payment will be processed');
+          // Check if PayPal is properly configured
+          if (!HAS_VALID_PAYPAL_CLIENT_ID) {
+            toast.error('PayPal is not configured. Please use GetPay wallet or configure PayPal.');
+            setIsSubmitting(false);
+            return;
+          }
+          
+          // For PayPal, payment will NOT be processed here
+          // Payment will only be processed when host confirms the booking (same as GetPay wallet)
+          // Just verify PayPal account is connected
+          if (!paypalConnected) {
+            toast.error('Please connect your PayPal account before proceeding');
+            setIsSubmitting(false);
+            return;
+          }
+          
+          console.log('✅ PayPal payment method selected - payment will be processed when host confirms');
         }
       }
       
       // Create booking
-      // useWallet: true for "pay now" with GetPay, false for PayPal direct or "pay later"
-      // Use displayTotalPrice which includes guest fee and coupon discount
+      // useWallet: true for "pay now" with GetPay, false for PayPal or "pay later"
+      // For both GetPay and PayPal, payment will only be processed when host confirms
+      // Pass exact pricing breakdown to ensure accuracy
       const bookingId = await createBooking({
         listingId: listingId,
         checkInDate: checkInDate,
         checkOutDate: checkOutDate,
         guests: guests || 1,
-        totalPrice: displayTotalPrice, // Final total with coupon discount and guest fee
-        useWallet: paymentOption === 'now' && paymentProvider === 'getpay', // Pay now with GetPay = use wallet
+        totalPrice: displayTotalPrice, // Final total (discountedBookingAmount + guestFee)
+        bookingAmount: displayBasePrice, // Base booking amount after coupon discount (before guest fee)
+        guestFee: calculatedGuestFee, // Guest fee calculated on discounted amount
+        useWallet: paymentOption === 'now' && paymentProvider === 'getpay', // Pay now with GetPay = use wallet (but payment still happens on host confirmation)
         paymentProvider: paymentProvider, // 'getpay' or 'paypal'
         paymentMethod: paymentProvider === 'getpay' ? 'wallet' : 'paypal',
         message: messageToHost || undefined,
         couponCode: couponCode || undefined,
         couponDiscount: couponDiscount || 0,
-        couponId: location.state?.couponId || undefined
+        couponId: location.state?.couponId || undefined,
+        paypalOrderId: paypalOrderId || undefined, // PayPal order ID if payment was authorized
+        paypalTransactionId: paypalTransactionId || undefined // PayPal transaction ID if payment was captured
       });
 
       toast.success('Booking request submitted successfully! The host will be notified.');
@@ -465,51 +627,69 @@ const BookingRequest = () => {
     }
   };
 
-  // Calculate nights
-
+  // Calculate nights (for accommodations) or participants (for experiences)
+  const isExperience = category === 'experience';
+  
   let nights = 0;
   let dateError = '';
   if (checkInDate && checkOutDate) {
     const inDate = new Date(checkInDate);
     const outDate = new Date(checkOutDate);
-    if (outDate <= inDate) {
-      dateError = 'Check-out date must be after check-in date.';
+    if (isExperience) {
+      // For experiences, check-in and check-out are the same day (check-out is next day for booking system)
+      nights = 1; // Single day experience
     } else {
-      nights = Math.ceil((outDate - inDate) / (1000 * 60 * 60 * 24));
+      if (outDate <= inDate) {
+        dateError = 'Check-out date must be after check-in date.';
+      } else {
+        nights = Math.ceil((outDate - inDate) / (1000 * 60 * 60 * 24));
+      }
+    }
+  }
+
+  // Calculate original listing price (before any discounts/coupons)
+  let originalListingPrice = 0;
+  if (listing && checkInDate && checkOutDate) {
+    if (isExperience) {
+      // For experiences: price per person × number of participants
+      const pricePerGuest = listing.pricePerGuest || listing.price || 0;
+      originalListingPrice = pricePerGuest * (guests || 1);
+    } else {
+      // For accommodations: nightly rate × number of nights
+      if (nights > 0) {
+        const nightlyRate = listing.price || listing.weekdayPrice || 0;
+        originalListingPrice = nightlyRate * nights;
+      }
     }
   }
 
 
-  // Calculate original listing price (before any discounts/coupons)
-  let originalListingPrice = 0;
-  if (listing && checkInDate && checkOutDate && nights > 0) {
-    // Use the nightly price from listing (weekday/weekend logic can be added if needed)
-    // For now, use listing.price or listing.weekdayPrice
-    const nightlyRate = listing.price || listing.weekdayPrice || 0;
-    originalListingPrice = nightlyRate * nights;
-  }
 
-
-
-  // Calculate base booking amount (nights × nightly price)
+  // Calculate base booking amount
   // Apply only the highest promo and one coupon
   let discountsApplied = [];
   let highestPromo = null;
   let highestPromoAmount = 0;
   let promoLabel = '';
-  if (listing && checkInDate && checkOutDate && nights > 0) {
+  if (listing && checkInDate && checkOutDate && originalListingPrice > 0) {
     const promoOptions = [];
-    if (listing.weeklyDiscount && nights >= 7) {
-      promoOptions.push({ label: 'Weekly stay discount', amount: Math.round(originalListingPrice * (listing.weeklyDiscount / 100)) });
-    }
-    if (listing.monthlyDiscount && nights >= 28) {
-      promoOptions.push({ label: 'Monthly stay discount', amount: Math.round(originalListingPrice * (listing.monthlyDiscount / 100)) });
-    }
-    if (listing.earlyBirdDiscount) {
-      promoOptions.push({ label: 'Early bird discount', amount: Math.round(originalListingPrice * (listing.earlyBirdDiscount / 100)) });
-    }
-    if (listing.lastMinuteDiscount) {
-      promoOptions.push({ label: 'Last minute discount', amount: Math.round(originalListingPrice * (listing.lastMinuteDiscount / 100)) });
+    if (isExperience) {
+      // Experience discounts (if any)
+      // For now, experiences don't have the same discount structure, but we can add them later
+    } else {
+      // Accommodation discounts
+      if (listing.weeklyDiscount && nights >= 7) {
+        promoOptions.push({ label: 'Weekly stay discount', amount: Math.round(originalListingPrice * (listing.weeklyDiscount / 100)) });
+      }
+      if (listing.monthlyDiscount && nights >= 28) {
+        promoOptions.push({ label: 'Monthly stay discount', amount: Math.round(originalListingPrice * (listing.monthlyDiscount / 100)) });
+      }
+      if (listing.earlyBirdDiscount) {
+        promoOptions.push({ label: 'Early bird discount', amount: Math.round(originalListingPrice * (listing.earlyBirdDiscount / 100)) });
+      }
+      if (listing.lastMinuteDiscount) {
+        promoOptions.push({ label: 'Last minute discount', amount: Math.round(originalListingPrice * (listing.lastMinuteDiscount / 100)) });
+      }
     }
     // Find highest promo
     if (promoOptions.length > 0) {
@@ -519,55 +699,62 @@ const BookingRequest = () => {
       discountsApplied.push({ label: promoLabel, amount: highestPromoAmount });
     }
   }
-  // Only one promo applied, so total = originalListingPrice - highestPromoAmount - couponDiscount
-  let finalPrice = originalListingPrice - (highestPromoAmount || 0) - (couponDiscount || 0);
-
+  
   // This is the amount before coupon discount and guest fee
-  // Use calculateTotalPrice to apply special offers/discounts
+  // Use calculateTotalPrice for accommodations, or calculate directly for experiences
   const calculatedBasePrice = (checkInDate && checkOutDate && listing)
-    ? calculateTotalPrice(listing.pricing, checkInDate, checkOutDate, guests)
+    ? (isExperience 
+        ? (listing.pricePerGuest || listing.price || 0) * (guests || 1)
+        : calculateTotalPrice(listing.pricing, checkInDate, checkOutDate, guests))
     : 0;
   
   // Guest fee percentage (14% like Airbnb-style service fee)
   const GUEST_FEE_PERCENTAGE = 0.14;
   
   // Calculate prices with coupon discount
-  // Note: totalPrice from AccommodationDetail is basePrice - couponDiscount (doesn't include guest fee)
-  // So we need to:
-  // 1. Get the base booking amount (before coupon)
+  // 1. Get the base booking amount (before coupon) - use calculatedBasePrice or totalPrice from state
   // 2. Apply coupon discount
   // 3. Calculate guest fee on discounted booking amount
   // 4. Calculate final total = discounted booking amount + guest fee
   
+  // If totalPrice from state exists, it might already include discounts but not guest fee
+  // Otherwise, use calculatedBasePrice
   let baseBookingAmount = 0;
   let discountedBookingAmount = 0;
+  let calculatedGuestFee = 0;
   let finalTotalPrice = 0;
 
-  if (couponDiscount > 0 && calculatedBasePrice > 0) {
+  // Determine base booking amount
+  // Always use calculatedBasePrice to ensure consistency with listing pricing
+  // totalPrice from state is just for reference/display, but we recalculate to ensure accuracy
+  if (calculatedBasePrice > 0) {
     baseBookingAmount = calculatedBasePrice;
-    discountedBookingAmount = Math.max(0, baseBookingAmount - couponDiscount);
-    finalTotalPrice = discountedBookingAmount;
-  } else if (calculatedBasePrice > 0) {
-    baseBookingAmount = calculatedBasePrice;
-    discountedBookingAmount = baseBookingAmount;
-    finalTotalPrice = discountedBookingAmount;
+    // Apply coupon discount if any
+    discountedBookingAmount = Math.max(0, baseBookingAmount - (couponDiscount || 0));
+  } else if (typeof totalPrice === 'number' && totalPrice > 0) {
+    // Fallback: if calculatedBasePrice is 0, use totalPrice from state
+    // Assume it doesn't include guest fee (it's the base booking amount)
+    baseBookingAmount = totalPrice;
+    discountedBookingAmount = Math.max(0, baseBookingAmount - (couponDiscount || 0));
   }
 
-  // Use finalTotalPrice for display and booking (no guest fee for guest)
-  // Always use totalPrice from navigation state for display/payment
-  const displayTotalPrice = typeof totalPrice === 'number' ? totalPrice : finalTotalPrice;
-  const displayBasePrice = discountedBookingAmount || baseBookingAmount || 0;
+  // Calculate guest fee on the discounted booking amount
+  calculatedGuestFee = Math.round((discountedBookingAmount * GUEST_FEE_PERCENTAGE) * 100) / 100;
+  
+  // Final total = discounted booking amount + guest fee
+  finalTotalPrice = Math.round((discountedBookingAmount + calculatedGuestFee) * 100) / 100;
+
+  // Use finalTotalPrice for display and booking (includes guest fee)
+  const displayTotalPrice = finalTotalPrice;
+  const displayBasePrice = discountedBookingAmount;
   
   // Calculate payment amounts
   const dueToday = paymentOption === 'now' ? displayTotalPrice : 0;
   const chargeOnDate = paymentOption === 'later' ? displayTotalPrice : 0;
 
-  // PayPal Client ID
-  const PAYPAL_CLIENT_ID = import.meta.env.VITE_PAYPAL_CLIENT_ID || '';
-
   if (!listing || !checkInDate || !checkOutDate) {
     return (
-      <PayPalScriptProvider options={{ clientId: PAYPAL_CLIENT_ID, currency: 'PHP' }}>
+      <ContentWrapper>
         <div className="min-h-screen bg-background">
           <Navigation />
         <div className="flex items-center justify-center min-h-screen pt-36">
@@ -583,7 +770,7 @@ const BookingRequest = () => {
         </div>
         <Footer />
         </div>
-      </PayPalScriptProvider>
+      </ContentWrapper>
     );
   }
 
@@ -593,7 +780,7 @@ const BookingRequest = () => {
   const listingReviews = listing.reviews?.length || 0;
 
   return (
-    <PayPalScriptProvider options={{ clientId: PAYPAL_CLIENT_ID, currency: 'PHP' }}>
+    <ContentWrapper>
       <div className="min-h-screen bg-background">
         <Navigation />
 
@@ -911,7 +1098,7 @@ const BookingRequest = () => {
                 <div className="flex items-center justify-between">
                   <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
                     <MessageSquare className="w-5 h-5" />
-                    3. Write a message to the host
+                    3. Write a message to the host <span className="text-sm font-normal text-muted-foreground">(Optional)</span>
                   </h2>
                   {currentStep > 3 && (
                     <button
@@ -924,16 +1111,16 @@ const BookingRequest = () => {
                   )}
                 </div>
 
-                {currentStep > 3 && messageToHost && (
+                {currentStep > 3 && (
                   <div className="text-sm text-muted-foreground mt-2 line-clamp-2">
-                    {messageToHost}
+                    {messageToHost || 'No message provided'}
                   </div>
                 )}
 
                 {currentStep === 3 && (
                   <div className="mt-4 space-y-4">
                     <p className="text-sm text-muted-foreground">
-                      Before you can continue, let {listing.ownerName || 'the host'} know a little about your trip and why their place is a good fit.
+                      Let {listing.ownerName || 'the host'} know a little about your trip and why their place is a good fit. This step is optional.
                     </p>
                     <div className="flex items-center gap-3 mb-4">
                       <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden">
@@ -961,10 +1148,9 @@ const BookingRequest = () => {
                       </span>
                       <button
                         onClick={handleNext}
-                        disabled={!messageToHost.trim()}
-                        className="px-6 py-2 bg-foreground text-background rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="px-6 py-2 bg-foreground text-background rounded-lg font-medium hover:opacity-90 transition-opacity"
                       >
-                        Next
+                        {messageToHost.trim() ? 'Next' : 'Skip'}
                       </button>
                     </div>
                   </div>
@@ -1086,38 +1272,30 @@ const BookingRequest = () => {
                       <div className="space-y-3 pb-4 border-b border-border">
                         <h3 className="font-semibold text-foreground">Booking Details</h3>
                         <div className="flex items-center justify-between">
-                          <span className="text-muted-foreground">Dates</span>
+                          <span className="text-muted-foreground">{isExperience ? 'Date' : 'Dates'}</span>
                           <span className="font-medium text-foreground">
-                            {checkInDate ? format(new Date(checkInDate), 'MMM d') : ''} – {checkOutDate ? format(new Date(checkOutDate), 'MMM d, yyyy') : ''}
-                            <button className="ml-2 text-primary hover:underline text-sm" onClick={() => setShowDatePicker(true)}>Change</button>
+                            {checkInDate ? format(new Date(checkInDate), 'MMM d, yyyy') : ''}
+                            {!isExperience && checkOutDate && ` – ${format(new Date(checkOutDate), 'MMM d, yyyy')}`}
                           </span>
                         </div>
-                        {showDatePicker && (
-                          <div className="my-2">
-                            {/* Simple date pickers for check-in and check-out */}
-                            <input type="date" value={checkInDate} onChange={e => handleDateChange('checkIn', e.target.value)} />
-                            <span className="mx-2">to</span>
-                            <input type="date" value={checkOutDate} onChange={e => handleDateChange('checkOut', e.target.value)} />
-                            <button className="ml-2 text-xs px-2 py-1 bg-primary text-background rounded" onClick={() => setShowDatePicker(false)}>Done</button>
+                        {!isExperience && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-muted-foreground">Nights</span>
+                            <span className="font-medium text-foreground">{nights} {nights === 1 ? 'night' : 'nights'}</span>
+                          </div>
+                        )}
+                        {selectedTime && isExperience && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-muted-foreground">Time</span>
+                            <span className="font-medium text-foreground capitalize">{selectedTime}</span>
                           </div>
                         )}
                         <div className="flex items-center justify-between">
-                          <span className="text-muted-foreground">Nights</span>
-                          <span className="font-medium text-foreground">{nights} {nights === 1 ? 'night' : 'nights'}</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-muted-foreground">Guests</span>
+                          <span className="text-muted-foreground">{isExperience ? 'Participants' : 'Guests'}</span>
                           <span className="font-medium text-foreground">
-                            {guests || 1} {guests === 1 ? 'guest' : 'guests'}
-                            <button className="ml-2 text-primary hover:underline text-sm" onClick={() => setShowGuestPicker(true)}>Change</button>
+                            {guests || 1} {isExperience ? (guests === 1 ? 'participant' : 'participants') : (guests === 1 ? 'guest' : 'guests')}
                           </span>
                         </div>
-                        {showGuestPicker && (
-                          <div className="my-2">
-                            <input type="number" min={1} max={listing?.maxGuests || 10} value={guests} onChange={e => handleGuestChange(Number(e.target.value))} />
-                            <button className="ml-2 text-xs px-2 py-1 bg-primary text-background rounded" onClick={() => setShowGuestPicker(false)}>Done</button>
-                          </div>
-                        )}
                       </div>
 
                       {/* Payment Option - MATCHES SIDE CARD */}
@@ -1126,44 +1304,7 @@ const BookingRequest = () => {
                         <div className="flex items-center justify-between">
                           <span className="text-muted-foreground">Total PHP</span>
                           <span className="font-semibold text-foreground text-lg">
-                            {(() => {
-                              let cardNights = 0;
-                              if (checkInDate && checkOutDate) {
-                                const inDate = new Date(checkInDate);
-                                const outDate = new Date(checkOutDate);
-                                if (outDate > inDate) {
-                                  cardNights = Math.ceil((outDate - inDate) / (1000 * 60 * 60 * 24));
-                                }
-                              }
-                              let cardOriginalListingPrice = 0;
-                              if (listing && checkInDate && checkOutDate && cardNights > 0) {
-                                const nightlyRate = listing.price || listing.weekdayPrice || 0;
-                                cardOriginalListingPrice = nightlyRate * cardNights;
-                              }
-                              let cardHighestPromo = null;
-                              let cardHighestPromoAmount = 0;
-                              if (listing && checkInDate && checkOutDate && cardNights > 0) {
-                                const promoOptions = [];
-                                if (listing.weeklyDiscount && cardNights >= 7) {
-                                  promoOptions.push({ label: 'Weekly stay discount', amount: Math.round(cardOriginalListingPrice * (listing.weeklyDiscount / 100)) });
-                                }
-                                if (listing.monthlyDiscount && cardNights >= 28) {
-                                  promoOptions.push({ label: 'Monthly stay discount', amount: Math.round(cardOriginalListingPrice * (listing.monthlyDiscount / 100)) });
-                                }
-                                if (listing.earlyBirdDiscount) {
-                                  promoOptions.push({ label: 'Early bird discount', amount: Math.round(cardOriginalListingPrice * (listing.earlyBirdDiscount / 100)) });
-                                }
-                                if (listing.lastMinuteDiscount) {
-                                  promoOptions.push({ label: 'Last minute discount', amount: Math.round(cardOriginalListingPrice * (listing.lastMinuteDiscount / 100)) });
-                                }
-                                if (promoOptions.length > 0) {
-                                  cardHighestPromo = promoOptions.reduce((max, curr) => curr.amount > max.amount ? curr : max, promoOptions[0]);
-                                  cardHighestPromoAmount = cardHighestPromo.amount;
-                                }
-                              }
-                              let cardFinalPrice = cardOriginalListingPrice - (cardHighestPromoAmount || 0) - (couponDiscount || 0);
-                              return `₱${(Math.max(0, cardFinalPrice)?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00')}`;
-                            })()}
+                            ₱{(displayTotalPrice || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </span>
                         </div>
                         <div className="flex items-center justify-between">
@@ -1175,44 +1316,7 @@ const BookingRequest = () => {
                         <div className="flex items-center justify-between">
                           <span className="text-muted-foreground">Due today</span>
                           <span className="font-medium text-foreground">
-                            {(() => {
-                              let dueNights = 0;
-                              if (checkInDate && checkOutDate) {
-                                const inDate = new Date(checkInDate);
-                                const outDate = new Date(checkOutDate);
-                                if (outDate > inDate) {
-                                  dueNights = Math.ceil((outDate - inDate) / (1000 * 60 * 60 * 24));
-                                }
-                              }
-                              let dueOriginalListingPrice = 0;
-                              if (listing && checkInDate && checkOutDate && dueNights > 0) {
-                                const nightlyRate = listing.price || listing.weekdayPrice || 0;
-                                dueOriginalListingPrice = nightlyRate * dueNights;
-                              }
-                              let dueHighestPromo = null;
-                              let dueHighestPromoAmount = 0;
-                              if (listing && checkInDate && checkOutDate && dueNights > 0) {
-                                const promoOptions = [];
-                                if (listing.weeklyDiscount && dueNights >= 7) {
-                                  promoOptions.push({ label: 'Weekly stay discount', amount: Math.round(dueOriginalListingPrice * (listing.weeklyDiscount / 100)) });
-                                }
-                                if (listing.monthlyDiscount && dueNights >= 28) {
-                                  promoOptions.push({ label: 'Monthly stay discount', amount: Math.round(dueOriginalListingPrice * (listing.monthlyDiscount / 100)) });
-                                }
-                                if (listing.earlyBirdDiscount) {
-                                  promoOptions.push({ label: 'Early bird discount', amount: Math.round(dueOriginalListingPrice * (listing.earlyBirdDiscount / 100)) });
-                                }
-                                if (listing.lastMinuteDiscount) {
-                                  promoOptions.push({ label: 'Last minute discount', amount: Math.round(dueOriginalListingPrice * (listing.lastMinuteDiscount / 100)) });
-                                }
-                                if (promoOptions.length > 0) {
-                                  dueHighestPromo = promoOptions.reduce((max, curr) => curr.amount > max.amount ? curr : max, promoOptions[0]);
-                                  dueHighestPromoAmount = dueHighestPromo.amount;
-                                }
-                              }
-                              let dueFinalPrice = dueOriginalListingPrice - (dueHighestPromoAmount || 0) - (couponDiscount || 0);
-                              return `₱${(Math.max(0, dueFinalPrice)?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00')}`;
-                            })()}
+                            ₱{(paymentOption === 'now' ? displayTotalPrice : 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </span>
                         </div>
                       </div>
@@ -1222,35 +1326,39 @@ const BookingRequest = () => {
                         <h3 className="font-semibold text-foreground">Price Summary</h3>
                         <div className="flex items-center justify-between text-sm">
                           <span className="text-muted-foreground">
-                            {(() => {
-                              let cardNights = 0;
-                              if (checkInDate && checkOutDate) {
-                                const inDate = new Date(checkInDate);
-                                const outDate = new Date(checkOutDate);
-                                if (outDate > inDate) {
-                                  cardNights = Math.ceil((outDate - inDate) / (1000 * 60 * 60 * 24));
-                                }
-                              }
-                              return `${cardNights} ${cardNights === 1 ? 'night' : 'nights'} × ₱${(listing && listing.price ? listing.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00')}`;
-                            })()}
+                            {isExperience 
+                              ? `${guests || 1} ${guests === 1 ? 'person' : 'people'} × ₱${(listing && (listing.pricePerGuest || listing.price) ? (listing.pricePerGuest || listing.price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00')}`
+                              : (() => {
+                                  let cardNights = 0;
+                                  if (checkInDate && checkOutDate) {
+                                    const inDate = new Date(checkInDate);
+                                    const outDate = new Date(checkOutDate);
+                                    if (outDate > inDate) {
+                                      cardNights = Math.ceil((outDate - inDate) / (1000 * 60 * 60 * 24));
+                                    }
+                                  }
+                                  return `${cardNights} ${cardNights === 1 ? 'night' : 'nights'} × ₱${(listing && listing.price ? listing.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00')}`;
+                                })()}
                           </span>
                           <span className="font-medium text-foreground">
-                            {(() => {
-                              let cardNights = 0;
-                              if (checkInDate && checkOutDate) {
-                                const inDate = new Date(checkInDate);
-                                const outDate = new Date(checkOutDate);
-                                if (outDate > inDate) {
-                                  cardNights = Math.ceil((outDate - inDate) / (1000 * 60 * 60 * 24));
-                                }
-                              }
-                              let cardOriginalListingPrice = 0;
-                              if (listing && checkInDate && checkOutDate && cardNights > 0) {
-                                const nightlyRate = listing.price || listing.weekdayPrice || 0;
-                                cardOriginalListingPrice = nightlyRate * cardNights;
-                              }
-                              return `₱${cardOriginalListingPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-                            })()}
+                            {isExperience
+                              ? `₱${originalListingPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                              : (() => {
+                                  let cardNights = 0;
+                                  if (checkInDate && checkOutDate) {
+                                    const inDate = new Date(checkInDate);
+                                    const outDate = new Date(checkOutDate);
+                                    if (outDate > inDate) {
+                                      cardNights = Math.ceil((outDate - inDate) / (1000 * 60 * 60 * 24));
+                                    }
+                                  }
+                                  let cardOriginalListingPrice = 0;
+                                  if (listing && checkInDate && checkOutDate && cardNights > 0) {
+                                    const nightlyRate = listing.price || listing.weekdayPrice || 0;
+                                    cardOriginalListingPrice = nightlyRate * cardNights;
+                                  }
+                                  return `₱${cardOriginalListingPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                                })()}
                           </span>
                         </div>
                         {(() => {
@@ -1299,47 +1407,18 @@ const BookingRequest = () => {
                             </>
                           );
                         })()}
+                        {calculatedGuestFee > 0 && (
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-muted-foreground">Service Fee (14%)</span>
+                            <span className="font-medium text-foreground">
+                              ₱{calculatedGuestFee.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                        )}
                         <div className="flex items-center justify-between pt-2 border-t border-border">
                           <span className="font-semibold text-foreground">Total</span>
                           <span className="font-semibold text-foreground text-lg">
-                            {(() => {
-                              let cardNights = 0;
-                              if (checkInDate && checkOutDate) {
-                                const inDate = new Date(checkInDate);
-                                const outDate = new Date(checkOutDate);
-                                if (outDate > inDate) {
-                                  cardNights = Math.ceil((outDate - inDate) / (1000 * 60 * 60 * 24));
-                                }
-                              }
-                              let cardOriginalListingPrice = 0;
-                              if (listing && checkInDate && checkOutDate && cardNights > 0) {
-                                const nightlyRate = listing.price || listing.weekdayPrice || 0;
-                                cardOriginalListingPrice = nightlyRate * cardNights;
-                              }
-                              let cardHighestPromo = null;
-                              let cardHighestPromoAmount = 0;
-                              if (listing && checkInDate && checkOutDate && cardNights > 0) {
-                                const promoOptions = [];
-                                if (listing.weeklyDiscount && cardNights >= 7) {
-                                  promoOptions.push({ label: 'Weekly stay discount', amount: Math.round(cardOriginalListingPrice * (listing.weeklyDiscount / 100)) });
-                                }
-                                if (listing.monthlyDiscount && cardNights >= 28) {
-                                  promoOptions.push({ label: 'Monthly stay discount', amount: Math.round(cardOriginalListingPrice * (listing.monthlyDiscount / 100)) });
-                                }
-                                if (listing.earlyBirdDiscount) {
-                                  promoOptions.push({ label: 'Early bird discount', amount: Math.round(cardOriginalListingPrice * (listing.earlyBirdDiscount / 100)) });
-                                }
-                                if (listing.lastMinuteDiscount) {
-                                  promoOptions.push({ label: 'Last minute discount', amount: Math.round(cardOriginalListingPrice * (listing.lastMinuteDiscount / 100)) });
-                                }
-                                if (promoOptions.length > 0) {
-                                  cardHighestPromo = promoOptions.reduce((max, curr) => curr.amount > max.amount ? curr : max, promoOptions[0]);
-                                  cardHighestPromoAmount = cardHighestPromo.amount;
-                                }
-                              }
-                              let cardFinalPrice = cardOriginalListingPrice - (cardHighestPromoAmount || 0) - (couponDiscount || 0);
-                              return `₱${(Math.max(0, cardFinalPrice)?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00')}`;
-                            })()}
+                            ₱{(displayTotalPrice || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </span>
                         </div>
                         <div className="text-xs text-muted-foreground mt-2">
@@ -1349,56 +1428,59 @@ const BookingRequest = () => {
 
                     </div>
 
-                    {/* Only show PayPal button in final review step (step 5) if PayPal is selected */}
-                    {currentStep === 5 && !showPayPal && (
-                      <button
-                        onClick={async () => {
-                          if (paymentProvider === 'paypal' && paypalConnected) {
-                            setShowPayPal(true);
-                          } else {
-                            setIsSubmitting(true);
-                            await handleSubmit();
-                            setIsSubmitting(false);
-                          }
-                        }}
-                        disabled={isSubmitting}
-                        className="w-full bg-primary text-background py-3 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {isSubmitting ? 'Submitting...' : 'Request to book'}
-                      </button>
+                    {/* Submit Button or PayPal Button - Only show in final review step (step 5) */}
+                    {currentStep === 5 && (
+                      <div className="mt-6">
+                        {paymentProvider === 'paypal' && paypalConnected && !HAS_VALID_PAYPAL_CLIENT_ID && (
+                          <div className="text-center py-4 px-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg mb-4">
+                            <p className="text-sm text-amber-800 dark:text-amber-200 font-semibold mb-1">
+                              PayPal is not configured
+                            </p>
+                            <p className="text-xs text-amber-700 dark:text-amber-300">
+                              Please set VITE_PAYPAL_CLIENT_ID in your .env file to use PayPal payment
+                            </p>
+                            <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
+                              Or switch to GetPay wallet payment method
+                            </p>
+                          </div>
+                        )}
+                        
+                        {/* For PayPal, just create booking without payment - payment happens when host confirms */}
+                        {paymentProvider === 'paypal' && paypalConnected && HAS_VALID_PAYPAL_CLIENT_ID && (
+                          <div className="text-center py-4 px-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg mb-4">
+                            <p className="text-sm text-blue-800 dark:text-blue-200 font-semibold mb-1">
+                              PayPal Payment Method Selected
+                            </p>
+                            <p className="text-xs text-blue-700 dark:text-blue-300">
+                              Your PayPal account will be charged when the host confirms your booking request.
+                            </p>
+                          </div>
+                        )}
+                        
+                        {/* Submit button for all payment methods */}
+                        {!showPayPal && (
+                          <button
+                            onClick={async () => {
+                              setIsSubmitting(true);
+                              await handleSubmit();
+                              setIsSubmitting(false);
+                            }}
+                            disabled={isSubmitting}
+                            className="w-full bg-primary text-background py-3 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {isSubmitting ? 'Submitting...' : 'Request to book'}
+                          </button>
+                        )}
+                      </div>
                     )}
-                    {showPayPal && paymentProvider === 'paypal' && paypalConnected && (
-                      <div style={{ marginTop: 24 }}>
-                        <PayPalButtons
-                          style={{ layout: 'vertical' }}
-                          createOrder={(data, actions) => {
-                            setIsSubmitting(true);
-                            return actions.order.create({
-                              purchase_units: [{
-                                amount: {
-                                  value: displayTotalPrice.toFixed(2),
-                                  currency_code: 'PHP',
-                                },
-                              }],
-                            });
-                          }}
-                          onApprove={async (data, actions) => {
-                            const details = await actions.order.capture();
-                            toast.success('PayPal payment successful!');
-                            await handleSubmit();
-                            setIsSubmitting(false);
-                            setShowPayPal(false);
-                          }}
-                          onError={(err) => {
-                            toast.error('PayPal payment failed: ' + err);
-                            setIsSubmitting(false);
-                            setShowPayPal(false);
-                          }}
-                          onCancel={() => {
-                            setIsSubmitting(false);
-                            setShowPayPal(false);
-                          }}
-                        />
+                    {showPayPal && paymentProvider === 'paypal' && paypalConnected && !HAS_VALID_PAYPAL_CLIENT_ID && (
+                      <div className="text-center py-4 px-4 bg-primary/10 border border-primary/30 rounded-lg mt-6">
+                        <p className="text-sm text-primary font-semibold mb-1">
+                          PayPal is not configured
+                        </p>
+                        <p className="text-xs text-primary/90">
+                          Please set VITE_PAYPAL_CLIENT_ID in your .env file
+                        </p>
                       </div>
                     )}
                   </div>
@@ -1445,33 +1527,167 @@ const BookingRequest = () => {
                 <div className="mb-4 pb-4 border-b border-border">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm text-muted-foreground">Dates</p>
+                      <p className="text-sm text-muted-foreground">{isExperience ? 'Date' : 'Dates'}</p>
                       <p className="text-sm font-medium text-foreground">
-                        {checkInDate ? format(new Date(checkInDate), 'MMM d') : ''} – {checkOutDate ? format(new Date(checkOutDate), 'MMM d, yyyy') : ''}
+                        {checkInDate ? format(new Date(checkInDate), 'MMM d, yyyy') : ''}
+                        {!isExperience && checkOutDate && ` – ${format(new Date(checkOutDate), 'MMM d, yyyy')}`}
                       </p>
+                      {selectedTime && isExperience && (
+                        <p className="text-xs text-muted-foreground capitalize mt-1">{selectedTime}</p>
+                      )}
                     </div>
                     <button className="text-sm text-primary hover:underline" onClick={openDatePicker}>Change</button>
                   </div>
                   {showDatePicker && (
-                    <div className="my-2">
-                      <input type="date" value={pendingCheckIn ? new Date(pendingCheckIn).toISOString().slice(0,10) : ''} onChange={e => setPendingCheckIn(e.target.value)} max={pendingCheckOut ? new Date(pendingCheckOut).toISOString().slice(0,10) : undefined} />
-                      <span className="mx-2">to</span>
-                      <input type="date" value={pendingCheckOut ? new Date(pendingCheckOut).toISOString().slice(0,10) : ''} onChange={e => setPendingCheckOut(e.target.value)} min={pendingCheckIn ? new Date(pendingCheckIn).toISOString().slice(0,10) : undefined} />
-                      <button className="ml-2 text-xs px-2 py-1 bg-primary text-background rounded" onClick={commitDateEdit}>Done</button>
-                      {(pendingCheckIn && pendingCheckOut && new Date(pendingCheckOut) <= new Date(pendingCheckIn)) ? (
-                        <div className="text-xs text-red-600 mt-2">Check-out date must be after check-in date.</div>
-                      ) : null}
+                    <div className="my-4 p-4 bg-gray-50 rounded-lg border border-gray-200 max-w-full overflow-x-auto">
+                      <Calendar
+                        mode="range"
+                        selected={{
+                          from: stringToDate(pendingCheckIn),
+                          to: stringToDate(pendingCheckOut)
+                        }}
+                        onSelect={(range) => {
+                          if (!range) {
+                            setPendingCheckIn('');
+                            setPendingCheckOut('');
+                            return;
+                          }
+                          if (range?.from) {
+                            const year = range.from.getFullYear();
+                            const month = String(range.from.getMonth() + 1).padStart(2, '0');
+                            const day = String(range.from.getDate()).padStart(2, '0');
+                            setPendingCheckIn(`${year}-${month}-${day}`);
+                            // Update default month to show the selected month
+                            setDefaultMonth(range.from);
+                          }
+                          if (range?.to) {
+                            const year = range.to.getFullYear();
+                            const month = String(range.to.getMonth() + 1).padStart(2, '0');
+                            const day = String(range.to.getDate()).padStart(2, '0');
+                            setPendingCheckOut(`${year}-${month}-${day}`);
+                          } else if (range?.from && !range?.to) {
+                            setPendingCheckOut('');
+                          }
+                        }}
+                        numberOfMonths={1}
+                        showOutsideDays={true}
+                        defaultMonth={defaultMonth}
+                        fromDate={new Date()}
+                        className="w-full"
+                        classNames={{
+                          months: "flex flex-col space-y-4 justify-center",
+                          month: "space-y-4",
+                          caption: "flex justify-between items-center pt-2 relative mb-4",
+                          caption_label: "text-base font-semibold text-gray-900 flex-1 text-center",
+                          nav: "flex items-center",
+                          nav_button: "h-7 w-7 bg-transparent border-0 p-0 opacity-70 hover:opacity-100 hover:bg-gray-100 rounded-md transition-all flex items-center justify-center text-gray-700 hover:text-gray-900",
+                          nav_button_previous: "",
+                          nav_button_next: "",
+                          table: "w-full border-collapse space-y-2",
+                          head_row: "flex mb-2",
+                          head_cell: "text-gray-600 rounded-md w-9 h-9 font-medium text-xs flex items-center justify-center",
+                          row: "flex w-full mt-1",
+                          cell: "h-9 w-9 text-center text-sm p-0 relative [&:has([aria-selected].day-range-end)]:rounded-r-md [&:has([aria-selected].day-outside)]:bg-accent/50 [&:has([aria-selected])]:bg-accent first:[&:has([aria-selected])]:rounded-l-md last:[&:has([aria-selected])]:rounded-r-md focus-within:relative focus-within:z-20",
+                          day: "h-9 w-9 p-0 font-normal rounded-md hover:bg-gray-100 transition-colors aria-selected:opacity-100 text-xs",
+                          day_range_end: "day-range-end rounded-r-md",
+                          day_selected: "!bg-blue-500 !text-white hover:!bg-blue-600 hover:!text-white focus:!bg-blue-500 focus:!text-white font-semibold",
+                          day_today: "bg-blue-50 text-blue-700 font-semibold border-2 border-blue-500",
+                          day_outside: "day-outside text-gray-400 opacity-50 aria-selected:bg-accent/50 aria-selected:text-muted-foreground aria-selected:opacity-30",
+                          day_disabled: "!bg-amber-200 !text-amber-800 !opacity-75 !cursor-not-allowed hover:!bg-amber-200 !font-medium !border !border-amber-400 !line-through",
+                          day_unavailable: "!bg-red-600 !text-white !line-through !opacity-100 !cursor-not-allowed hover:!bg-red-700 hover:!text-white !font-bold !border-2 !border-red-800 !shadow-lg !relative !z-10",
+                          day_range_middle: "aria-selected:!bg-blue-200 aria-selected:!text-blue-900 rounded-none",
+                          day_hidden: "invisible"
+                        }}
+                        modifiers={{
+                          unavailable: unavailableDates.map(d => {
+                            let dateObj;
+                            if (d instanceof Date) {
+                              dateObj = new Date(d);
+                            } else {
+                              dateObj = new Date(d);
+                            }
+                            dateObj.setHours(0, 0, 0, 0);
+                            return dateObj;
+                          })
+                        }}
+                        components={{
+                          IconLeft: () => <ChevronLeft className="h-5 w-5 text-gray-700" />,
+                          IconRight: () => <ChevronRight className="h-5 w-5 text-gray-700" />
+                        }}
+                        disabled={(date) => {
+                          const dateToCheck = new Date(date);
+                          dateToCheck.setHours(0, 0, 0, 0);
+                          
+                          const year = dateToCheck.getFullYear();
+                          const month = String(dateToCheck.getMonth() + 1).padStart(2, '0');
+                          const day = String(dateToCheck.getDate()).padStart(2, '0');
+                          const dateStr = `${year}-${month}-${day}`;
+                          
+                          const today = new Date();
+                          today.setHours(0, 0, 0, 0);
+                          const isPast = dateToCheck < today;
+                          
+                          let isUnavailable = false;
+                          if (unavailableDates.length > 0) {
+                            isUnavailable = unavailableDates.some((unavailableDate) => {
+                              try {
+                                let unavailableDateObj;
+                                if (unavailableDate instanceof Date) {
+                                  unavailableDateObj = new Date(unavailableDate);
+                                } else if (typeof unavailableDate === 'string') {
+                                  unavailableDateObj = new Date(unavailableDate);
+                                } else {
+                                  unavailableDateObj = new Date(unavailableDate);
+                                }
+                                unavailableDateObj.setHours(0, 0, 0, 0);
+                                
+                                const unavailableYear = unavailableDateObj.getFullYear();
+                                const unavailableMonth = String(unavailableDateObj.getMonth() + 1).padStart(2, '0');
+                                const unavailableDay = String(unavailableDateObj.getDate()).padStart(2, '0');
+                                const unavailableStr = `${unavailableYear}-${unavailableMonth}-${unavailableDay}`;
+                                
+                                return dateStr === unavailableStr;
+                              } catch (error) {
+                                console.warn('Error comparing unavailable date:', error);
+                                return false;
+                              }
+                            });
+                          }
+                          
+                          return isPast || isUnavailable;
+                        }}
+                        modifiersClassNames={{
+                          unavailable: "!bg-red-600 !text-white !line-through !opacity-100 !cursor-not-allowed hover:!bg-red-700 hover:!text-white !font-bold !border-2 !border-red-800 !shadow-lg !relative !z-20",
+                          selected: "!bg-blue-500 !text-white hover:!bg-blue-600 !font-semibold",
+                          range_middle: "!bg-blue-200 !text-blue-900",
+                          today: "bg-blue-50 text-blue-700 border-2 border-blue-500"
+                        }}
+                      />
+                      <div className="flex justify-end gap-2 mt-4">
+                        <button 
+                          className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-100" 
+                          onClick={() => setShowDatePicker(false)}
+                        >
+                          Cancel
+                        </button>
+                        <button 
+                          className="px-4 py-2 text-sm bg-primary text-background rounded-lg hover:opacity-90" 
+                          onClick={commitDateEdit}
+                        >
+                          Done
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
 
-                {/* Guests */}
+                {/* Guests/Participants */}
                 <div className="mb-4 pb-4 border-b border-border">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm text-muted-foreground">Guests</p>
+                      <p className="text-sm text-muted-foreground">{isExperience ? 'Participants' : 'Guests'}</p>
                       <p className="text-sm font-medium text-foreground">
-                        {guests || 1} {guests === 1 ? 'adult' : 'adults'}
+                        {guests || 1} {isExperience ? (guests === 1 ? 'participant' : 'participants') : (guests === 1 ? 'adult' : 'adults')}
                       </p>
                     </div>
                     <button className="text-sm text-primary hover:underline" onClick={openGuestPicker}>Change</button>
@@ -1495,58 +1711,21 @@ const BookingRequest = () => {
                 <div className="mb-4 pb-4 border-b border-border space-y-2">
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">
-                      {nights} {nights === 1 ? 'night' : 'nights'} × ₱{nightlyPrice?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
+                      {isExperience
+                        ? `${guests || 1} ${guests === 1 ? 'person' : 'people'} × ₱${(listing?.pricePerGuest || listing?.price || nightlyPrice || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                        : `${nights} ${nights === 1 ? 'night' : 'nights'} × ₱${nightlyPrice?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}`}
                     </span>
                     <span className="font-medium text-foreground">
                       ₱{baseBookingAmount?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || displayBasePrice?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
                     </span>
                   </div>
                   {/* Card only shows total in bold black font, no deductions/coupon */}
-                  {(() => {
-                    let cardNights = 0;
-                    if (checkInDate && checkOutDate) {
-                      const inDate = new Date(checkInDate);
-                      const outDate = new Date(checkOutDate);
-                      if (outDate > inDate) {
-                        cardNights = Math.ceil((outDate - inDate) / (1000 * 60 * 60 * 24));
-                      }
-                    }
-                    let cardOriginalListingPrice = 0;
-                    if (listing && checkInDate && checkOutDate && cardNights > 0) {
-                      const nightlyRate = listing.price || listing.weekdayPrice || 0;
-                      cardOriginalListingPrice = nightlyRate * cardNights;
-                    }
-                    let cardHighestPromo = null;
-                    let cardHighestPromoAmount = 0;
-                    if (listing && checkInDate && checkOutDate && cardNights > 0) {
-                      const promoOptions = [];
-                      if (listing.weeklyDiscount && cardNights >= 7) {
-                        promoOptions.push({ label: 'Weekly stay discount', amount: Math.round(cardOriginalListingPrice * (listing.weeklyDiscount / 100)) });
-                      }
-                      if (listing.monthlyDiscount && cardNights >= 28) {
-                        promoOptions.push({ label: 'Monthly stay discount', amount: Math.round(cardOriginalListingPrice * (listing.monthlyDiscount / 100)) });
-                      }
-                      if (listing.earlyBirdDiscount) {
-                        promoOptions.push({ label: 'Early bird discount', amount: Math.round(cardOriginalListingPrice * (listing.earlyBirdDiscount / 100)) });
-                      }
-                      if (listing.lastMinuteDiscount) {
-                        promoOptions.push({ label: 'Last minute discount', amount: Math.round(cardOriginalListingPrice * (listing.lastMinuteDiscount / 100)) });
-                      }
-                      if (promoOptions.length > 0) {
-                        cardHighestPromo = promoOptions.reduce((max, curr) => curr.amount > max.amount ? curr : max, promoOptions[0]);
-                        cardHighestPromoAmount = cardHighestPromo.amount;
-                      }
-                    }
-                    let cardFinalPrice = cardOriginalListingPrice - (cardHighestPromoAmount || 0) - (couponDiscount || 0);
-                    return (
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold text-foreground">Total PHP</span>
-                        <span className="font-bold text-foreground text-lg">
-                          ₱{(Math.max(0, cardFinalPrice)?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00')}
-                        </span>
-                      </div>
-                    );
-                  })()}
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-foreground">Total PHP</span>
+                    <span className="font-bold text-foreground text-lg">
+                      ₱{(displayTotalPrice || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
                   <button 
                     onClick={() => setShowPriceBreakdown(true)}
                     className="text-sm text-primary hover:underline"
@@ -1560,44 +1739,7 @@ const BookingRequest = () => {
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Due today</span>
                     <span className="font-medium text-foreground">
-                      {(() => {
-                        let dueNights = 0;
-                        if (checkInDate && checkOutDate) {
-                          const inDate = new Date(checkInDate);
-                          const outDate = new Date(checkOutDate);
-                          if (outDate > inDate) {
-                            dueNights = Math.ceil((outDate - inDate) / (1000 * 60 * 60 * 24));
-                          }
-                        }
-                        let dueOriginalListingPrice = 0;
-                        if (listing && checkInDate && checkOutDate && dueNights > 0) {
-                          const nightlyRate = listing.price || listing.weekdayPrice || 0;
-                          dueOriginalListingPrice = nightlyRate * dueNights;
-                        }
-                        let dueHighestPromo = null;
-                        let dueHighestPromoAmount = 0;
-                        if (listing && checkInDate && checkOutDate && dueNights > 0) {
-                          const promoOptions = [];
-                          if (listing.weeklyDiscount && dueNights >= 7) {
-                            promoOptions.push({ label: 'Weekly stay discount', amount: Math.round(dueOriginalListingPrice * (listing.weeklyDiscount / 100)) });
-                          }
-                          if (listing.monthlyDiscount && dueNights >= 28) {
-                            promoOptions.push({ label: 'Monthly stay discount', amount: Math.round(dueOriginalListingPrice * (listing.monthlyDiscount / 100)) });
-                          }
-                          if (listing.earlyBirdDiscount) {
-                            promoOptions.push({ label: 'Early bird discount', amount: Math.round(dueOriginalListingPrice * (listing.earlyBirdDiscount / 100)) });
-                          }
-                          if (listing.lastMinuteDiscount) {
-                            promoOptions.push({ label: 'Last minute discount', amount: Math.round(dueOriginalListingPrice * (listing.lastMinuteDiscount / 100)) });
-                          }
-                          if (promoOptions.length > 0) {
-                            dueHighestPromo = promoOptions.reduce((max, curr) => curr.amount > max.amount ? curr : max, promoOptions[0]);
-                            dueHighestPromoAmount = dueHighestPromo.amount;
-                          }
-                        }
-                        let dueFinalPrice = dueOriginalListingPrice - (dueHighestPromoAmount || 0) - (couponDiscount || 0);
-                        return `₱${(Math.max(0, dueFinalPrice)?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00')}`;
-                      })()}
+                      ₱{(paymentOption === 'now' ? displayTotalPrice : 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </span>
                   </div>
                   {paymentOption === 'later' && chargeDate && (
@@ -1606,7 +1748,7 @@ const BookingRequest = () => {
                         Charge on {format(chargeDate, 'MMM d')}
                       </span>
                       <span className="font-medium text-foreground">
-                        ₱{chargeOnDate.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        ₱{displayTotalPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </span>
                     </div>
                   )}
@@ -1666,7 +1808,10 @@ const BookingRequest = () => {
             modalDiscountsApplied.push({ label: modalPromoLabel, amount: modalHighestPromoAmount });
           }
         }
-        let modalFinalPrice = modalOriginalListingPrice - (modalHighestPromoAmount || 0) - (couponDiscount || 0);
+        // Use the already-calculated values instead of recalculating
+        const modalBookingAmount = displayBasePrice || 0;
+        const modalGuestFee = calculatedGuestFee || 0;
+        const modalTotalPrice = displayTotalPrice || 0;
         return (
           <div 
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
@@ -1732,7 +1877,32 @@ const BookingRequest = () => {
                 {/* Separator */}
                 <div className="border-t border-border my-4"></div>
 
-                {/* Total (after highest promo and coupon) */}
+                {/* Booking Amount After Discounts */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-foreground font-medium">Subtotal</p>
+                  </div>
+                  <div className="text-sm font-medium text-foreground">
+                    ₱{modalBookingAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                </div>
+
+                {/* Service Fee */}
+                {modalGuestFee > 0 && (
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-foreground font-medium">Service Fee (14%)</p>
+                    </div>
+                    <div className="text-sm font-medium text-foreground">
+                      ₱{modalGuestFee.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Separator */}
+                <div className="border-t border-border my-4"></div>
+
+                {/* Total (includes guest fee) */}
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-semibold text-foreground">
@@ -1740,7 +1910,7 @@ const BookingRequest = () => {
                     </p>
                   </div>
                   <div className="text-base font-semibold text-foreground">
-                    ₱{(Math.max(0, modalFinalPrice)?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00')}
+                    ₱{modalTotalPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </div>
                 </div>
                 <div className="text-xs text-muted-foreground mt-2">
@@ -1754,7 +1924,7 @@ const BookingRequest = () => {
 
       <Footer />
       </div>
-    </PayPalScriptProvider>
+    </ContentWrapper>
   );
 };
 

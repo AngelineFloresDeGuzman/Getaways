@@ -33,11 +33,28 @@ const Bookings = () => {
     setCompletingBooking(bookingId);
     try {
       const bookingRef = doc(db, 'bookings', bookingId);
+      const bookingDoc = await getDoc(bookingRef);
+      
+      if (!bookingDoc.exists()) {
+        toast.error('Booking not found');
+        return;
+      }
+      
+      const bookingData = bookingDoc.data();
+      
+      // Calculate earnings for host (bookingAmount, admin keeps 10% commission)
+      const bookingAmount = bookingData.bookingAmount || 0;
+      const totalPrice = bookingData.totalPrice || 0;
+      
+      // Update booking status and create earnings release request for admin
       await updateDoc(bookingRef, {
         status: 'completed',
+        earningsReleasePending: true, // Mark as pending for admin to release
+        earningsRequestedAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
-      toast.success('Booking marked as completed!');
+      
+      toast.success('Booking marked as completed! Host earnings will be released by admin.');
     } catch (error) {
       console.error('Error marking booking as completed:', error);
       toast.error('Failed to mark booking as completed');
@@ -456,6 +473,16 @@ const Bookings = () => {
                             onClick={async (e) => {
                               e.stopPropagation();
                               await handleMarkCompleted(booking.id);
+                              // After marking as completed, show review modal
+                              const bookingData = bookings.find(b => b.id === booking.id);
+                              if (bookingData) {
+                                // Check if review already exists
+                                const existingReview = await getReviewByBookingId(booking.id);
+                                if (!existingReview) {
+                                  setSelectedBooking(bookingData);
+                                  setShowReviewModal(true);
+                                }
+                              }
                             }}
                             disabled={completingBooking === booking.id}
                           >
@@ -470,7 +497,7 @@ const Bookings = () => {
                               // Check if review already exists
                               const existingReview = await getReviewByBookingId(booking.id);
                               if (existingReview) {
-                                // Already reviewed - could show a message or navigate to edit
+                                toast.info('You have already reviewed this booking');
                                 return;
                               }
                               setSelectedBooking(booking);

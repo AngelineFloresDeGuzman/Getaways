@@ -37,6 +37,7 @@ export const createListing = async (listingData, existingListingId = null) => {
   
   // Debug: Log photos received in createListing
   console.log('📸 createListing: Received photos:', photos.length);
+  console.log('📸 createListing: existingListingId:', existingListingId, '(updating:', !!existingListingId, ')');
   if (photos.length > 0) {
     console.log('📸 createListing: First photo:', {
       id: photos[0].id,
@@ -46,7 +47,7 @@ export const createListing = async (listingData, existingListingId = null) => {
       allKeys: Object.keys(photos[0])
     });
   } else {
-    console.warn('⚠️ createListing: No photos received!');
+    console.warn('⚠️ createListing: No photos received! (This is OK if user removed all photos)');
   }
   
   // Get first photo's base64 for main image (but don't duplicate - use from photos array)
@@ -176,15 +177,20 @@ export const createListing = async (listingData, existingListingId = null) => {
       // Always update updatedAt
       listingDoc.updatedAt = serverTimestamp();
       
-      // Remove any undefined/null values to avoid overwriting existing data
+      // CRITICAL: Always update photos field when updating (even if empty array)
+      // This ensures edited photos are always reflected in the published listing
+      listingDoc.photos = photos; // Explicitly set photos to ensure they're updated
+      
+      // Remove any undefined/null values to avoid overwriting existing data (except photos which can be empty array)
       Object.keys(listingDoc).forEach(key => {
-        if (listingDoc[key] === undefined || listingDoc[key] === null) {
+        if (listingDoc[key] === undefined || (listingDoc[key] === null && key !== 'photos')) {
           delete listingDoc[key];
         }
       });
       
       console.log('📝 createListing: Updating existing listing with fields:', Object.keys(listingDoc));
-      console.log('📝 createListing: Fields being updated:', listingDoc);
+      console.log('📝 createListing: Photos being updated:', photos.length, 'photos');
+      console.log('📝 createListing: Fields being updated:', Object.keys(listingDoc));
       
       // Update existing listing (Firestore updateDoc only updates provided fields)
       await updateDoc(existingListingRef, listingDoc);

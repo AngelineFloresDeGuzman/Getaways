@@ -705,10 +705,227 @@ const HostDashboard = () => {
       const bookingData = bookingDoc.data();
       const previousStatus = bookingData.status;
       
-      await updateDoc(bookingRef, {
-        status: newStatus,
-        updatedAt: serverTimestamp()
-      });
+      // If host is confirming the booking, process payment now
+      if (newStatus === 'confirmed' && previousStatus === 'pending') {
+        try {
+          // Check payment provider first - this is the source of truth for payment method
+          const paymentProvider = bookingData.paymentProvider || 'getpay';
+          const paymentMethod = bookingData.paymentMethod || 'pending';
+          const guestId = bookingData.guestId;
+          const totalAmount = bookingData.totalPrice || 0;
+          const bookingAmount = bookingData.bookingAmount || 0;
+          const guestFee = bookingData.guestFee || 0;
+          const listingTitle = bookingData.listingTitle || 'Accommodation';
+          
+          console.log('🔍 Processing payment on booking confirmation:', {
+            bookingId,
+            paymentProvider,
+            paymentMethod,
+            totalAmount
+          });
+          
+          // Handle PayPal payment differently
+          // Check paymentProvider first as it's the source of truth
+          if (paymentProvider === 'paypal' || paymentMethod === 'paypal') {
+            // Check if PayPal payment was already authorized/captured when booking was created
+            const paypalOrderId = bookingData.paypalOrderId;
+            const paypalTransactionId = bookingData.paypalTransactionId;
+            
+            if (paypalOrderId && paypalTransactionId) {
+              // PayPal payment was already captured when booking was created
+              // Just mark booking as confirmed and payment as paid
+              await updateDoc(bookingRef, {
+                status: newStatus,
+                paymentStatus: 'paid', // Payment was already captured
+                paymentMethod: 'paypal',
+                paymentProvider: 'paypal',
+                updatedAt: serverTimestamp()
+              });
+              
+              // Transfer payment to admin's GetPay wallet (same as GetPay flow)
+              const { 
+                addToWallet: addToAdminWallet,
+                initializeWallet: initAdminWallet,
+                getAdminUserId
+              } = await import('@/pages/Common/services/getpayService');
+              
+              const adminUserId = await getAdminUserId();
+              if (adminUserId) {
+                await initAdminWallet(adminUserId);
+                await addToAdminWallet(
+                  adminUserId,
+                  totalAmount,
+                  `Payment Received - Guest Booking (PayPal)`,
+                  {
+                    bookingId: bookingId,
+                    listingId: bookingData.listingId,
+                    listingTitle: listingTitle,
+                    category: bookingData.category || 'accommodation',
+                    guestId: guestId,
+                    guestEmail: bookingData.guestEmail,
+                    hostId: bookingData.ownerId,
+                    paymentType: 'booking_payment',
+                    paymentMethod: 'paypal',
+                    paypalOrderId: paypalOrderId,
+                    paypalTransactionId: paypalTransactionId,
+                    bookingAmount: bookingAmount,
+                    guestFee: guestFee,
+                    checkInDate: bookingData.checkInDate?.toDate ? bookingData.checkInDate.toDate().toISOString() : bookingData.checkInDate,
+                    checkOutDate: bookingData.checkOutDate?.toDate ? bookingData.checkOutDate.toDate().toISOString() : bookingData.checkOutDate
+                  }
+                );
+                console.log('✅ PayPal payment sent to admin GetPay wallet');
+              }
+              
+              toast.success('Booking confirmed. PayPal payment processed successfully.');
+              console.log('✅ Booking confirmed with PayPal payment - payment already captured');
+            } else {
+              // PayPal payment was not authorized/captured yet
+              // Mark booking as confirmed but payment as pending
+              // Set 24-hour deadline for payment completion
+              const paymentDeadline = new Date();
+              paymentDeadline.setHours(paymentDeadline.getHours() + 24);
+              
+              await updateDoc(bookingRef, {
+                status: newStatus,
+                paymentStatus: 'pending', // PayPal payment needs to be processed
+                paymentMethod: 'paypal',
+                paymentProvider: 'paypal',
+                paypalPaymentDeadline: paymentDeadline.toISOString(), // 24-hour deadline
+                updatedAt: serverTimestamp()
+              });
+              
+              toast.success('Booking confirmed. Guest needs to complete PayPal payment within 24 hours.');
+              console.log('⚠️ Booking confirmed but PayPal payment not yet processed. Deadline:', paymentDeadline.toISOString());
+            }
+            // IMPORTANT: Return early to prevent GetPay wallet processing
+            // Continue to email sending and booking reload below
+          } else {
+            // Handle GetPay wallet/points payment
+            const { 
+              deductFromWallet, 
+              initializeWallet, 
+              hasSufficientBalance,
+              addToWallet: addToAdminWallet,
+              initializeWallet: initAdminWallet,
+              getAdminUserId
+            } = await import('@/pages/Common/services/getpayService');
+            
+            let remainingAmount = bookingData.remainingAmount || totalAmount;
+            let pointsUsed = bookingData.pointsUsed || 0;
+            
+            // Process points payment first (if points were planned to be used)
+            if (pointsUsed > 0) {
+              try {
+                const { deductPointsForPayment } = await import('@/pages/Host/services/pointsService');
+                const pointsResult = await deductPointsForPayment(
+                  guestId,
+                  totalAmount,
+                  'booking',
+                  {
+                    bookingId: bookingId,
+                    listingId: bookingData.listingId,
+                    listingTitle: listingTitle
+                  }
+                );
+                
+                if (pointsResult.success) {
+                  const actualPointsUsed = pointsResult.pointsUsed;
+                  const currencyFromPoints = pointsResult.currencyAmount;
+                  remainingAmount = Math.max(0, totalAmount - currencyFromPoints);
+                  console.log(`✅ Points deducted: ${actualPointsUsed} points (₱${currencyFromPoints.toFixed(2)})`);
+                } else {
+                  // Points deduction failed, need full wallet payment
+                  remainingAmount = totalAmount;
+                  pointsUsed = 0;
+                  console.warn('⚠️ Points deduction failed, will use wallet payment');
+                }
+              } catch (pointsError) {
+                console.error('Error deducting points:', pointsError);
+                // If points fail, use wallet for full amount
+                remainingAmount = totalAmount;
+                pointsUsed = 0;
+              }
+            }
+            
+            // Initialize guest wallet
+            await initializeWallet(guestId);
+            
+            // Check if guest still has sufficient balance for remaining amount
+            if (remainingAmount > 0) {
+              const hasBalance = await hasSufficientBalance(guestId, remainingAmount);
+              if (!hasBalance) {
+                toast.error('Guest has insufficient balance. Cannot confirm booking.');
+                return;
+              }
+              
+              // Deduct remaining amount from guest's wallet
+              await deductFromWallet(
+                guestId,
+                remainingAmount,
+                `Booking Payment - ${listingTitle}${pointsUsed > 0 ? ' (Partial - remaining after points)' : ''}`,
+                {
+                  bookingId: bookingId,
+                  listingId: bookingData.listingId,
+                  listingTitle: listingTitle,
+                  category: bookingData.category || 'accommodation',
+                  checkInDate: bookingData.checkInDate?.toDate ? bookingData.checkInDate.toDate().toISOString() : bookingData.checkInDate,
+                  checkOutDate: bookingData.checkOutDate?.toDate ? bookingData.checkOutDate.toDate().toISOString() : bookingData.checkOutDate,
+                  guests: bookingData.guests || 1,
+                  bookingAmount: bookingAmount,
+                  guestFee: guestFee,
+                  pointsUsed: pointsUsed > 0 ? pointsUsed : null
+                }
+              );
+              console.log(`✅ Payment deducted from guest wallet: ₱${remainingAmount.toFixed(2)}`);
+            }
+            
+            // Transfer payment to admin's GetPay wallet
+            const adminUserId = await getAdminUserId();
+            if (adminUserId) {
+              await initAdminWallet(adminUserId);
+              await addToAdminWallet(
+                adminUserId,
+                totalAmount,
+                `Payment Received - Guest Booking`,
+                {
+                  bookingId: bookingId,
+                  listingId: bookingData.listingId,
+                  listingTitle: listingTitle,
+                  category: bookingData.category || 'accommodation',
+                  guestId: guestId,
+                  guestEmail: bookingData.guestEmail,
+                  hostId: bookingData.ownerId,
+                  paymentType: 'booking_payment',
+                  bookingAmount: bookingAmount,
+                  guestFee: guestFee,
+                  checkInDate: bookingData.checkInDate?.toDate ? bookingData.checkInDate.toDate().toISOString() : bookingData.checkInDate,
+                  checkOutDate: bookingData.checkOutDate?.toDate ? bookingData.checkOutDate.toDate().toISOString() : bookingData.checkOutDate
+                }
+              );
+              console.log('✅ Payment sent to admin GetPay wallet');
+            }
+            
+            // Update booking with payment status
+            await updateDoc(bookingRef, {
+              status: newStatus,
+              paymentStatus: 'paid',
+              paymentMethod: bookingData.paymentMethod || 'wallet',
+              updatedAt: serverTimestamp()
+            });
+          }
+        } catch (paymentError) {
+          console.error('❌ Error processing payment on booking confirmation:', paymentError);
+          toast.error('Failed to process payment. Booking confirmation cancelled.');
+          return; // Don't update status if payment fails
+        }
+      } else {
+        // For other status changes, just update the status
+        await updateDoc(bookingRef, {
+          status: newStatus,
+          updatedAt: serverTimestamp()
+        });
+      }
 
       // Send booking confirmation/cancellation email to guest
       try {
@@ -716,40 +933,67 @@ const HostDashboard = () => {
         const guestEmail = bookingData.guestEmail;
         const firstName = bookingData.guestFirstName || '';
         const lastName = bookingData.guestLastName || '';
+        const listingTitle = bookingData.listingTitle || 'Accommodation';
+        
+        // Format dates properly for email
+        const checkInDateFormatted = bookingData.checkInDate?.toDate 
+          ? bookingData.checkInDate.toDate().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+          : (bookingData.checkInDate ? new Date(bookingData.checkInDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '');
+        const checkOutDateFormatted = bookingData.checkOutDate?.toDate 
+          ? bookingData.checkOutDate.toDate().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+          : (bookingData.checkOutDate ? new Date(bookingData.checkOutDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '');
+        
         if (newStatus === 'confirmed') {
-          await sendBookingConfirmationEmail(
+          const emailResult = await sendBookingConfirmationEmail(
             guestEmail,
             firstName,
             lastName,
             {
-              bookingId,
-              listingTitle: bookingData.listingTitle,
-              checkInDate: bookingData.checkInDate,
-              checkOutDate: bookingData.checkOutDate,
-              guests: bookingData.guests,
-              totalPrice: bookingData.totalPrice,
-              bookingAmount: bookingData.bookingAmount,
+              bookingId: bookingId,
+              listingTitle: listingTitle,
+              checkInDate: checkInDateFormatted,
+              checkOutDate: checkOutDateFormatted,
+              guests: bookingData.guests || 1,
+              totalPrice: bookingData.totalPrice || 0,
+              bookingAmount: bookingData.bookingAmount || 0,
               paymentMethod: bookingData.paymentMethod || 'GetPay Wallet'
             }
           );
+          
+          if (emailResult.success) {
+            console.log('✅ Booking confirmation email sent to guest');
+          } else if (emailResult.skipped) {
+            console.log('ℹ️ Email sending skipped (EmailJS not configured)');
+          } else {
+            console.warn('⚠️ Failed to send booking confirmation email (non-critical):', emailResult.error);
+          }
         } else if (newStatus === 'cancelled') {
-          await sendCancellationEmail(
+          const emailResult = await sendCancellationEmail(
             guestEmail,
             firstName,
             lastName,
             {
-              bookingId,
-              listingTitle: bookingData.listingTitle,
-              checkInDate: bookingData.checkInDate,
-              checkOutDate: bookingData.checkOutDate,
-              refundAmount: bookingData.totalPrice,
-              refundType: 'full_refund',
-              refundPending: true
+              bookingId: bookingId,
+              listingTitle: listingTitle,
+              checkInDate: checkInDateFormatted,
+              checkOutDate: checkOutDateFormatted,
+              totalPrice: bookingData.totalPrice || 0,
+              paymentMethod: bookingData.paymentMethod || 'GetPay Wallet',
+              cancellationReason: 'Host declined booking request.'
             }
           );
+          
+          if (emailResult.success) {
+            console.log('✅ Booking cancellation email sent to guest');
+          } else if (emailResult.skipped) {
+            console.log('ℹ️ Email sending skipped (EmailJS not configured)');
+          } else {
+            console.warn('⚠️ Failed to send booking cancellation email (non-critical):', emailResult.error);
+          }
         }
       } catch (emailError) {
-        console.error('Error sending booking status email:', emailError);
+        console.error('❌ Error sending booking status email:', emailError);
+        // Don't fail the booking status update if email fails
       }
 
       // NOTE: Points for booking confirmations have been removed
@@ -1223,12 +1467,12 @@ const HostDashboard = () => {
           const todayBookings = bookings.filter(booking => {
             const checkIn = new Date(booking.checkInDate);
             checkIn.setHours(0, 0, 0, 0);
-            return checkIn.getTime() === today.getTime();
+            return checkIn.getTime() === today.getTime() && booking.status === 'confirmed';
           });
           const upcomingBookings = bookings.filter(booking => {
             const checkIn = new Date(booking.checkInDate);
             checkIn.setHours(0, 0, 0, 0);
-            return checkIn.getTime() > today.getTime();
+            return checkIn.getTime() > today.getTime() && booking.status === 'confirmed';
           });
           return (
             <div className="max-w-7xl mx-auto px-6 mb-12">
@@ -1241,13 +1485,12 @@ const HostDashboard = () => {
                     <span className="text-sm text-muted-foreground">({todayBookings.length})</span>
                   </div>
                   {todayBookings.length > 0 ? (
-                    <div className="space-y-3 max-h-96 overflow-y-auto">
+                    <div className="space-y-3 max-h-[600px] overflow-y-auto">
                       {todayBookings.slice(0, 5).map((booking) => {
                         const listing = listings.find(l => l.id === booking.listingId);
                         return (
-                          <div key={booking.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer" onClick={() => navigate(`/bookings/${booking.id}`)}>
-                            {/* ...booking card code... */}
-                            <div className="flex items-start gap-3">
+                          <div key={booking.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                            <div className="flex items-start gap-3 mb-3">
                               {listing?.mainImage && (
                                 <img 
                                   src={listing.mainImage}
@@ -1279,10 +1522,7 @@ const HostDashboard = () => {
                                     {booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}
                                   </span>
                                 </div>
-                                <p className="text-sm text-muted-foreground mb-2">
-                                  Listing: {listing?.title || `Listing ${booking.listingId}`}
-                                </p>
-                                <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                                <div className="flex items-center gap-4 text-sm text-muted-foreground mb-2">
                                   <div className="flex items-center gap-1">
                                     <CalendarIcon className="w-4 h-4" />
                                     <span>{booking.checkInFormatted} - {booking.checkOutFormatted}</span>
@@ -1291,82 +1531,74 @@ const HostDashboard = () => {
                                     <Users className="w-4 h-4" />
                                     <span>{booking.guests || 1} guest{(booking.guests || 1) > 1 ? 's' : ''}</span>
                                   </div>
-                                  <div className="flex items-center gap-1">
-                                    <Clock className="w-4 h-4" />
-                                    <span>Booked {booking.createdAtFormatted}</span>
-                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                  <Clock className="w-3 h-3" />
+                                  <span>Booked {booking.createdAtFormatted}</span>
                                 </div>
                               </div>
                             </div>
-                            <div className="mt-3 pt-3 border-t border-gray-100" onClick={(e) => e.stopPropagation()}>
-                              <div className="flex items-center justify-between mb-3">
+                            <div className="pt-3 border-t border-gray-100 space-y-3">
+                              <div className="flex items-center justify-between">
                                 <span className="text-sm text-muted-foreground">Total Price:</span>
-                                <span className="font-heading text-xl font-bold text-foreground">
+                                <span className="font-heading text-lg font-bold text-foreground">
                                   ₱{(booking.totalPrice || 0).toLocaleString()}
                                 </span>
                               </div>
-                              {booking.guestId && (
-                                <button
-                                  onClick={async (e) => {
-                                    e.stopPropagation();
-                                    try {
-                                      const conversationId = await startConversationFromHost(
-                                        booking.guestId,
-                                        booking.listingId,
-                                        booking.id
-                                      );
-                                      navigate(`/host/messages?conversation=${conversationId}`);
-                                    } catch (error) {
-                                      console.error('Error starting conversation:', error);
-                                    }
-                                  }}
-                                  className="btn-outline px-4 py-2 text-sm font-medium flex items-center gap-2 mt-2 w-full"
-                                >
-                                  <MessageSquare className="w-4 h-4" />
-                                  Message Guest
-                                </button>
-                              )}
-                            </div>
-                            <div className="ml-4 flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
-                              {booking.status === 'pending' && (
-                                <>
+                              <div className="flex flex-col gap-2">
+                                {booking.status === 'pending' && (
+                                  <>
+                                    <button
+                                      className="btn-primary px-4 py-2 text-sm font-medium w-full"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleUpdateBookingStatus(booking.id, 'confirmed');
+                                      }}
+                                    >
+                                      Confirm
+                                    </button>
+                                    <button
+                                      className="btn-outline px-4 py-2 text-sm font-medium text-red-600 hover:text-red-700 hover:border-red-300 w-full"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleUpdateBookingStatus(booking.id, 'cancelled');
+                                      }}
+                                    >
+                                      Decline
+                                    </button>
+                                  </>
+                                )}
+                                {booking.status === 'confirmed' && (
+                                  <span className="text-sm text-muted-foreground font-medium text-center py-2">Awaiting guest to mark as completed</span>
+                                )}
+                                {booking.status === 'completed' && (
+                                  <span className="text-sm text-green-600 font-medium text-center py-2">✓ Completed by guest</span>
+                                )}
+                                {booking.status === 'cancelled' && (
+                                  <span className="text-sm text-red-600 font-medium text-center py-2">✕ Cancelled</span>
+                                )}
+                                {booking.guestId && (
                                   <button
-                                    className="btn-primary px-4 py-2 text-sm font-medium"
-                                    onClick={(e) => {
+                                    onClick={async (e) => {
                                       e.stopPropagation();
-                                      handleUpdateBookingStatus(booking.id, 'confirmed');
+                                      try {
+                                        const conversationId = await startConversationFromHost(
+                                          booking.guestId,
+                                          booking.listingId,
+                                          booking.id
+                                        );
+                                        navigate(`/host/messages?conversation=${conversationId}`);
+                                      } catch (error) {
+                                        console.error('Error starting conversation:', error);
+                                      }
                                     }}
+                                    className="btn-outline px-4 py-2 text-sm font-medium flex items-center justify-center gap-2 w-full"
                                   >
-                                    Confirm
+                                    <MessageSquare className="w-4 h-4" />
+                                    Message Guest
                                   </button>
-                                  <button
-                                    className="btn-outline px-4 py-2 text-sm font-medium text-red-600 hover:text-red-700 hover:border-red-300"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleUpdateBookingStatus(booking.id, 'cancelled');
-                                    }}
-                                  >
-                                    Decline
-                                  </button>
-                                </>
-                              )}
-                              {booking.status === 'confirmed' && (
-                                <button
-                                  className="btn-outline px-4 py-2 text-sm font-medium"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleUpdateBookingStatus(booking.id, 'completed');
-                                  }}
-                                >
-                                  Mark Complete
-                                </button>
-                              )}
-                              {booking.status === 'completed' && (
-                                <span className="text-sm text-green-600 font-medium">✓ Completed</span>
-                              )}
-                              {booking.status === 'cancelled' && (
-                                <span className="text-sm text-red-600 font-medium">✕ Cancelled</span>
-                              )}
+                                )}
+                              </div>
                             </div>
                           </div>
                         );
@@ -1386,13 +1618,12 @@ const HostDashboard = () => {
                     <span className="text-sm text-muted-foreground">({upcomingBookings.length})</span>
                   </div>
                   {upcomingBookings.length > 0 ? (
-                    <div className="space-y-3 max-h-96 overflow-y-auto">
+                    <div className="space-y-3 max-h-[600px] overflow-y-auto">
                       {upcomingBookings.slice(0, 5).map((booking) => {
                         const listing = listings.find(l => l.id === booking.listingId);
                         return (
-                          <div key={booking.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer" onClick={() => navigate(`/bookings/${booking.id}`)}>
-                            {/* ...booking card code... */}
-                            <div className="flex items-start gap-3">
+                          <div key={booking.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                            <div className="flex items-start gap-3 mb-3">
                               {listing?.mainImage && (
                                 <img 
                                   src={listing.mainImage}
@@ -1424,10 +1655,7 @@ const HostDashboard = () => {
                                     {booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}
                                   </span>
                                 </div>
-                                <p className="text-sm text-muted-foreground mb-2">
-                                  Listing: {listing?.title || `Listing ${booking.listingId}`}
-                                </p>
-                                <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                                <div className="flex items-center gap-4 text-sm text-muted-foreground mb-2">
                                   <div className="flex items-center gap-1">
                                     <CalendarIcon className="w-4 h-4" />
                                     <span>{booking.checkInFormatted} - {booking.checkOutFormatted}</span>
@@ -1436,82 +1664,74 @@ const HostDashboard = () => {
                                     <Users className="w-4 h-4" />
                                     <span>{booking.guests || 1} guest{(booking.guests || 1) > 1 ? 's' : ''}</span>
                                   </div>
-                                  <div className="flex items-center gap-1">
-                                    <Clock className="w-4 h-4" />
-                                    <span>Booked {booking.createdAtFormatted}</span>
-                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                  <Clock className="w-3 h-3" />
+                                  <span>Booked {booking.createdAtFormatted}</span>
                                 </div>
                               </div>
                             </div>
-                            <div className="mt-3 pt-3 border-t border-gray-100" onClick={(e) => e.stopPropagation()}>
-                              <div className="flex items-center justify-between mb-3">
+                            <div className="pt-3 border-t border-gray-100 space-y-3">
+                              <div className="flex items-center justify-between">
                                 <span className="text-sm text-muted-foreground">Total Price:</span>
-                                <span className="font-heading text-xl font-bold text-foreground">
+                                <span className="font-heading text-lg font-bold text-foreground">
                                   ₱{(booking.totalPrice || 0).toLocaleString()}
                                 </span>
                               </div>
-                              {booking.guestId && (
-                                <button
-                                  onClick={async (e) => {
-                                    e.stopPropagation();
-                                    try {
-                                      const conversationId = await startConversationFromHost(
-                                        booking.guestId,
-                                        booking.listingId,
-                                        booking.id
-                                      );
-                                      navigate(`/host/messages?conversation=${conversationId}`);
-                                    } catch (error) {
-                                      console.error('Error starting conversation:', error);
-                                    }
-                                  }}
-                                  className="btn-outline px-4 py-2 text-sm font-medium flex items-center gap-2 mt-2 w-full"
-                                >
-                                  <MessageSquare className="w-4 h-4" />
-                                  Message Guest
-                                </button>
-                              )}
-                            </div>
-                            <div className="ml-4 flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
-                              {booking.status === 'pending' && (
-                                <>
+                              <div className="flex flex-col gap-2">
+                                {booking.status === 'pending' && (
+                                  <>
+                                    <button
+                                      className="btn-primary px-4 py-2 text-sm font-medium w-full"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleUpdateBookingStatus(booking.id, 'confirmed');
+                                      }}
+                                    >
+                                      Confirm
+                                    </button>
+                                    <button
+                                      className="btn-outline px-4 py-2 text-sm font-medium text-red-600 hover:text-red-700 hover:border-red-300 w-full"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleUpdateBookingStatus(booking.id, 'cancelled');
+                                      }}
+                                    >
+                                      Decline
+                                    </button>
+                                  </>
+                                )}
+                                {booking.status === 'confirmed' && (
+                                  <span className="text-sm text-muted-foreground font-medium text-center py-2">Awaiting guest to mark as completed</span>
+                                )}
+                                {booking.status === 'completed' && (
+                                  <span className="text-sm text-green-600 font-medium text-center py-2">✓ Completed by guest</span>
+                                )}
+                                {booking.status === 'cancelled' && (
+                                  <span className="text-sm text-red-600 font-medium text-center py-2">✕ Cancelled</span>
+                                )}
+                                {booking.guestId && (
                                   <button
-                                    className="btn-primary px-4 py-2 text-sm font-medium"
-                                    onClick={(e) => {
+                                    onClick={async (e) => {
                                       e.stopPropagation();
-                                      handleUpdateBookingStatus(booking.id, 'confirmed');
+                                      try {
+                                        const conversationId = await startConversationFromHost(
+                                          booking.guestId,
+                                          booking.listingId,
+                                          booking.id
+                                        );
+                                        navigate(`/host/messages?conversation=${conversationId}`);
+                                      } catch (error) {
+                                        console.error('Error starting conversation:', error);
+                                      }
                                     }}
+                                    className="btn-outline px-4 py-2 text-sm font-medium flex items-center justify-center gap-2 w-full"
                                   >
-                                    Confirm
+                                    <MessageSquare className="w-4 h-4" />
+                                    Message Guest
                                   </button>
-                                  <button
-                                    className="btn-outline px-4 py-2 text-sm font-medium text-red-600 hover:text-red-700 hover:border-red-300"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleUpdateBookingStatus(booking.id, 'cancelled');
-                                    }}
-                                  >
-                                    Decline
-                                  </button>
-                                </>
-                              )}
-                              {booking.status === 'confirmed' && (
-                                <button
-                                  className="btn-outline px-4 py-2 text-sm font-medium"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleUpdateBookingStatus(booking.id, 'completed');
-                                  }}
-                                >
-                                  Mark Complete
-                                </button>
-                              )}
-                              {booking.status === 'completed' && (
-                                <span className="text-sm text-green-600 font-medium">✓ Completed</span>
-                              )}
-                              {booking.status === 'cancelled' && (
-                                <span className="text-sm text-red-600 font-medium">✕ Cancelled</span>
-                              )}
+                                )}
+                              </div>
                             </div>
                           </div>
                         );

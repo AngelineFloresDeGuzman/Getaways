@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { Camera, X, Plus, Images } from 'lucide-react';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
 import { db } from '@/lib/firebase';
-import { doc, updateDoc, getDoc, collection, addDoc, deleteDoc, getDocs, query, orderBy } from 'firebase/firestore';
+import { doc, updateDoc, getDoc, collection, addDoc, deleteDoc, getDocs, query, orderBy, onSnapshot, writeBatch } from 'firebase/firestore';
 import OnboardingHeader from './components/OnboardingHeader';
 import OnboardingFooter from './components/OnboardingFooter';
 
@@ -27,70 +27,78 @@ const ServicePhotos = () => {
     }
   }, [actions]);
 
-  // Load saved photos from subcollection
+  // Load saved photos from subcollection and set up real-time listener
   useEffect(() => {
+    const draftId = state.draftId || location.state?.draftId;
+    if (!draftId) return;
+
+    let unsubscribe = null;
+
     const loadPhotos = async () => {
-      const draftId = state.draftId || location.state?.draftId;
-      if (draftId) {
-        try {
-          // Load photos from subcollection instead of main document
-          const photosRef = collection(db, "onboardingDrafts", draftId, "servicePhotos");
-          const photosQuery = query(photosRef, orderBy("createdAt", "asc"));
-          const photosSnap = await getDocs(photosQuery);
-          
-          const loadedPhotos = photosSnap.docs.map(doc => ({
-            id: doc.id,
-            name: doc.data().name || 'photo',
-            url: doc.data().url || doc.data().base64,
-            base64: doc.data().base64,
-            firestoreId: doc.id, // Store Firestore document ID for deletion
-          }));
+      try {
+        // Load photos from subcollection instead of main document
+        const photosRef = collection(db, "onboardingDrafts", draftId, "servicePhotos");
+        const photosQuery = query(photosRef, orderBy("createdAt", "asc"));
+        
+        // Set up real-time listener for photos
+        unsubscribe = onSnapshot(photosQuery, (photosSnap) => {
+          const loadedPhotos = photosSnap.docs.map(doc => {
+            const data = doc.data();
+            return {
+              id: doc.id,
+              name: data.name || 'photo',
+              url: data.base64 || data.url, // Prioritize base64 for display (blob URLs expire)
+              base64: data.base64, // Always use base64 for storage
+              firestoreId: doc.id, // Store Firestore document ID for deletion
+            };
+          });
           
           setPhotos(loadedPhotos);
-          console.log("✅ Loaded", loadedPhotos.length, "photos from subcollection");
-          
-          // Also check if there are old photos in the main document (migration)
-          const draftRef = doc(db, "onboardingDrafts", draftId);
-          const draftSnap = await getDoc(draftRef);
-          if (draftSnap.exists()) {
-            const data = draftSnap.data().data || {};
-            if (data.servicePhotos && Array.isArray(data.servicePhotos) && data.servicePhotos.length > 0) {
-              console.log("⚠️ Found old photos in main document - migrating to subcollection...");
-              // Migrate old photos to subcollection
-              for (const photo of data.servicePhotos) {
-                if (photo.base64) {
-                  await addDoc(photosRef, {
-                    name: photo.name || 'photo',
-                    url: photo.url || photo.base64,
-                    base64: photo.base64,
-                    createdAt: new Date(),
-                  });
-                }
+          console.log("✅ Loaded", loadedPhotos.length, "photos from subcollection (real-time)");
+        }, (error) => {
+          console.error("Error in photos listener:", error);
+        });
+        
+        // Also check if there are old photos in the main document (migration) - only once
+        const draftRef = doc(db, "onboardingDrafts", draftId);
+        const draftSnap = await getDoc(draftRef);
+        if (draftSnap.exists()) {
+          const data = draftSnap.data().data || {};
+          if (data.servicePhotos && Array.isArray(data.servicePhotos) && data.servicePhotos.length > 0) {
+            console.log("⚠️ Found old photos in main document - migrating to subcollection...");
+            // Migrate old photos to subcollection
+            for (const photo of data.servicePhotos) {
+              if (photo.base64) {
+                await addDoc(photosRef, {
+                  name: photo.name || 'photo',
+                  url: photo.base64, // Use base64 as URL
+                  base64: photo.base64,
+                  createdAt: new Date(),
+                });
               }
-              // Clear old photos from main document
-              await updateDoc(draftRef, {
-                "data.servicePhotos": [],
-                lastModified: new Date(),
-              });
-              console.log("✅ Migrated old photos to subcollection");
-              // Reload photos
-              const newPhotosSnap = await getDocs(photosQuery);
-              const migratedPhotos = newPhotosSnap.docs.map(doc => ({
-                id: doc.id,
-                name: doc.data().name || 'photo',
-                url: doc.data().url || doc.data().base64,
-                base64: doc.data().base64,
-                firestoreId: doc.id,
-              }));
-              setPhotos(migratedPhotos);
             }
+            // Clear old photos from main document
+            await updateDoc(draftRef, {
+              "data.servicePhotos": [],
+              lastModified: new Date(),
+            });
+            console.log("✅ Migrated old photos to subcollection");
+            // Real-time listener will automatically update the UI
           }
-        } catch (error) {
-          console.error("Error loading photos:", error);
         }
+      } catch (error) {
+        console.error("Error loading photos:", error);
       }
     };
+    
     loadPhotos();
+    
+    // Cleanup listener on unmount
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
   }, [
     state.draftId || null, 
     location.state?.draftId || null
@@ -191,6 +199,7 @@ const ServicePhotos = () => {
       // Save to subcollection in background
       savePhotosToFirebase(updatedPhotos).catch(error => {
         console.error("Error saving photos:", error);
+        alert('Error saving photos. Please try again.');
       });
     } catch (error) {
       console.error('Error processing photos:', error);
@@ -323,21 +332,55 @@ const ServicePhotos = () => {
     const updatedPhotos = [...photos, ...pendingPhotos];
     setPhotos(updatedPhotos);
     
-    // Close modal immediately
-    handleCloseUploadModal();
-    
-    // Save to Firebase subcollection in background (don't wait for it)
-    savePhotosToFirebase(updatedPhotos).catch(error => {
+    // Save to Firebase subcollection first, then close modal
+    try {
+      await savePhotosToFirebase(updatedPhotos);
+      handleCloseUploadModal();
+    } catch (error) {
       console.error("Error saving photos to Firebase:", error);
       alert('Error saving photos. Please try again.');
-    });
+      // Don't close modal if save fails so user can retry
+    }
+  };
+
+  // Clean up photos from main document (helper function)
+  const cleanupPhotosFromMainDocument = async (draftIdToClean) => {
+    if (!draftIdToClean) return;
+    try {
+      const draftRef = doc(db, "onboardingDrafts", draftIdToClean);
+      const draftSnap = await getDoc(draftRef);
+      
+      if (draftSnap.exists()) {
+        const data = draftSnap.data().data || {};
+        // Check if photos exist in main document
+        if ((data.servicePhotos && data.servicePhotos.length > 0) || (data.photos && data.photos.length > 0)) {
+          console.log("🧹 Cleaning up photos from main document...");
+          // Use a batch to ensure atomic update
+          const batch = writeBatch(db);
+          batch.update(draftRef, {
+            "data.servicePhotos": [],
+            "data.photos": [],
+            "data.hasServicePhotos": true, // Mark that photos exist (in subcollection)
+            lastModified: new Date(),
+          });
+          await batch.commit();
+          console.log("✅ Cleaned up photos from main document");
+        }
+      }
+    } catch (error) {
+      console.warn("⚠️ Could not clean up photos from main document (non-critical):", error.message);
+      // Non-critical - photos might already be cleaned or document might be too large
+    }
   };
 
   // Save photos to Firebase subcollection (each photo is its own document)
   const savePhotosToFirebase = async (photosToSave) => {
-    const draftId = state.draftId || location.state?.draftId;
+const draftId = state.draftId || location.state?.draftId;
     if (draftId) {
       try {
+        // First, try to clean up any photos from main document
+        await cleanupPhotosFromMainDocument(draftId);
+        
         const photosRef = collection(db, "onboardingDrafts", draftId, "servicePhotos");
         
         // Get existing photos from Firestore to check which ones are new
@@ -345,32 +388,46 @@ const ServicePhotos = () => {
         const existingFirestoreIds = new Set(existingPhotosSnap.docs.map(doc => doc.id));
         
         // Save each photo as a separate document in subcollection
-        const savePromises = photosToSave.map(async (photo) => {
+        const savePromises = photosToSave.map(async (photo, index) => {
           // If photo already has a firestoreId and exists, skip it
           if (photo.firestoreId && existingFirestoreIds.has(photo.firestoreId)) {
-            return;
+            return { index, firestoreId: photo.firestoreId };
+          }
+          
+          // Ensure base64 exists before saving
+          if (!photo.base64) {
+            console.warn("⚠️ Photo missing base64 data, skipping:", photo.name);
+            return { index, firestoreId: null };
           }
           
           // Add new photo to subcollection
           const docRef = await addDoc(photosRef, {
             name: photo.name || 'photo',
-            url: photo.url, // Preview URL (object URL)
-            base64: photo.base64, // Base64 data for storage
+            base64: photo.base64, // Base64 data for storage (primary)
+            url: photo.base64, // Use base64 as URL since blob URLs expire
             createdAt: new Date(),
           });
           
-          return docRef.id;
+          console.log("✅ Saved photo to Firestore:", docRef.id);
+          return { index, firestoreId: docRef.id };
         });
         
-        await Promise.all(savePromises);
-        console.log("✅ Saved service photos to Firebase subcollection:", photosToSave.length, "photos");
+        const saveResults = await Promise.all(savePromises);
+        const savedCount = saveResults.filter(r => r && r.firestoreId).length;
+        console.log("✅ Saved service photos to Firebase subcollection:", savedCount, "new photos");
+        
+        // Note: Real-time listener will automatically update the state with the saved photos
         
         // Update main document to mark that photos exist (but don't store them there)
+        // CRITICAL: Remove any photos from main document to prevent exceeding 1MB limit
         const draftRef = doc(db, "onboardingDrafts", draftId);
         await updateDoc(draftRef, {
           "data.hasServicePhotos": true,
+          "data.servicePhotos": [], // Ensure photos array is empty in main document
+          "data.photos": [], // Also clear photos field if it exists
           lastModified: new Date(),
         });
+        console.log("✅ Cleaned up photos from main document (photos stored in subcollection only)");
       } catch (error) {
         console.error("Error saving photos to Firebase:", error);
         throw error;
@@ -392,12 +449,34 @@ const ServicePhotos = () => {
         const draftRef = doc(db, "onboardingDrafts", draftId);
         await updateDoc(draftRef, {
           "data.hasServicePhotos": photos.length > 0,
+          "data.servicePhotos": [], // Ensure photos array is empty in main document
+          "data.photos": [], // Also clear photos field if it exists
           currentStep: "service-title",
           lastModified: new Date(),
         });
-        console.log("✅ Updated service photos step in draft");
+        console.log("✅ Updated service photos step in draft (photos in subcollection only)");
       } catch (error) {
         console.error("Error updating draft:", error);
+        // If error is due to document size, try to clean up photos first
+        if (error.message?.includes('exceeds the maximum allowed size')) {
+          try {
+            const draftRef = doc(db, "onboardingDrafts", draftId);
+            await updateDoc(draftRef, {
+              "data.servicePhotos": [],
+              "data.photos": [],
+              lastModified: new Date(),
+            });
+            console.log("✅ Cleaned up photos after size error on Next");
+            // Retry saving
+            await updateDoc(draftRef, {
+              "data.hasServicePhotos": photos.length > 0,
+              currentStep: "service-title",
+              lastModified: new Date(),
+            });
+          } catch (cleanupError) {
+            console.error("Error cleaning up photos:", cleanupError);
+          }
+        }
       }
     }
 
@@ -447,7 +526,7 @@ const ServicePhotos = () => {
     });
   };
 
-  const canProceed = photos.length >= 15;
+  const canProceed = photos.length >= 5;
 
   // Handle Save & Exit
   const handleSaveAndExit = async () => {
@@ -462,17 +541,39 @@ const ServicePhotos = () => {
 
       await savePhotosToFirebase(photos);
       
-      // Save currentStep
+      // Save currentStep and ensure photos are removed from main document
       const draftId = state.draftId || location.state?.draftId;
       if (draftId) {
         try {
           const draftRef = doc(db, "onboardingDrafts", draftId);
           await updateDoc(draftRef, {
             currentStep: "service-photos", // Save CURRENT step
+            "data.servicePhotos": [], // Ensure photos array is empty in main document
+            "data.photos": [], // Also clear photos field if it exists
             lastModified: new Date(),
           });
+          console.log("✅ Cleaned up photos from main document on Save & Exit");
         } catch (error) {
           console.error("Error saving currentStep:", error);
+          // If error is due to document size, try to clean up photos first
+          if (error.message?.includes('exceeds the maximum allowed size')) {
+            try {
+              const draftRef = doc(db, "onboardingDrafts", draftId);
+              await updateDoc(draftRef, {
+                "data.servicePhotos": [],
+                "data.photos": [],
+                lastModified: new Date(),
+              });
+              console.log("✅ Cleaned up photos after size error");
+              // Retry saving currentStep
+              await updateDoc(draftRef, {
+                currentStep: "service-photos",
+                lastModified: new Date(),
+              });
+            } catch (cleanupError) {
+              console.error("Error cleaning up photos:", cleanupError);
+            }
+          }
         }
       }
       
@@ -508,7 +609,7 @@ const ServicePhotos = () => {
             Add photos that showcase your skills
           </h1>
           <p className="text-gray-500 text-center mb-12 text-lg">
-            Add at least 15 photos.
+            Add at least 5 photos.
           </p>
 
           {/* Photo Grid Display */}
@@ -519,15 +620,15 @@ const ServicePhotos = () => {
                   <div key={photo.id} className="relative group">
                     <div className="w-full aspect-square rounded-lg overflow-hidden bg-gray-200">
                       <img
-                        src={photo.previewUrl || photo.url || photo.base64 || photo.displayUrl}
+                        src={photo.base64 || photo.url || photo.previewUrl || photo.displayUrl}
                         alt={photo.name}
                         className="w-full h-full object-cover"
                         onError={(e) => {
-                          // Try fallback URLs if preview fails
-                          if (photo.url && e.target.src !== photo.url) {
-                            e.target.src = photo.url;
-                          } else if (photo.base64 && e.target.src !== photo.base64) {
+                          // Try fallback URLs if preview fails - prioritize base64
+                          if (photo.base64 && e.target.src !== photo.base64) {
                             e.target.src = photo.base64;
+                          } else if (photo.url && e.target.src !== photo.url) {
+                            e.target.src = photo.url;
                           }
                         }}
                       />
@@ -598,7 +699,7 @@ const ServicePhotos = () => {
                 Add
               </button>
               <p className="text-sm text-gray-500">
-                {photos.length} / 15 photos added
+                {photos.length} / 5 photos added
               </p>
             </div>
           )}
@@ -726,15 +827,15 @@ const ServicePhotos = () => {
                     <div key={photo.id} className="relative group">
                       <div className="w-full aspect-square rounded-lg overflow-hidden bg-gray-200 relative">
                         <img
-                          src={photo.previewUrl || photo.url || photo.base64 || photo.displayUrl}
+                          src={photo.base64 || photo.url || photo.previewUrl || photo.displayUrl}
                           alt={photo.name}
                           className="w-full h-full object-cover"
                           onError={(e) => {
-                            // Try fallback URLs if preview fails
-                            if (photo.url && e.target.src !== photo.url) {
-                              e.target.src = photo.url;
-                            } else if (photo.base64 && e.target.src !== photo.base64) {
+                            // Try fallback URLs if preview fails - prioritize base64
+                            if (photo.base64 && e.target.src !== photo.base64) {
                               e.target.src = photo.base64;
+                            } else if (photo.url && e.target.src !== photo.url) {
+                              e.target.src = photo.url;
                             }
                           }}
                         />

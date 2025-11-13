@@ -64,7 +64,7 @@ const ServiceDescription = () => {
         const draftRef = doc(db, "onboardingDrafts", draftId);
         await updateDoc(draftRef, {
           "data.serviceDescription": description,
-          currentStep: "service-setup-complete",
+          currentStep: "service-setup-complete", // Next step
           lastModified: new Date(),
         });
         console.log("✅ Updated service description step in draft");

@@ -1543,7 +1543,7 @@ const AdminDashboard = () => {
                 {process.env.NODE_ENV === 'development' && (
                   <div className="mt-4 p-3 bg-gray-100 rounded text-xs text-left text-gray-600">
                     <p><strong>Debug Info:</strong></p>
-                    <p>Admin User ID: {currentUser?.uid || 'Not found'}</p>
+                    <p>Admin User ID: {user?.uid || 'Not found'}</p>
                     <p>Total Transactions: Check console for details</p>
                     <p>Filter: type === 'payment' && metadata.paymentType === 'host_earnings_release'</p>
                   </div>

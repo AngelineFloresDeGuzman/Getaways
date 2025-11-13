@@ -416,7 +416,27 @@ const Services = () => {
                       </span>
                       <span className="font-body text-muted-foreground"> / session</span>
                     </div>
-                    <button className="btn-primary">Book Service</button>
+                    <button 
+                      className="btn-primary"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!user) {
+                          setShowLoginModal(true);
+                          return;
+                        }
+                        navigate('/booking-request', {
+                          state: {
+                            listingId: service.id,
+                            listing: service,
+                            category: 'service',
+                            totalPrice: service.price,
+                            nightlyPrice: service.price
+                          }
+                        });
+                      }}
+                    >
+                      Reserve
+                    </button>
                   </div>
                 </div>
               </div>

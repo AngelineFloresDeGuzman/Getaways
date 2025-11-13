@@ -333,7 +333,67 @@ const HostListings = () => {
     try {
       const userDrafts = await getUserDrafts();
       
-      const transformedDrafts = userDrafts.map(draft => {
+      // Load photos from subcollection for service drafts
+      const draftsWithPhotos = await Promise.all(
+        userDrafts.map(async (draft) => {
+          const data = draft.data || {};
+          const category = draft.category || 'accommodation';
+          
+          // For service drafts, load photos from subcollection
+          let photos = [];
+          if (category === 'service') {
+            try {
+              const photosRef = collection(db, "onboardingDrafts", draft.id, "servicePhotos");
+              const photosQuery = query(photosRef, orderBy("createdAt", "asc"));
+              const photosSnap = await getDocs(photosQuery);
+              photos = photosSnap.docs.map(doc => {
+                const photoData = doc.data();
+                return {
+                  id: doc.id,
+                  name: photoData.name || 'photo',
+                  url: photoData.base64 || photoData.url,
+                  base64: photoData.base64,
+                };
+              });
+              console.log(`✅ Loaded ${photos.length} photos from subcollection for service draft ${draft.id}`);
+            } catch (photoError) {
+              console.warn(`⚠️ Could not load photos from subcollection for draft ${draft.id}:`, photoError);
+              // Fallback to old location (data.servicePhotos or data.photos)
+              photos = Array.isArray(data.servicePhotos) ? data.servicePhotos : (Array.isArray(data.photos) ? data.photos : []);
+            }
+          } else {
+            // For accommodations/experiences, try loading from subcollection first
+            try {
+              const photosRef = collection(db, "onboardingDrafts", draft.id, "photos");
+              const photosQuery = query(photosRef, orderBy("createdAt", "asc"));
+              const photosSnap = await getDocs(photosQuery);
+              if (!photosSnap.empty) {
+                photos = photosSnap.docs.map(doc => {
+                  const photoData = doc.data();
+                  return {
+                    id: doc.id,
+                    name: photoData.name || 'photo',
+                    url: photoData.base64 || photoData.url,
+                    base64: photoData.base64,
+                  };
+                });
+                console.log(`✅ Loaded ${photos.length} photos from subcollection for accommodation draft ${draft.id}`);
+              } else {
+                // Fallback to old location (data.photos)
+                photos = Array.isArray(data.photos) ? data.photos : [];
+              }
+            } catch (photoError) {
+              console.warn(`⚠️ Could not load photos from subcollection for draft ${draft.id}:`, photoError);
+              // Fallback to old location (data.photos)
+              photos = Array.isArray(data.photos) ? data.photos : [];
+            }
+          }
+          
+          return { ...draft, loadedPhotos: photos };
+        })
+      );
+      
+      const transformedDrafts = draftsWithPhotos.map(draft => {
         const data = draft.data || {};
         const category = draft.category || 'accommodation';
         const title = category === 'service' 
@@ -369,10 +429,8 @@ const HostListings = () => {
           }
         }
         
-        // Handle photos based on category
-        const photos = category === 'service'
-          ? (Array.isArray(data.servicePhotos) ? data.servicePhotos : (Array.isArray(data.photos) ? data.photos : []))
-          : (Array.isArray(data.photos) ? data.photos : []);
+        // Use loaded photos (from subcollection for services, or from data for others)
+        const photos = draft.loadedPhotos || [];
         const mainImage = photos.length > 0 && photos[0] && (photos[0].base64 || photos[0].url)
           ? (photos[0].base64 || photos[0].url)
           : null;
@@ -749,12 +807,42 @@ const HostListings = () => {
           createdAt: serverTimestamp(),
           publishedListingId: listing.id,
           published: false,
-          data: draftDataObject
+          data: {
+            ...draftDataObject,
+            // Don't store photos in main document - they'll be in subcollection
+            photos: [],
+            hasPhotos: (listingData.photos && listingData.photos.length > 0) || false
+          }
         };
 
         const draftRef = await addDoc(draftsCollection, draftData);
         draftId = draftRef.id;
         console.log('✅ Created draft for editing:', draftId);
+        
+        // Save photos to subcollection (not in main document to avoid size limits)
+        const photosToSave = listingData.photos || [];
+        if (photosToSave.length > 0) {
+          try {
+            const photosRef = collection(db, "onboardingDrafts", draftId, category === 'service' ? "servicePhotos" : "photos");
+            const savePromises = photosToSave.map(async (photo) => {
+              // Ensure photo has base64 data
+              const photoData = {
+                name: photo.name || 'photo',
+                base64: photo.base64 || photo.url || '',
+                url: photo.base64 || photo.url || '',
+                createdAt: new Date(),
+              };
+              if (photoData.base64) {
+                await addDoc(photosRef, photoData);
+              }
+            });
+            await Promise.all(savePromises);
+            console.log(`✅ Saved ${photosToSave.length} photos to subcollection for draft ${draftId}`);
+          } catch (photoError) {
+            console.error('⚠️ Error saving photos to subcollection:', photoError);
+            // Non-critical - continue even if photo save fails
+          }
+        }
       }
 
       await loadListings();
