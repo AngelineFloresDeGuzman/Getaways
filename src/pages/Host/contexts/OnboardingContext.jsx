@@ -716,6 +716,13 @@ export const OnboardingProvider = ({ children }) => {
           const data = draftData.data || {};
           const mappedData = { ...draftData };
           
+          // CRITICAL: Ensure currentStep is loaded from top-level draftData
+          // This is used to navigate to the correct page when continuing a draft
+          if (draftData.currentStep) {
+            mappedData.currentStep = draftData.currentStep;
+            console.log('📍 OnboardingContext: Loaded currentStep from Firebase:', draftData.currentStep);
+          }
+          
           // Extract propertyStructure from nested data
           if (data.propertyStructure) {
             mappedData.propertyStructure = data.propertyStructure;
@@ -814,13 +821,92 @@ export const OnboardingProvider = ({ children }) => {
           if (data.finalDetails) {
             // Store finalDetails under a temporary key for pages to access
             mappedData.finalDetails = data.finalDetails;
+            // Also extract houseRules and cancellationPolicy
+            if (data.finalDetails.houseRules) {
+              mappedData.houseRules = data.finalDetails.houseRules;
+            }
+            if (data.finalDetails.cancellationPolicy) {
+              mappedData.cancellationPolicy = data.finalDetails.cancellationPolicy;
+            }
             console.log('📍 OnboardingContext: Loaded finalDetails from Firebase:', data.finalDetails);
+          }
+          
+          // Extract photos from nested data
+          if (data.photos) {
+            mappedData.photos = data.photos;
+            console.log('📍 OnboardingContext: Loaded photos from Firebase:', data.photos.length, 'photos');
+          }
+          
+          // Extract description from nested data
+          if (data.description) {
+            mappedData.description = data.description;
+            console.log('📍 OnboardingContext: Loaded description from Firebase:', data.description.length, 'characters');
+          }
+          
+          // Extract bookingSettings from nested data
+          if (data.bookingSettings) {
+            mappedData.advanceNotice = data.bookingSettings.advanceNotice || mappedData.advanceNotice;
+            mappedData.preparationTime = data.bookingSettings.preparationTime || mappedData.preparationTime;
+            mappedData.availabilityWindow = data.bookingSettings.availabilityWindow || mappedData.availabilityWindow;
+            console.log('📍 OnboardingContext: Loaded bookingSettings from Firebase:', data.bookingSettings);
+          }
+          
+          // Extract guestSelection from nested data
+          if (data.guestSelection) {
+            // Handle both string format (new) and object format (old)
+            if (typeof data.guestSelection === 'string') {
+              mappedData.selectedGuestOption = data.guestSelection;
+            } else if (typeof data.guestSelection === 'object') {
+              mappedData.selectedGuestOption = data.guestSelection.selectedGuestOption || mappedData.selectedGuestOption;
+              mappedData.instantBook = data.guestSelection.instantBook !== undefined ? data.guestSelection.instantBook : mappedData.instantBook;
+              mappedData.guestRequirements = data.guestSelection.guestRequirements || mappedData.guestRequirements;
+            }
+            console.log('📍 OnboardingContext: Loaded guestSelection from Firebase:', data.guestSelection);
+          }
+          
+          // Extract discounts from nested data
+          if (data.discounts) {
+            mappedData.discounts = {
+              ...mappedData.discounts,
+              ...data.discounts
+            };
+            console.log('📍 OnboardingContext: Loaded discounts from Firebase:', data.discounts);
+          }
+          
+          // Extract highlights (makeItStandOut) from nested data
+          if (data.highlights) {
+            mappedData.highlights = data.highlights;
+            console.log('📍 OnboardingContext: Loaded highlights from Firebase:', data.highlights.length, 'highlights');
+          }
+          
+          // Extract category from top-level or nested data
+          if (draftData.category) {
+            mappedData.category = draftData.category;
+            console.log('📍 OnboardingContext: Loaded category from Firebase:', draftData.category);
+          }
+          
+          // Extract propertyType from top-level or nested data
+          if (draftData.propertyType) {
+            mappedData.propertyType = draftData.propertyType;
+            console.log('📍 OnboardingContext: Loaded propertyType from Firebase:', draftData.propertyType);
+          } else if (data.propertyType) {
+            mappedData.propertyType = data.propertyType;
+            console.log('📍 OnboardingContext: Loaded propertyType from nested data:', data.propertyType);
           }
           
           // Load the mapped draft data AND set the draftId
           dispatch({ type: ACTIONS.LOAD_DRAFT, payload: mappedData });
           dispatch({ type: ACTIONS.SET_DRAFT_ID, payload: draftId });
-          console.log('Draft loaded and draftId set to:', draftId); // Debug log
+          console.log('📍 OnboardingContext: Draft loaded and draftId set to:', draftId);
+          console.log('📍 OnboardingContext: Loaded data summary:', {
+            category: mappedData.category,
+            propertyType: mappedData.propertyType,
+            photosCount: mappedData.photos?.length || 0,
+            hasDescription: !!mappedData.description,
+            hasTitle: !!mappedData.title,
+            hasPricing: !!mappedData.weekdayPrice,
+            hasLocation: !!mappedData.locationData?.city
+          });
         }
         
         return draftData;

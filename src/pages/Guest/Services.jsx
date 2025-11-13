@@ -433,7 +433,6 @@ const Services = () => {
 
               {filteredServices.length > 0 && (
                 <div className="text-center mt-12">
-                  <button className="btn-outline px-8 py-3">Load More Services</button>
                 </div>
               )}
             </>

@@ -442,7 +442,6 @@ const Experiences = () => {
 
               {filteredExperiences.length > 0 && (
                 <div className="text-center mt-12">
-                  <button className="btn-outline px-8 py-3">Load More Experiences</button>
                 </div>
               )}
             </>

@@ -528,14 +528,19 @@ const AccommodationDetail = () => {
   }, [user, accommodation?.id]);
 
   // Support both old format (image field) and new format (photos array)
+  // Use base64 for display (Firestore storage, not Firebase Storage)
   const mainImage = accommodation?.image || 
                     (accommodation?.photos?.[0]?.base64 || accommodation?.photos?.[0]?.url) || 
                     (accommodation?.images?.[0]) ||
                     "fallback.jpg";
   
-  // Get all images for gallery
+  // Get all images for gallery - use base64 for display
   const allImages = accommodation?.photos || accommodation?.images || [];
-  const imageUrls = allImages.map(img => typeof img === 'string' ? img : (img?.base64 || img?.url)).filter(Boolean);
+  const imageUrls = allImages.map(img => {
+    if (typeof img === 'string') return img;
+    // Use base64 first, then url (if not blob), then fallback
+    return img?.base64 || (img?.url && !img?.url.startsWith('blob:') ? img.url : null);
+  }).filter(Boolean);
   if (!imageUrls.includes(mainImage) && mainImage !== "fallback.jpg") {
     imageUrls.unshift(mainImage); // Add main image to start if not already included
   }

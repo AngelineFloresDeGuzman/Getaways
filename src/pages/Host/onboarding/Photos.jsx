@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { Upload, X, Camera, Trash2, Plus, Images, MoreHorizontal, GripVertical } from 'lucide-react';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
 import { useSaveAndExitWithContext } from './hooks/useSaveAndExit.js';
-import { db } from '@/lib/firebase';
+import { db, auth } from '@/lib/firebase';
 import { doc, updateDoc, getDoc } from 'firebase/firestore';
 import OnboardingHeader from './components/OnboardingHeader';
 import OnboardingFooter from './components/OnboardingFooter';
@@ -280,11 +280,12 @@ const Photos = () => {
             const photosFromDraft = draftData.data?.photos || [];
             
             if (photosFromDraft.length > 0) {
-              // Convert base64 photos to display format
+              // Convert photos to display format - use base64 for display (Firestore storage)
               const displayPhotos = photosFromDraft.map(photo => ({
                 id: photo.id,
                 name: photo.name,
-                url: photo.base64 || photo.url,
+                // Use base64 as URL for display (Firestore storage, not Firebase Storage)
+                url: photo.base64 || (photo.url && !photo.url.startsWith('blob:') ? photo.url : null),
                 base64: photo.base64
               }));
               
@@ -329,7 +330,8 @@ const Photos = () => {
             id: photo.id,
             name: photo.name,
             base64: photo.file ? await fileToBase64(photo.file) : photo.base64, // Use existing base64 if available
-            url: photo.url || photo.base64 // Keep URL for display
+              // Use base64 as URL for display (Firestore storage, not Firebase Storage)
+              url: photo.base64 || (photo.url && !photo.url.startsWith('blob:') ? photo.url : null)
           }))
         );
         actions.updatePhotos(photosWithBase64);
@@ -366,16 +368,89 @@ const Photos = () => {
     setPendingPhotos([]); // Start with empty pending photos
   };
 
+  // Helper to convert blob URL to base64
+  const blobUrlToBase64 = async (blobUrl) => {
+    try {
+      const response = await fetch(blobUrl);
+      const blob = await response.blob();
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    } catch (error) {
+      console.error('Error converting blob URL to base64:', error);
+      throw error;
+    }
+  };
+
   // Handle confirming the pending photos
   const handleConfirmPhotos = async () => {
-    const updatedPhotos = [...uploadedPhotos, ...pendingPhotos];
+    try {
+      // Convert blob URLs to base64 for storage in Firestore
+      const photosWithBase64 = await Promise.all(
+        pendingPhotos.map(async (photo) => {
+          // If photo has a file, convert it to base64
+          if (photo.file) {
+            const base64 = await fileToBase64(photo.file);
+            return {
+              id: photo.id,
+              name: photo.name,
+              url: base64, // Use base64 as URL for display
+              base64: base64 // Store base64 for Firestore
+            };
+          }
+          
+          // If photo has a blob URL, convert it to base64
+          if (photo.url && photo.url.startsWith('blob:')) {
+            try {
+              const base64 = await blobUrlToBase64(photo.url);
+              return {
+                id: photo.id,
+                name: photo.name,
+                url: base64, // Use base64 as URL for display
+                base64: base64 // Store base64 for Firestore
+              };
+            } catch (error) {
+              console.error('Error converting blob URL to base64:', error);
+              return photo; // Return as-is if conversion fails
+            }
+          }
+          
+          // If photo already has base64, use it
+          if (photo.base64) {
+            return {
+              id: photo.id,
+              name: photo.name,
+              url: photo.base64,
+              base64: photo.base64
+            };
+          }
+          
+          return photo;
+        })
+      );
+      
+      const updatedPhotos = [...uploadedPhotos, ...photosWithBase64];
     await updatePhotos(updatedPhotos);
     setShowPreviewModal(false);
     setPendingPhotos([]);
+      
+      // Clean up blob URLs
+      pendingPhotos.forEach(photo => {
+        if (photo.url && photo.url.startsWith('blob:')) {
+          URL.revokeObjectURL(photo.url);
+        }
+      });
     
     // Update current step but stay on photos page (no navigation)
     if (actions.setCurrentStep) {
       await actions.setCurrentStep('photos');
+      }
+    } catch (error) {
+      console.error('Error confirming photos:', error);
+      alert('Error processing photos. Please try again.');
     }
   };
 

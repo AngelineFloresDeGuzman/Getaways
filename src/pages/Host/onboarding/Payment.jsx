@@ -2,13 +2,83 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
 import { auth, db } from '@/lib/firebase';
-import { doc, getDoc, updateDoc, deleteDoc, serverTimestamp, writeBatch } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, deleteDoc, serverTimestamp, writeBatch, collection, getDocs } from 'firebase/firestore';
 import imageCompression from 'browser-image-compression';
 import OnboardingHeader from './components/OnboardingHeader';
 import { Lock, Shield, FileText, CheckCircle, Link2, ExternalLink, Wallet, AlertCircle, Award } from 'lucide-react';
 import { createListing } from '@/pages/Host/services/listing';
 import { updateSessionStorageBeforeNav } from './utils/sessionStorageHelper';
 import { getWalletBalance, hasSufficientBalance, initializeWallet } from '@/pages/Common/services/getpayService';
+import { getAdminPayPalEmail } from '@/pages/Admin/services/platformSettingsService';
+import { PayPalScriptProvider, PayPalButtons, usePayPalScriptReducer } from '@paypal/react-paypal-js';
+
+// PayPal Client ID
+const PAYPAL_CLIENT_ID = import.meta.env.VITE_PAYPAL_CLIENT_ID || '';
+const HAS_VALID_PAYPAL_CLIENT_ID = PAYPAL_CLIENT_ID && PAYPAL_CLIENT_ID !== 'test' && PAYPAL_CLIENT_ID.length > 10;
+
+// PayPal Payment Button Component
+const PayPalPaymentButton = ({ amount, planName, onPayment, disabled }) => {
+  const [{ isPending, isResolved }] = usePayPalScriptReducer();
+  
+  if (!HAS_VALID_PAYPAL_CLIENT_ID) {
+    return (
+      <div className="text-center py-4 px-4 bg-primary/10 border border-primary/30 rounded-lg">
+        <p className="text-sm text-primary font-semibold mb-1">
+          PayPal is not configured
+        </p>
+        <p className="text-xs text-primary/90">
+          Please set VITE_PAYPAL_CLIENT_ID in your .env file
+        </p>
+      </div>
+    );
+  }
+  
+  return (
+    <>
+      {isPending && <div className="text-center py-4 text-gray-600">Loading PayPal...</div>}
+      {isResolved && (
+        <PayPalButtons
+          disabled={disabled || isPending}
+          style={{
+            layout: 'vertical',
+            color: 'blue',
+            shape: 'rect',
+            label: 'paypal'
+          }}
+          createOrder={(data, actions) => {
+            return actions.order.create({
+              purchase_units: [
+                {
+                  amount: {
+                    value: amount.toFixed(2), // Amount is already in PHP
+                    currency_code: 'PHP'
+                  },
+                  description: `${planName} - ₱${amount.toLocaleString()}`
+                }
+              ]
+            });
+          }}
+          onApprove={(data, actions) => {
+            return actions.order.capture().then((details) => {
+              onPayment(details);
+            }).catch((err) => {
+              console.error('PayPal capture error:', err);
+              alert('Payment failed: ' + (err?.message || 'Unknown error'));
+            });
+          }}
+          onError={(err) => {
+            console.error('PayPal error:', err);
+            alert('PayPal payment failed: ' + (err?.message || 'Unknown error'));
+          }}
+          onCancel={(data) => {
+            console.log('PayPal payment cancelled:', data);
+            alert('Payment was cancelled');
+          }}
+        />
+      )}
+    </>
+  );
+};
 
 // GetPay Payment Button Component
 const GetPayPaymentButton = ({ amount, planName, onPayment, disabled, userId, paymentMethod, onPaymentMethodChange }) => {
@@ -194,7 +264,9 @@ const Payment = () => {
   const [uploadProgress, setUploadProgress] = useState('');
   const [merchantPayPalEmail, setMerchantPayPalEmail] = useState('');
   const [isMerchantAccount, setIsMerchantAccount] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState('wallet'); // 'wallet' or 'points'
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState('wallet'); // 'wallet', 'points', or 'paypal'
+  const [paymentProvider, setPaymentProvider] = useState('getpay'); // 'getpay' or 'paypal' - top level payment provider
   const isPublishingRef = useRef(false); // Prevent duplicate publishing
   const isAutoPublishingRef = useRef(false); // Track if publishing from checkPaymentRequirement
 
@@ -535,6 +607,139 @@ const Payment = () => {
     checkPaymentRequirement();
   }, [isEditMode, listingId, draftId, navigate]);
 
+  // Helper function to ensure we have a valid draftId and save currentStep to Firebase
+  const ensureDraftAndSave = async (targetStep = 'payment') => {
+    if (!auth.currentUser) {
+      throw new Error('User not authenticated');
+    }
+    
+    let draftIdToUse = state?.draftId || location.state?.draftId;
+    
+    // If draftId is temp, reset it to find/create a real one
+    if (draftIdToUse && draftIdToUse.startsWith('temp_')) {
+      console.log('📍 Payment: Found temp ID, resetting to find/create real draft');
+      draftIdToUse = null;
+    }
+    
+    // If user is authenticated, ensure we have a draft
+    if (!draftIdToUse && state.user?.uid) {
+      try {
+        const { getUserDrafts, saveDraft } = await import('@/pages/Host/services/draftService');
+        const drafts = await getUserDrafts();
+        
+        if (drafts.length > 0) {
+          // Use the most recent draft
+          draftIdToUse = drafts[0].id;
+          console.log('📍 Payment: Using existing draft:', draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        } else {
+          // No drafts exist, create a new one
+          console.log('📍 Payment: No existing drafts, creating new draft');
+          const newDraftData = {
+            currentStep: targetStep,
+            category: state.category || 'accommodation',
+            data: {}
+          };
+          draftIdToUse = await saveDraft(newDraftData, null);
+          console.log('📍 Payment: ✅ Created new draft:', draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        }
+      } catch (error) {
+        console.error('📍 Payment: Error finding/creating draft:', error);
+        throw error;
+      }
+    }
+    
+    // Save to Firebase if we have a valid draftId
+    if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
+      try {
+        const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
+        const docSnap = await getDoc(draftRef);
+        
+        if (docSnap.exists()) {
+          // Update existing document - save currentStep
+          await updateDoc(draftRef, {
+            currentStep: targetStep,
+            lastModified: new Date()
+          });
+          console.log('📍 Payment: ✅ Saved currentStep to Firebase (currentStep:', targetStep, ')');
+        } else {
+          // Document doesn't exist, create it
+          console.log('📍 Payment: Document not found, creating new one');
+          const { saveDraft } = await import('@/pages/Host/services/draftService');
+          
+          const newDraftData = {
+            currentStep: targetStep,
+            category: state.category || 'accommodation',
+            data: {}
+          };
+          draftIdToUse = await saveDraft(newDraftData, draftIdToUse);
+          console.log('📍 Payment: ✅ Created new draft with currentStep:', draftIdToUse);
+          if (actions.setDraftId) {
+            actions.setDraftId(draftIdToUse);
+          }
+        }
+        return draftIdToUse;
+      } catch (error) {
+        console.error('📍 Payment: ❌ Error saving to Firebase:', error);
+        throw error;
+      }
+    } else if (state.user?.uid) {
+      console.warn('📍 Payment: ⚠️ User authenticated but no valid draftId after ensureDraftAndSave');
+      throw new Error('Failed to create draft for authenticated user');
+    } else {
+      console.warn('📍 Payment: ⚠️ User not authenticated, cannot save to Firebase');
+      return null;
+    }
+  };
+
+  // Save & Exit handler
+  const handleSaveAndExitClick = async () => {
+    if (!auth.currentUser) {
+      alert('Please log in to save your progress');
+      return;
+    }
+    
+    try {
+      console.log('📍 Payment: Save & Exit clicked');
+      
+      // Set current step before saving so "Continue Editing" returns to this page
+      if (actions.setCurrentStep) {
+        console.log('📍 Payment: Setting currentStep to payment');
+        actions.setCurrentStep('payment');
+      }
+      
+      // Save currentStep to Firebase
+      let draftIdToUse;
+      try {
+        draftIdToUse = await ensureDraftAndSave('payment');
+        console.log('📍 Payment: ✅ Saved currentStep to Firebase on Save & Exit');
+      } catch (saveError) {
+        console.error('📍 Payment: Error saving to Firebase on Save & Exit:', saveError);
+        alert('Error saving progress: ' + saveError.message);
+        return;
+      }
+      
+      // Update sessionStorage before Save & Exit navigation
+      updateSessionStorageBeforeNav('payment');
+      
+      // Navigate to listings tab
+      navigate('/host/listings', { 
+        state: { 
+          message: 'Draft saved successfully!',
+          draftSaved: true 
+        }
+      });
+    } catch (error) {
+      console.error('Error in Payment save:', error);
+      alert('Failed to save progress: ' + error.message);
+    }
+  };
+
   // Set current step when component mounts
   useEffect(() => {
     if (actions.setCurrentStep && state.currentStep !== 'payment') {
@@ -709,6 +914,32 @@ const Payment = () => {
     return compressedPhotos;
   };
 
+  const loadServicePhotosFromSubcollection = async (draftIdToUse) => {
+    if (!draftIdToUse) return [];
+    try {
+      const photosRef = collection(db, 'onboardingDrafts', draftIdToUse, 'servicePhotos');
+      const photosSnap = await getDocs(photosRef);
+      if (photosSnap.empty) {
+        return [];
+      }
+      const loadedPhotos = photosSnap.docs.map((docSnap) => {
+        const photoData = docSnap.data() || {};
+        return {
+          id: docSnap.id,
+          name: photoData.name || 'photo',
+          url: photoData.base64 || photoData.url || '',
+          base64: photoData.base64 || '',
+          firestoreId: docSnap.id,
+        };
+      }).filter(photo => !!photo.base64);
+      console.log('📍 Payment: Loaded service photos from subcollection:', loadedPhotos.length);
+      return loadedPhotos;
+    } catch (error) {
+      console.error('Error loading service photos from subcollection:', error);
+      return [];
+    }
+  };
+
   // Convert draft to listing and publish it
   const publishListing = async () => {
     if (!draftId || !auth.currentUser) {
@@ -806,12 +1037,22 @@ const Payment = () => {
       const locationData = category === 'service' 
         ? (data.serviceLocation || data.locationData || {})
         : (data.locationData || {});
-      const photos = category === 'service'
+      let photos = category === 'service'
         ? (data.servicePhotos || data.photos || [])
         : (data.photos || []);
       const pricing = category === 'service'
         ? (data.servicePricing || data.pricing || {})
         : (data.pricing || {});
+
+      if (category === 'service') {
+        const hasValidBase64 = Array.isArray(photos) && photos.some(photo => photo?.base64);
+        if (!hasValidBase64) {
+          const subcollectionPhotos = await loadServicePhotosFromSubcollection(draftId);
+          if (subcollectionPhotos.length > 0) {
+            photos = subcollectionPhotos;
+          }
+        }
+      }
       
       // Debug: Log photos data to help diagnose missing images issue
       console.log('📍 Payment: Photos from draft:', photos);
@@ -871,47 +1112,112 @@ const Payment = () => {
         listingDataWithoutPhotos.images = []; // Will be updated after upload
       }
 
-      // Compress photos first (to reduce Firestore document size)
-      console.log('📦 Compressing photos for Firestore storage...');
-      console.log('📦 Photos before compression:', photos.length);
-      console.log('📦 First photo before compression:', photos[0] ? { id: photos[0].id, name: photos[0].name, hasBase64: !!photos[0].base64, keys: Object.keys(photos[0]) } : 'no photos');
+      // Convert blob URLs to base64 for Firestore storage (no Firebase Storage available)
+      console.log('📦 Processing photos for Firestore storage...');
+      console.log('📦 Photos to process:', photos.length);
       
-      // Limit to first 8 photos to stay well under 1MB document limit
-      const photosToCompress = photos.slice(0, 8);
-      if (photos.length > 8) {
-        console.warn(`⚠️ Limiting to 8 photos (out of ${photos.length}) to stay under Firestore 1MB limit`);
-        console.warn(`⚠️ Each photo will be compressed to ~50KB, total ~400KB (well under 1MB limit)`);
-      }
-      
-      const compressedPhotos = await compressPhotosForStorage(photosToCompress);
-      console.log(`✅ Compressed ${compressedPhotos.length} photos`);
-      console.log('📦 First photo after compression:', compressedPhotos[0] ? { id: compressedPhotos[0].id, name: compressedPhotos[0].name, hasBase64: !!compressedPhotos[0].base64 } : 'no photos');
-      
-      // Calculate total size to verify it's under 1MB
-      const photosSize = compressedPhotos.reduce((sum, photo) => {
-        return sum + (photo.base64 ? (photo.base64.length * 3) / 4 : 0);
-      }, 0);
-      
-      // Estimate other document fields size (rough calculation)
-      const otherDataSize = JSON.stringify(listingDataWithoutPhotos).length;
-      const estimatedTotalSize = photosSize + otherDataSize;
-      const estimatedTotalMB = estimatedTotalSize / (1024 * 1024);
-      
-      console.log(`📊 Photo size: ${(photosSize / (1024 * 1024)).toFixed(2)}MB`);
-      console.log(`📊 Other data size: ${(otherDataSize / 1024).toFixed(2)}KB`);
-      console.log(`📊 Estimated total document size: ${estimatedTotalMB.toFixed(2)}MB`);
-      
-      if (estimatedTotalMB > 0.95) { // Very close to 1MB limit
-        console.warn(`⚠️ Warning: Estimated total size (${estimatedTotalMB.toFixed(2)}MB) is very close to 1MB limit`);
-        // Reduce photos further if needed
-        if (compressedPhotos.length > 5) {
-          console.warn(`⚠️ Reducing photos from ${compressedPhotos.length} to 5 to ensure under limit`);
-          compressedPhotos.splice(5);
+      // Helper to convert blob URL to base64
+      const blobUrlToBase64 = async (blobUrl) => {
+        try {
+          const response = await fetch(blobUrl);
+          const blob = await response.blob();
+          return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+        } catch (error) {
+          console.error('Error converting blob URL to base64:', error);
+          throw error;
         }
-      }
+      };
       
-      // Store photos in listing document - ONLY ONCE in photos array
-      // Don't duplicate in image/images to save space (saves ~66% of photo data!)
+      // Helper to convert File to base64
+      const fileToBase64 = (file) => {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.readAsDataURL(file);
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = error => reject(error);
+        });
+      };
+      
+      // Process each photo - convert blob URLs to base64
+      const photosWithBase64 = await Promise.all(
+        photos.map(async (photo, index) => {
+          try {
+            // If photo already has valid base64 (data URL), use it
+            if (photo.base64 && photo.base64.startsWith('data:image/')) {
+              return {
+                id: photo.id,
+                name: photo.name,
+                url: photo.base64, // Use base64 as URL for display
+                base64: photo.base64
+              };
+            }
+            
+            // If photo has a file object, convert to base64
+            if (photo.file) {
+              const base64 = await fileToBase64(photo.file);
+              return {
+                id: photo.id,
+                name: photo.name,
+                url: base64, // Use base64 as URL for display
+                base64: base64
+              };
+            }
+            
+            // If photo has a blob URL, convert it to base64
+            if (photo.url && photo.url.startsWith('blob:')) {
+              const base64 = await blobUrlToBase64(photo.url);
+              return {
+                id: photo.id,
+                name: photo.name,
+                url: base64, // Use base64 as URL for display
+                base64: base64
+              };
+            }
+            
+            // If base64 field contains blob URL string, try to convert it
+            if (photo.base64 && photo.base64.startsWith('blob:')) {
+              const base64 = await blobUrlToBase64(photo.base64);
+              return {
+                id: photo.id,
+                name: photo.name,
+                url: base64,
+                base64: base64
+              };
+            }
+            
+            // If photo has a regular URL (not blob), keep it but try to get base64 if possible
+            if (photo.url && !photo.url.startsWith('blob:') && !photo.url.startsWith('data:')) {
+              // Regular URL - keep as-is but ensure base64 is set
+              return {
+                id: photo.id,
+                name: photo.name,
+                url: photo.url,
+                base64: photo.base64 || photo.url // Use URL as fallback if no base64
+              };
+            }
+            
+            // Return photo as-is if no conversion needed
+            return photo;
+          } catch (error) {
+            console.error(`❌ Error processing photo ${index + 1}:`, error);
+            // Return photo as-is if conversion fails
+            return photo;
+          }
+        })
+      );
+      
+      console.log(`✅ Processed ${photosWithBase64.length} photos`);
+      
+      // Compress photos to reduce Firestore document size
+      const compressedPhotos = await compressPhotosForStorage(photosWithBase64.slice(0, 8));
+      console.log(`✅ Compressed ${compressedPhotos.length} photos`);
+      
+      // Store photos in listing document with base64 (Firestore storage)
       listingDataWithoutPhotos.photos = compressedPhotos;
       
       // Debug: Log photos being saved
@@ -1141,6 +1447,121 @@ const Payment = () => {
     }
   };
 
+  // Handle PayPal direct payment for subscription
+  const handlePayPalPayment = async (paypalDetails) => {
+    if (!auth.currentUser) {
+      alert('You must be logged in to make a payment');
+      return;
+    }
+
+    const planPrice = selectedPlan === 'yearly' ? 9999 : 999;
+    setIsProcessing(true);
+    setUploadProgress('Processing PayPal payment...');
+    
+    try {
+      console.log('✅ PayPal payment approved:', paypalDetails);
+      
+      // Verify payment amount matches
+      const paidAmountPHP = parseFloat(paypalDetails.purchase_units[0]?.payments?.captures[0]?.amount?.value || 0);
+      const expectedAmountPHP = planPrice; // planPrice is already in PHP
+      if (Math.abs(paidAmountPHP - expectedAmountPHP) > 0.01) { // Allow 1 centavo difference for rounding
+        setIsProcessing(false);
+        setUploadProgress('');
+        alert(`Payment amount mismatch. Expected ₱${expectedAmountPHP.toFixed(2)}, received ₱${paidAmountPHP.toFixed(2)}`);
+        return;
+      }
+
+      // Update user payment status
+      const userRef = doc(db, 'users', auth.currentUser.uid);
+      const userSnap = await getDoc(userRef);
+      if (userSnap.exists()) {
+        const userData = userSnap.data();
+        const existingPayment = userData.payment || {};
+        
+        // Extract PayPal order and transaction IDs from the response
+        // paypalDetails.id is the order ID
+        // paypalDetails.purchase_units[0].payments.captures[0].id is the transaction/capture ID
+        const paypalOrderId = paypalDetails.id || null;
+        const paypalTransactionId = paypalDetails.purchase_units?.[0]?.payments?.captures?.[0]?.id || null;
+        
+        // Build payment object, only including defined values
+        const paymentUpdate = {
+          ...existingPayment,
+          type: selectedPlan,
+          startDate: serverTimestamp(),
+          status: 'active',
+          lastPaymentDate: serverTimestamp(),
+          method: 'paypal'
+        };
+        
+        // Only add PayPal IDs if they exist
+        if (paypalOrderId) {
+          paymentUpdate.paypalOrderId = paypalOrderId;
+        }
+        if (paypalTransactionId) {
+          paymentUpdate.paypalTransactionId = paypalTransactionId;
+        }
+        
+        await updateDoc(userRef, {
+          payment: paymentUpdate
+        });
+        console.log('✅ PayPal payment info saved to user document', { paypalOrderId, paypalTransactionId });
+      }
+
+      // Publish/Update the listing
+      setUploadProgress(isEditMode ? 'Updating your listing...' : 'Creating your listing...');
+      console.log('📤 Starting listing publication/update process...');
+      isAutoPublishingRef.current = false;
+      const listingId = await publishListing();
+      console.log('✅ PayPal payment processed and listing ' + (isEditMode ? 'updated' : 'published') + ':', listingId);
+
+      // Award points for first listing (only for new listings, not edits)
+      if (!isEditMode && auth.currentUser && listingId) {
+        try {
+          const { awardPointsForFirstListing, awardMilestonePoints } = await import('@/pages/Host/services/pointsService');
+          await awardPointsForFirstListing(auth.currentUser.uid, listingId);
+          
+          const { collection, query, where, getDocs } = await import('firebase/firestore');
+          const listingsRef = collection(db, 'listings');
+          const userListingsQuery = query(
+            listingsRef,
+            where('ownerId', '==', auth.currentUser.uid),
+            where('status', '==', 'active')
+          );
+          const listingsSnapshot = await getDocs(userListingsQuery);
+          const listingCount = listingsSnapshot.size;
+          
+          if ([3, 5, 10].includes(listingCount)) {
+            await awardMilestonePoints(auth.currentUser.uid, 'listings', listingCount);
+          }
+        } catch (pointsError) {
+          console.error('Error awarding points for listing:', pointsError);
+        }
+      }
+
+      updateSessionStorageBeforeNav('payment');
+      setUploadProgress('Finalizing...');
+
+      navigate('/host/listings', {
+        state: {
+          message: isEditMode 
+            ? 'Payment successful! Your listing has been updated.'
+            : 'Payment successful! Your listing has been published.',
+          listingPublished: !isEditMode,
+          listingUpdated: isEditMode,
+          listingId: listingId,
+          onboardingCompleted: true,
+          paymentMethod: 'paypal'
+        }
+      });
+    } catch (error) {
+      console.error('❌ Error processing PayPal payment:', error);
+      setIsProcessing(false);
+      setUploadProgress('');
+      alert(`Error processing payment: ${error.message}\n\nPlease try again or contact support if the issue persists.`);
+    }
+  };
+
   // Handle GetPay wallet or points payment for subscription
   const handleGetPayPayment = async () => {
     if (!auth.currentUser) {
@@ -1327,7 +1748,7 @@ const Payment = () => {
   };
 
   return (
-    <>
+    <PayPalScriptProvider options={{ clientId: PAYPAL_CLIENT_ID, currency: 'PHP' }}>
       <style>{`
         .custom-scrollbar::-webkit-scrollbar {
           width: 6px;
@@ -1374,7 +1795,7 @@ const Payment = () => {
         }
       `}</style>
       <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-muted/30">
-        <OnboardingHeader />
+        <OnboardingHeader customSaveAndExit={handleSaveAndExitClick} />
         <main className="pt-20 px-4 sm:px-6 lg:px-8 pb-32">
         <div className="max-w-5xl mx-auto space-y-10">
           {/* Header */}
@@ -1619,10 +2040,59 @@ const Payment = () => {
                   <span className="bg-primary text-white text-sm font-bold px-4 py-1.5 rounded-full">Step 3</span>
                   <h2 className="text-2xl font-bold text-gray-900">Complete Payment & Publish Listing</h2>
                 </div>
-                <p className="text-sm text-gray-600">Pay for your subscription using your GetPay wallet to publish your listing</p>
+                <p className="text-sm text-gray-600">Choose your payment method to complete your subscription</p>
+              </div>
+              
+              {/* Payment Provider Selection */}
+              <div className="mb-6">
+                <label className="block text-sm font-semibold text-gray-900 mb-3">Select Payment Method</label>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <label className={`flex items-center gap-3 p-4 border-2 rounded-lg cursor-pointer transition-all ${
+                    paymentProvider === 'getpay' 
+                      ? 'border-primary bg-primary/5 shadow-md' 
+                      : 'border-gray-200 hover:border-primary/50 bg-white'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="paymentProvider"
+                      value="getpay"
+                      checked={paymentProvider === 'getpay'}
+                      onChange={(e) => setPaymentProvider(e.target.value)}
+                      className="w-4 h-4 text-primary"
+                    />
+                    <Wallet className="w-5 h-5 text-primary" />
+                    <div className="flex-1">
+                      <div className="font-medium text-gray-900">GetPay E-Wallet</div>
+                      <div className="text-xs text-gray-600">Pay using your GetPay wallet balance or points</div>
+                    </div>
+                  </label>
+                  
+                  <label className={`flex items-center gap-3 p-4 border-2 rounded-lg cursor-pointer transition-all ${
+                    paymentProvider === 'paypal' 
+                      ? 'border-primary bg-primary/5 shadow-md' 
+                      : 'border-gray-200 hover:border-primary/50 bg-white'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="paymentProvider"
+                      value="paypal"
+                      checked={paymentProvider === 'paypal'}
+                      onChange={(e) => setPaymentProvider(e.target.value)}
+                      className="w-4 h-4 text-primary"
+                    />
+                    <div className="flex items-center justify-center w-10 h-10 rounded bg-[#0070ba]">
+                      <span className="text-white font-bold text-sm">P</span>
+                    </div>
+                    <div className="flex-1">
+                      <div className="font-medium text-gray-900">PayPal Direct</div>
+                      <div className="text-xs text-gray-600">Pay directly via PayPal</div>
+                    </div>
+                  </label>
+                </div>
               </div>
               
               {/* Payment Completion Section - GetPay Wallet Payment */}
+              {paymentProvider === 'getpay' && (
               <div className="border-2 border-primary/30 rounded-xl p-6 bg-gradient-to-br from-primary/10 via-primary/5 to-white shadow-xl">
                 {/* Info about GetPay Payment */}
                 <div className="mb-6 p-4 bg-blue-50 border-2 border-blue-300 rounded-lg">
@@ -1671,6 +2141,53 @@ const Payment = () => {
                   </div>
                 </div>
               </div>
+              )}
+              
+              {/* Payment Completion Section - PayPal Direct Payment */}
+              {paymentProvider === 'paypal' && (
+                <div className="border-2 border-primary/30 rounded-xl p-6 bg-gradient-to-br from-primary/10 via-primary/5 to-white shadow-xl">
+                  {/* Info about PayPal Payment */}
+                  <div className="mb-6 p-4 bg-blue-50 border-2 border-blue-300 rounded-lg">
+                    <div className="flex items-start gap-3">
+                      <div className="text-blue-600 font-bold text-lg">ℹ️</div>
+                      <div className="flex-1">
+                        <p className="text-sm font-bold text-blue-900 mb-2">
+                          PayPal Direct Payment
+                        </p>
+                        <p className="text-xs text-blue-800 mb-2">
+                          Pay directly via PayPal. Your payment will be processed securely through PayPal.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Progress indicator */}
+                  {isProcessing && (
+                    <div className="mb-5 p-5 bg-primary/10 border-2 border-primary/30 rounded-lg shadow-md">
+                      <div className="flex items-center gap-4">
+                        <div className="animate-spin rounded-full h-7 w-7 border-3 border-primary border-t-transparent"></div>
+                        <div className="flex-1">
+                          <p className="text-sm font-bold text-gray-900">Processing your payment and listing...</p>
+                          {uploadProgress && (
+                            <p className="text-xs text-gray-700 mt-2 font-medium">{uploadProgress}</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  <div className="bg-white/90 backdrop-blur-sm rounded-lg p-5 border-2 border-gray-200 shadow-md">
+                    <div className="w-full max-w-md mx-auto">
+                      <PayPalPaymentButton
+                        amount={subscriptionPlans.find(p => p.id === selectedPlan)?.price || 0}
+                        planName={subscriptionPlans.find(p => p.id === selectedPlan)?.name || 'Subscription'}
+                        onPayment={handlePayPalPayment}
+                        disabled={!canProceed || isProcessing}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1694,7 +2211,7 @@ const Payment = () => {
         </div>
       </main>
       </div>
-    </>
+    </PayPalScriptProvider>
   );
 };
 

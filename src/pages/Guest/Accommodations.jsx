@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import Navigation from '@/components/Navigation';
+import { calculateTotalPrice } from '@/pages/Guest/services/bookingService';
 import Footer from '@/components/Footer';
 import Loading from '@/components/Loading';
 import Recommendations from '@/components/Recommendations';
@@ -106,7 +107,13 @@ const Accommodations = () => {
                             : locationData.city || locationData.country || 'No location');
                     
                     // Get main price (weekday price as default)
-                    const price = data.price || pricing.weekdayPrice || pricing.basePrice || 0;
+                                        // Use calculateTotalPrice for accurate price display (matches booking-request)
+                                        let price = 0;
+                                        if (filters.checkIn && filters.checkOut && pricing) {
+                                            price = calculateTotalPrice(pricing, filters.checkIn, filters.checkOut, filters.guests || 1);
+                                        } else {
+                                            price = pricing.weekdayPrice || pricing.basePrice || 0;
+                                        }
                     
                     // Flatten amenities for display (combine all categories)
                     const amenitiesList = [
@@ -569,7 +576,25 @@ const Accommodations = () => {
                                                     {" "} / night
                                                 </span>
                                             </div>
-                                            <button className="btn-primary cursor-pointer">
+                                            <button
+                                                className="btn-primary cursor-pointer"
+                                                onClick={e => {
+                                                    e.stopPropagation();
+                                                    navigate('/booking-request', {
+                                                        state: {
+                                                            listingId: accommodation.id,
+                                                            listing: accommodation,
+                                                            checkInDate: filters.checkIn,
+                                                            checkOutDate: filters.checkOut,
+                                                            guests: filters.guests || 1,
+                                                            totalPrice: accommodation.price,
+                                                            nightlyPrice: accommodation.weekdayPrice,
+                                                            couponCode: filters.couponCode || '',
+                                                            couponDiscount: filters.couponDiscount || 0
+                                                        }
+                                                    });
+                                                }}
+                                            >
                                                 Book Now
                                             </button>
                                         </div>
@@ -581,9 +606,6 @@ const Accommodations = () => {
                     </div>
 
                     <div className="text-center mt-12">
-                        <button className="btn-outline px-8 py-3 cursor-pointer">
-                            Load More Accommodations
-                        </button>
                     </div>
                 </div>
             </section>

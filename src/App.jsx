@@ -94,6 +94,7 @@ import Help from "./pages/Common/Help";
 import Notifications from "./pages/Guest/Notifications";
 import GuestPolicies from "./pages/Guest/Policies";
 import HostPolicies from "./pages/Host/Policies";
+import HostNotifications from "./pages/Host/Notifications";
 
 const queryClient = new QueryClient();
 

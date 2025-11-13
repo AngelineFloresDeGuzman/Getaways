@@ -4,7 +4,7 @@ import OnboardingHeader from './components/OnboardingHeader';
 import OnboardingFooter from './components/OnboardingFooter';
 import { useOnboarding } from '@/pages/Host/contexts/OnboardingContext';
 import { auth, db } from '@/lib/firebase';
-import { doc, updateDoc, getDoc, deleteDoc, writeBatch } from 'firebase/firestore';
+import { doc, updateDoc, getDoc, deleteDoc, writeBatch, collection, getDocs } from 'firebase/firestore';
 import { createListing } from '@/pages/Host/services/listing';
 import { updateSessionStorageBeforeNav } from './utils/sessionStorageHelper';
 
@@ -91,6 +91,32 @@ const ServiceWhatProvide = () => {
     setTransportingGuests(value);
   };
 
+  const loadServicePhotosFromSubcollection = async (draftIdToUse) => {
+    if (!draftIdToUse) return [];
+    try {
+      const photosRef = collection(db, "onboardingDrafts", draftIdToUse, "servicePhotos");
+      const photosSnap = await getDocs(photosRef);
+      if (photosSnap.empty) {
+        return [];
+      }
+      const loadedPhotos = photosSnap.docs.map((docSnap) => {
+        const photoData = docSnap.data() || {};
+        return {
+          id: docSnap.id,
+          name: photoData.name || "photo",
+          url: photoData.base64 || photoData.url || "",
+          base64: photoData.base64 || "",
+          firestoreId: docSnap.id,
+        };
+      }).filter(photo => !!photo.base64);
+      console.log("📍 ServiceWhatProvide: Loaded service photos from subcollection:", loadedPhotos.length);
+      return loadedPhotos;
+    } catch (error) {
+      console.error("Error loading service photos from subcollection:", error);
+      return [];
+    }
+  };
+
   // Function to publish service listing
   const publishServiceListing = async (draftId) => {
     try {
@@ -106,8 +132,15 @@ const ServiceWhatProvide = () => {
       
       // Collect service data from draft
       const locationData = data.serviceLocation || data.locationData || {};
-      const photos = data.servicePhotos || data.photos || [];
+      let photos = data.servicePhotos || data.photos || [];
       const pricing = data.servicePricing || data.pricing || {};
+
+      if (!Array.isArray(photos) || !photos.some(photo => photo?.base64)) {
+        const subcollectionPhotos = await loadServicePhotosFromSubcollection(draftId);
+        if (subcollectionPhotos.length > 0) {
+          photos = subcollectionPhotos;
+        }
+      }
       
       // Prepare listing data with all service fields
       const listingData = {
@@ -317,6 +350,7 @@ const ServiceWhatProvide = () => {
       try {
         const draftRef = doc(db, "onboardingDrafts", draftId);
         await updateDoc(draftRef, {
+          currentStep: "service-what-provide", // Save CURRENT step, not next step
           "data.serviceNationalPark": nationalPark !== null ? nationalPark : undefined,
           "data.serviceTransportingGuests": transportingGuests !== null ? transportingGuests : undefined,
           "data.serviceAgreedToTerms": agreedToTerms,

@@ -98,20 +98,41 @@ const ServiceDescription = () => {
 
   // Handle Save & Exit
   const handleSaveAndExit = async () => {
-    const draftId = state.draftId || location.state?.draftId;
-    if (draftId) {
-      try {
-        const draftRef = doc(db, "onboardingDrafts", draftId);
-        await updateDoc(draftRef, {
-          "data.serviceDescription": description,
-          lastModified: new Date(),
-        });
-        console.log("✅ Saved service description to Firebase");
-      } catch (error) {
-        console.error("Error saving description:", error);
+    try {
+      const { auth } = await import("@/lib/firebase");
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        alert("Please log in to save your progress.");
+        navigate("/login");
+        return;
       }
+
+      const draftId = state.draftId || location.state?.draftId;
+      if (draftId) {
+        try {
+          const draftRef = doc(db, "onboardingDrafts", draftId);
+          await updateDoc(draftRef, {
+            "data.serviceDescription": description,
+            currentStep: "service-description", // Save CURRENT step
+            lastModified: new Date(),
+          });
+          console.log("✅ Saved service description to Firebase");
+        } catch (error) {
+          console.error("Error saving description:", error);
+          alert("Failed to save. Please try again.");
+          return;
+        }
+      }
+      navigate("/host/listings", {
+        state: {
+          scrollToDrafts: true,
+          message: "Draft saved successfully!",
+        },
+      });
+    } catch (error) {
+      console.error("❌ Error saving draft:", error);
+      alert("Failed to save. Please try again.");
     }
-      navigate("/host/listings");
   };
 
   return (

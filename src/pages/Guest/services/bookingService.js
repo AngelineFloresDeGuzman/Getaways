@@ -1,6 +1,7 @@
 import { db, auth } from '@/lib/firebase';
 import { collection, addDoc, query, where, getDocs, serverTimestamp, orderBy, doc, getDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { deductFromWallet, hasSufficientBalance, initializeWallet } from '@/pages/Common/services/getpayService';
+import { sendBookingConfirmationEmail, sendCancellationEmail } from '@/lib/emailService';
 
 /**
  * Create a new booking/reservation with GetPay wallet payment
@@ -17,7 +18,7 @@ export const createBooking = async (bookingData) => {
   const user = auth.currentUser;
   if (!user) throw new Error('User must be authenticated to create a booking');
 
-  const { listingId, checkInDate, checkOutDate, guests, totalPrice, useWallet = true, message } = bookingData;
+  const { listingId, checkInDate, checkOutDate, guests, totalPrice, useWallet = true, message, paymentProvider, paymentMethod } = bookingData;
 
   if (!listingId || !checkInDate || !checkOutDate) {
     throw new Error('Missing required booking information');
@@ -88,9 +89,10 @@ export const createBooking = async (bookingData) => {
       totalPrice: totalAmount, // Total amount guest pays (bookingAmount + guestFee)
       bookingAmount: bookingAmount, // Amount host will receive (released by admin)
       guestFee: guestFee, // Fee kept by admin
-      status: 'pending', // Will remain pending until host accepts the booking request
-      paymentMethod: 'getpay', // Will be updated after payment
-      paymentStatus: 'processing', // Will be updated to 'paid' after successful payment
+  status: 'pending', // Will remain pending until host accepts the booking request
+  paymentProvider: paymentProvider || 'getpay', // 'getpay' or 'paypal'
+  paymentMethod: 'pending', // Always pending until host confirms
+  paymentStatus: 'pending', // Will be updated to 'paid' after successful payment
       earningsReleased: false, // Earnings not released yet (admin will release after booking completion)
       message: message || null, // Guest's message to host
       createdAt: serverTimestamp(),
@@ -189,15 +191,25 @@ export const createBooking = async (bookingData) => {
       }
     }
     
-    // Update booking payment status to paid (but explicitly keep status as 'pending' for host approval)
-    // Status will be changed to 'confirmed' when host accepts the booking request
-    await updateDoc(docRef, {
-      status: 'pending', // Explicitly keep as pending - host must approve
-      paymentStatus: 'paid',
-      paymentMethod: paymentMethodUsed,
-      pointsUsed: pointsUsed > 0 ? pointsUsed : null,
-      updatedAt: serverTimestamp()
-    });
+    // Do NOT deduct payment or update payment status here. Payment will be processed only after host confirms.
+    // Status will be changed to 'confirmed' and payment deducted when host accepts the booking request.
+    // Notify host of booking request (send email or notification)
+    try {
+      // Create notification for host in Firestore
+      const notificationsRef = collection(db, 'notifications');
+      await addDoc(notificationsRef, {
+        recipientId: ownerId,
+        type: 'booking_request',
+        title: 'New Booking Request',
+        message: `${user.displayName || user.email} requested a booking for "${listingTitle}" from ${checkIn.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} to ${checkOut.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} for ${guests || 1} guest(s).`,
+        bookingId: docRef.id,
+        listingId,
+        createdAt: serverTimestamp(),
+        read: false
+      });
+    } catch (notifyError) {
+      console.error('Error notifying host of booking request:', notifyError);
+    }
     
     // Transfer payment directly to admin's GetPay wallet (GetPay is standalone)
     // Admin receives total amount (bookingAmount + guestFee)
@@ -245,6 +257,34 @@ export const createBooking = async (bookingData) => {
         console.error('Error sending message to host:', error);
         // Don't fail the booking if message sending fails - message is still stored in booking
       }
+    }
+    
+    // Send booking confirmation email to guest
+    try {
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      const userData = userDoc.exists() ? userDoc.data() : {};
+      const firstName = userData.firstName || '';
+      const lastName = userData.lastName || '';
+      
+      await sendBookingConfirmationEmail(
+        user.email,
+        firstName,
+        lastName,
+        {
+          bookingId: docRef.id,
+          listingTitle: listingTitle,
+          checkInDate: checkIn.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+          checkOutDate: checkOut.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+          guests: guests || 1,
+          totalPrice: totalAmount,
+          bookingAmount: bookingAmount,
+          paymentMethod: paymentMethodUsed === 'wallet' ? 'GetPay Wallet' : paymentMethodUsed === 'points' ? 'GetPay Points' : paymentMethodUsed === 'paypal' ? 'PayPal' : 'GetPay Wallet'
+        }
+      );
+      console.log('✅ Booking confirmation email sent to guest');
+    } catch (error) {
+      console.error('Error sending booking confirmation email:', error);
+      // Don't fail the booking if email sending fails
     }
     
     console.log('✅ Booking created successfully:', docRef.id);
@@ -720,31 +760,24 @@ export const calculateTotalPrice = (pricing, checkIn, checkOut, guests = 1) => {
     currentDate.setDate(currentDate.getDate() + 1);
   }
 
-  // Apply discounts if applicable
+  // Apply only the highest applicable discount
   const discounts = pricing.discounts || {};
   const nights = Math.floor((checkOutDate - checkInDate) / (1000 * 60 * 60 * 24));
-  
-  // Apply the highest applicable discount
+  const daysInAdvance = Math.floor((checkInDate - new Date()) / (1000 * 60 * 60 * 24));
+
+  let discountPercent = 0;
   if (nights >= 30 && discounts.monthly) {
-    total = total * (1 - discounts.monthly / 100);
+    discountPercent = discounts.monthly;
   } else if (nights >= 7 && discounts.weekly) {
-    total = total * (1 - discounts.weekly / 100);
+    discountPercent = discounts.weekly;
+  } else if (discounts.earlyBird && daysInAdvance >= 30) {
+    discountPercent = discounts.earlyBird;
+  } else if (discounts.lastMinute && daysInAdvance <= 7 && daysInAdvance >= 0) {
+    discountPercent = discounts.lastMinute;
   }
-  
-  // Early bird discount (if booking is far enough in advance)
-  if (discounts.earlyBird) {
-    const daysInAdvance = Math.floor((checkInDate - new Date()) / (1000 * 60 * 60 * 24));
-    if (daysInAdvance >= 30) {
-      total = total * (1 - discounts.earlyBird / 100);
-    }
-  }
-  
-  // Last minute discount (if booking is soon)
-  if (discounts.lastMinute) {
-    const daysInAdvance = Math.floor((checkInDate - new Date()) / (1000 * 60 * 60 * 24));
-    if (daysInAdvance <= 7 && daysInAdvance >= 0) {
-      total = total * (1 - discounts.lastMinute / 100);
-    }
+
+  if (discountPercent > 0) {
+    total = total * (1 - discountPercent / 100);
   }
 
   return Math.round(total);
@@ -841,6 +874,34 @@ export const cancelBooking = async (bookingId) => {
     const refundMessage = booking.status === 'pending'
       ? `Booking cancelled. A full refund of ₱${refundAmount.toLocaleString()} has been requested and will be processed by admin.`
       : `Booking cancelled. A half refund of ₱${refundAmount.toLocaleString()} has been requested and will be processed by admin.`;
+    
+    // Send cancellation email to guest
+    try {
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      const userData = userDoc.exists() ? userDoc.data() : {};
+      const firstName = userData.firstName || '';
+      const lastName = userData.lastName || '';
+      
+      await sendCancellationEmail(
+        booking.guestEmail || user.email,
+        firstName,
+        lastName,
+        {
+          bookingId: bookingId,
+          listingTitle: listingTitle,
+          checkInDate: booking.checkInDate?.toDate ? booking.checkInDate.toDate().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '',
+          checkOutDate: booking.checkOutDate?.toDate ? booking.checkOutDate.toDate().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '',
+          refundAmount: refundAmount,
+          refundType: refundType,
+          refundPending: true,
+          refundProcessed: false
+        }
+      );
+      console.log('✅ Cancellation email sent to guest');
+    } catch (error) {
+      console.error('Error sending cancellation email:', error);
+      // Don't fail the cancellation if email sending fails
+    }
     
     return { 
       success: true, 

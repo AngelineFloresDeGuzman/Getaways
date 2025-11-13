@@ -336,7 +336,8 @@ export const getDraftSummary = (draftData) => {
     'weekendpricing': 'Weekend Pricing',
     'discounts': 'Discounts',
     'safetydetails': 'Safety Details',
-    'finaldetails': 'Final Details'
+    'finaldetails': 'Final Details',
+    'payment': 'Payment'
   };
 
   return {
@@ -368,7 +369,7 @@ const calculateProgress = (currentStep) => {
     'locationconfirmation', 'propertybasics', 'makeitstandout', 'amenities',
     'photos', 'titledescription', 'description',
     'descriptiondetails', 'finishsetup', 'bookingsettings', 'guestselection',
-    'pricing', 'weekendpricing', 'discounts', 'safetydetails', 'finaldetails'
+    'pricing', 'weekendpricing', 'discounts', 'safetydetails', 'finaldetails', 'payment'
   ];
 
   const currentIndex = stepOrder.indexOf(currentStep);

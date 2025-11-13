@@ -30,11 +30,11 @@ const PayPalCashInButton = ({ amount, onSuccess, onError, disabled }) => {
   
   if (!HAS_VALID_PAYPAL_CLIENT_ID) {
     return (
-      <div className="text-center py-4 px-4 bg-amber-50 border border-amber-200 rounded-lg">
-        <p className="text-sm text-amber-800 font-semibold mb-1">
+      <div className="text-center py-4 px-4 bg-primary/10 border border-primary/30 rounded-lg">
+        <p className="text-sm text-primary font-semibold mb-1">
           PayPal is not configured
         </p>
-        <p className="text-xs text-amber-700">
+        <p className="text-xs text-primary/90">
           Please set VITE_PAYPAL_CLIENT_ID in your .env file
         </p>
       </div>
@@ -520,11 +520,11 @@ const EWallet = () => {
     switch (status) {
       case 'completed':
       case 'confirmed':
-        return 'text-green-600 bg-green-50';
+        return 'text-primary bg-primary/10';
       case 'pending':
-        return 'text-yellow-600 bg-yellow-50';
+        return 'text-primary bg-primary/10';
       case 'cancelled':
-        return 'text-red-600 bg-red-50';
+        return 'text-primary bg-primary/10';
       default:
         return 'text-gray-600 bg-gray-50';
     }
@@ -578,7 +578,7 @@ const EWallet = () => {
                 <button
                   onClick={() => setShowCashOutModal(true)}
                   disabled={walletBalance <= 0}
-                  className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <ArrowUpRight className="w-5 h-5" />
                   Cash Out
@@ -595,12 +595,12 @@ const EWallet = () => {
         </div>
 
         {/* Balance Card */}
-          <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-xl shadow-lg p-6 md:p-8 mb-8 text-white">
+          <div className="bg-primary rounded-xl shadow-lg p-6 md:p-8 mb-8 text-white">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
               <Wallet className="w-8 h-8" />
               <div>
-                <p className="text-blue-100 text-sm">
+                <p className="text-white/80 text-sm">
                     {userRoles.includes('admin') ? 'GetPay Balance (Getaways Transactions Only)' : 'GetPay Balance'}
                 </p>
                   <p className="text-3xl md:text-4xl font-bold">{formatCurrency(walletBalance)}</p>
@@ -620,29 +620,29 @@ const EWallet = () => {
             <div className="mt-4 pt-4 border-t border-white/20">
                 <div className="bg-white/10 rounded-lg p-3 mb-2">
                   <div className="flex items-start gap-2 mb-2">
-                    <CheckCircle className="w-4 h-4 text-green-300 mt-0.5 flex-shrink-0" />
+                    <CheckCircle className="w-4 h-4 text-white/90 mt-0.5 flex-shrink-0" />
                     <div className="flex-1">
-                      <p className="text-blue-100 text-sm font-medium mb-1">
+                      <p className="text-white/90 text-sm font-medium mb-1">
                         Getaways Platform Transactions Only
                       </p>
-                      <p className="text-blue-200 text-xs mb-2">
+                      <p className="text-white/80 text-xs mb-2">
                         Your GetPay wallet receives payments <strong>directly from guests and hosts</strong> through the Getaways platform:
                       </p>
-                      <ul className="text-blue-200 text-xs mt-2 space-y-1 ml-4 list-disc">
+                      <ul className="text-white/80 text-xs mt-2 space-y-1 ml-4 list-disc">
                         <li>Guest booking payments (paid directly to your GetPay wallet)</li>
                         <li>Host subscription payments (paid directly to your GetPay wallet)</li>
                       </ul>
-                      <p className="text-blue-200 text-xs mt-2 font-medium">
+                      <p className="text-white/80 text-xs mt-2 font-medium">
                         ✅ GetPay is a standalone e-wallet system. Payments are received directly to your GetPay wallet, not through PayPal.
                       </p>
-                      <p className="text-blue-200 text-xs mt-2">
+                      <p className="text-white/80 text-xs mt-2">
                         Use Cash In/Cash Out buttons to add or withdraw funds from your GetPay wallet via PayPal (for external funding/withdrawals only).
                       </p>
                     </div>
                   </div>
                 </div>
                 {merchantPayPalEmail && (
-                  <p className="text-blue-200 text-xs">
+                  <p className="text-white/80 text-xs">
                     Merchant Account: <strong>{merchantPayPalEmail}</strong>
                   </p>
                 )}
@@ -655,18 +655,18 @@ const EWallet = () => {
                 {paypalConnected && paypalEmail && (
             <div className="mt-4 pt-4 border-t border-white/20">
                     <div className="flex items-center gap-2 mb-2">
-                      <CheckCircle className="w-4 h-4 text-green-300" />
-                      <p className="text-blue-100 text-sm font-medium">
+                      <CheckCircle className="w-4 h-4 text-white/90" />
+                      <p className="text-white/90 text-sm font-medium">
                         PayPal Account Connected
                       </p>
                     </div>
                     <p className="text-white font-medium">{paypalEmail}</p>
-                    <p className="text-blue-100 text-xs mt-1">
+                    <p className="text-white/80 text-xs mt-1">
                       This account will be used automatically for cash in and cash out transactions
               </p>
               <button
                 onClick={() => navigate('/accountsettings')}
-                      className="text-xs underline hover:text-blue-200 mt-2"
+                      className="text-xs underline hover:text-white/90 mt-2"
               >
                       Manage PayPal account
               </button>
@@ -676,12 +676,12 @@ const EWallet = () => {
                 {!paypalConnected && (
                   <div className="mt-4 pt-4 border-t border-white/20">
                     <div className="flex items-center gap-2 mb-2">
-                      <AlertCircle className="w-4 h-4 text-yellow-300" />
-                      <p className="text-blue-100 text-sm font-medium">
+                      <AlertCircle className="w-4 h-4 text-white/90" />
+                      <p className="text-white/90 text-sm font-medium">
                         PayPal Account Not Connected
                   </p>
                 </div>
-                    <p className="text-blue-100 text-xs mb-2">
+                    <p className="text-white/80 text-xs mb-2">
                       Connect your PayPal account to enable cash in and cash out
                     </p>
                     <button
@@ -727,7 +727,7 @@ const EWallet = () => {
                 onClick={() => setFilterType('income')}
                 className={`px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 ${
                   filterType === 'income'
-                    ? 'bg-green-100 text-green-700'
+                    ? 'bg-primary/20 text-primary'
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 }`}
               >
@@ -738,7 +738,7 @@ const EWallet = () => {
                 onClick={() => setFilterType('expense')}
                 className={`px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 ${
                   filterType === 'expense'
-                    ? 'bg-red-100 text-red-700'
+                    ? 'bg-primary/20 text-primary'
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 }`}
               >
@@ -781,8 +781,8 @@ const EWallet = () => {
                       {/* Icon */}
                       <div className={`p-3 rounded-lg ${
                             isIncome 
-                          ? 'bg-green-100 text-green-600' 
-                          : 'bg-red-100 text-red-600'
+                          ? 'bg-primary/20 text-primary' 
+                          : 'bg-primary/20 text-primary'
                       }`}>
                             {isIncome ? (
                           <ArrowDownLeft className="w-5 h-5" />
@@ -818,7 +818,7 @@ const EWallet = () => {
                       {/* Amount */}
                       <div className="text-right ml-4">
                         <p className={`text-lg font-semibold ${
-                              isIncome ? 'text-green-600' : 'text-red-600'
+                              isIncome ? 'text-primary' : 'text-primary'
                         }`}>
                               {isIncome ? '+' : '-'}{formatCurrency(transaction.amount)}
                         </p>
@@ -855,38 +855,38 @@ const EWallet = () => {
         </div>
 
         {/* Info Note */}
-        <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-          <p className="text-sm text-blue-800 mb-2">
+        <div className="mt-6 p-4 bg-primary/10 border border-primary/30 rounded-lg">
+          <p className="text-sm text-primary mb-2">
               <strong>About GetPay:</strong> GetPay is your dedicated e-wallet for Getaways. Cash in from PayPal to add credits, then use your GetPay balance for bookings, subscriptions, and other Getaways services.
           </p>
             <div className="grid md:grid-cols-2 gap-4 mt-3">
-          <p className="text-sm text-blue-700">
+          <p className="text-sm text-primary/90">
                 <strong>Cash In:</strong> Click the "Cash In" button above to add money to your GetPay wallet from your PayPal account.
                 {userRoles.includes('admin') && (
-                  <span className="block mt-1 text-xs text-blue-600">
+                  <span className="block mt-1 text-xs text-primary/80">
                     (Admin: Your wallet balance reflects Getaways transactions only, not all PayPal transactions)
                   </span>
                 )}
               </p>
-              <p className="text-sm text-blue-700">
+              <p className="text-sm text-primary/90">
                 <strong>Cash Out:</strong> Click the "Cash Out" button to withdraw money from your GetPay wallet to your PayPal account. 
                 {userRoles.includes('admin') ? (
-                  <span className="block mt-1 text-xs text-blue-600">
+                  <span className="block mt-1 text-xs text-primary/80">
                     (Admin: Cash-out requests are processed manually)
                   </span>
                 ) : (
-                  <span className="block mt-1 text-xs text-blue-600">
+                  <span className="block mt-1 text-xs text-primary/80">
                     Cash-out requests are processed manually by admin within 1-3 business days.
                   </span>
                 )}
           </p>
             </div>
           {userRoles.includes('admin') && (
-              <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                <p className="text-sm text-amber-800 font-medium mb-2">
+              <div className="mt-4 p-4 bg-primary/10 border border-primary/30 rounded-lg">
+                <p className="text-sm text-primary font-medium mb-2">
                   ⚠️ Admin Account - Important Note:
                 </p>
-                <p className="text-xs text-amber-700">
+                <p className="text-xs text-primary/90">
                   Your GetPay wallet balance is calculated from <strong>Getaways platform transactions only</strong> (guest bookings, host subscriptions). 
                   It does NOT reflect all transactions in your merchant PayPal account. 
                   External PayPal transactions (payments received outside of Getaways) are not included in this balance.
@@ -914,69 +914,6 @@ const EWallet = () => {
                   >
                     <X className="w-6 h-6" />
                   </button>
-    </div>
-                
-                {/* Critical Warning - Show Immediately */}
-                <div className="mb-4 p-4 bg-red-50 border-2 border-red-300 rounded-lg">
-                  <div className="flex items-start gap-3">
-                    <AlertCircle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
-                    <div className="flex-1">
-                      <p className="text-sm font-bold text-red-900 mb-2">
-                        ⚠️ Critical: PayPal Account Requirement
-                      </p>
-                      <p className="text-xs text-red-800 mb-2">
-                        <strong>You MUST use a PayPal account that is DIFFERENT from the merchant/seller account.</strong>
-                      </p>
-                      {merchantPayPalEmail && (
-                        <div className="text-xs text-red-800 mb-2 p-2 bg-red-100 rounded border border-red-300">
-                          <strong>Merchant Account:</strong> {merchantPayPalEmail}
-                          <br />
-                          <span className="text-red-700">You cannot use this account for payments.</span>
-                        </div>
-                      )}
-                      {isMerchantAccount && paypalConnected && !userRoles.includes('admin') && (
-                        <div className="text-xs text-red-900 mb-2 p-2 bg-red-200 rounded border-2 border-red-400 font-bold">
-                          ⚠️ WARNING: Your connected PayPal account ({paypalEmail}) is the same as the merchant account!
-                          <br />
-                          <span className="text-red-800">You must disconnect this account and connect a DIFFERENT PayPal account to make payments.</span>
-                        </div>
-                      )}
-                      {isMerchantAccount && paypalConnected && userRoles.includes('admin') && (
-                        <div className="text-xs text-blue-800 mb-2 p-2 bg-blue-100 rounded border border-blue-300">
-                          ℹ️ Admin Account: Your connected PayPal account ({paypalEmail}) matches the merchant account. 
-                          You can still cash in/out, but PayPal may restrict payments if buyer and seller accounts are the same. 
-                          Consider using a different PayPal account for cash-in transactions.
-                        </div>
-                      )}
-                      {userRoles.includes('admin') ? (
-                        <div className="text-xs text-blue-700 font-medium mb-2 p-2 bg-blue-50 rounded border border-blue-200">
-                          <strong>Admin Account:</strong> As an admin, you can cash in to your GetPay wallet. 
-                          The wallet balance reflects only Getaways platform transactions (booking payments, subscription payments). 
-                          Use Cash In to add funds manually, or Cash Out to withdraw funds.
-                        </div>
-                      ) : (
-                        <>
-                          <p className="text-xs text-red-700 mb-2">
-                            If you see the error: <em>"You are logging into the account of the seller for this purchase"</em>, it means you're using the same PayPal account that's registered as the Getaways merchant account.
-                          </p>
-                          <p className="text-xs text-red-700 font-medium">
-                            <strong>Solution:</strong> Use a different PayPal account (personal account, family member's account, or create a new PayPal account) to complete the cash-in transaction.
-                          </p>
-                        </>
-                      )}
-                      {isMerchantAccount && !userRoles.includes('admin') && (
-                        <button
-                          onClick={() => {
-                            setShowCashInModal(false);
-                            navigate('/accountsettings?tab=profile');
-                          }}
-                          className="mt-2 text-xs bg-red-600 text-white px-3 py-1.5 rounded hover:bg-red-700 transition-colors font-medium"
-                        >
-                          Change PayPal Account in Settings
-                        </button>
-                      )}
-                    </div>
-                  </div>
                 </div>
                 
                 <div className="mb-6">
@@ -1008,19 +945,11 @@ const EWallet = () => {
                       onError={handleCashInError}
                       disabled={isProcessingCashIn}
                     />
-                    <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                      <p className="text-xs text-amber-800 font-medium mb-2">
-                        <strong>⚠️ Important:</strong> PayPal Account Requirement
-                      </p>
-                      <p className="text-xs text-amber-700">
-                        The PayPal account you use for cash-in must be <strong>different</strong> from the merchant/seller account. If you see an error message like "You are logging into the account of the seller for this purchase", it means you're using the same PayPal account that's registered as the merchant. Please use a different PayPal account to complete the transaction.
-                      </p>
-                    </div>
                   </>
                 ) : (
                   <div className="text-center py-4">
                     {!HAS_VALID_PAYPAL_CLIENT_ID ? (
-                      <p className="text-sm text-amber-600">
+                      <p className="text-sm text-primary">
                         PayPal is not configured. Please contact support.
                       </p>
                     ) : (
@@ -1081,7 +1010,7 @@ const EWallet = () => {
                     </p>
                   )}
                   {cashOutAmount && !isNaN(parseFloat(cashOutAmount)) && parseFloat(cashOutAmount) > walletBalance && (
-                    <p className="mt-2 text-sm text-red-600">
+                    <p className="mt-2 text-sm text-primary">
                       Insufficient balance. You have {formatCurrency(walletBalance)} but need {formatCurrency(parseFloat(cashOutAmount))}
                     </p>
                   )}
@@ -1093,8 +1022,8 @@ const EWallet = () => {
                   </label>
                   {paypalConnected && paypalEmail && !useDifferentEmail ? (
                     <div className="space-y-2">
-                      <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
-                        <CheckCircle className="w-4 h-4 text-green-600" />
+                      <div className="flex items-center gap-2 p-3 bg-primary/10 border border-primary/30 rounded-lg">
+                        <CheckCircle className="w-4 h-4 text-primary" />
                         <div className="flex-1">
                           <p className="text-sm font-medium text-gray-900">Using Connected Account</p>
                           <p className="text-xs text-gray-600">{paypalEmail}</p>
@@ -1142,14 +1071,14 @@ const EWallet = () => {
                         </p>
                       )}
                       {!paypalConnected && (
-                        <p className="mt-2 text-xs text-amber-600">
+                        <p className="mt-2 text-xs text-primary">
                           <button
                             type="button"
                             onClick={() => {
                               setShowCashOutModal(false);
                               navigate('/accountsettings?tab=profile');
                             }}
-                            className="underline hover:text-amber-700"
+                            className="underline hover:text-primary/90"
                           >
                             Connect your PayPal account
                           </button>
@@ -1160,8 +1089,8 @@ const EWallet = () => {
                   )}
                 </div>
 
-                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
-                  <p className="text-sm text-yellow-800">
+                <div className="bg-primary/10 border border-primary/30 rounded-lg p-4 mb-6">
+                  <p className="text-sm text-primary">
                     <strong>Important:</strong> Cash-out requests are processed manually by admin. 
                     The amount will be deducted from your wallet immediately and sent to your PayPal account within 1-3 business days.
                   </p>
@@ -1193,7 +1122,7 @@ const EWallet = () => {
                       parseFloat(cashOutAmount) > walletBalance ||
                       (!paypalConnected || useDifferentEmail) && (!cashOutPayPalEmail || !cashOutPayPalEmail.includes('@'))
                     }
-                    className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex-1 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {isProcessingCashOut ? 'Processing...' : 'Cash Out'}
                   </button>

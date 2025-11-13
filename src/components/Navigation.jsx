@@ -202,6 +202,7 @@ const Navigation = () => {
       if (user) {
         // Fetch user roles from Firestore first to check if admin
         let isAdmin = false;
+        let isEmailVerified = false;
         try {
           const userDocRef = doc(db, "users", user.uid);
           const userDoc = await getDoc(userDocRef);
@@ -217,6 +218,8 @@ const Navigation = () => {
               roles = ['guest'];
             }
             isAdmin = roles.includes('admin');
+            // Use Firestore emailVerified (set by EmailJS) instead of Firebase Auth's emailVerified
+            isEmailVerified = userData.emailVerified === true;
             setUserRoles(roles);
           } else {
             // If user doc doesn't exist, default to guest
@@ -228,7 +231,8 @@ const Navigation = () => {
         }
         
         // Allow admin users even if email not verified, otherwise require email verification
-        if (user.emailVerified || isAdmin) {
+        // Use Firestore emailVerified (set by EmailJS) instead of Firebase Auth's emailVerified
+        if (isEmailVerified || isAdmin) {
           setCurrentUser(user);
           // If login just completed from modal, show HostTypeModal
           if (pendingShowHostModal) {
@@ -364,6 +368,7 @@ const Navigation = () => {
             ) : shouldShowHostNav ? (
               // Host Navigation
               <>
+
                 <Link
                   to="/host/hostdashboard"
                   className={`flex items-center gap-1 font-body transition-colors ${
@@ -378,6 +383,9 @@ const Navigation = () => {
                 >
                   <Clock className="w-5 h-5" /> Today
                 </Link>
+
+                {/* Host Notifications Bell */}
+                {/* Notifications link moved to host dropdown menu below */}
 
                 <Link
                   to="/host/calendar"
@@ -562,6 +570,11 @@ const Navigation = () => {
                             </>
                           )}
                           
+                          {/* Notifications link now in host menu */}
+                          <Link to="/host/notifications" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
+                            <Bell className="w-5 h-5" />
+                            Notifications
+                          </Link>
                           <Link to="/accountsettings" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
                             <Settings className="w-5 h-5" />
                             Account settings
@@ -629,10 +642,6 @@ const Navigation = () => {
                           <Link to="/favorites" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
                             <Heart className="w-5 h-5" />
                             Favorites
-                          </Link>
-                          <Link to="/bookings" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
-                            <Calendar className="w-5 h-5" />
-                            Bookings
                           </Link>
                           <Link to="/messages" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
                             <MessageSquare className="w-5 h-5" />

@@ -12,8 +12,10 @@ const Categories = () => {
     const [categories, setCategories] = useState([]);
     const [loading, setLoading] = useState(true);
 
-    const handleNavigate = (link) => {
-        navigate(link);
+    // Accept optional search params for navigation
+    const handleNavigate = (link, params = {}) => {
+        const urlParams = new URLSearchParams(params).toString();
+        navigate(urlParams ? `${link}?${urlParams}` : link);
     };
 
     const handleRequireLogin = () => {

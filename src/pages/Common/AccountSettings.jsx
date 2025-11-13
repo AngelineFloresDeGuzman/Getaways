@@ -20,8 +20,10 @@ import { toast } from "@/components/ui/sonner";
 import LogIn from "@/pages/Auth/LogIn";
 import { startConversationFromHost } from "@/pages/Guest/services/messagingService";
 import { createReview, getReviewByBookingId, getUserReviews } from "@/pages/Guest/services/reviewService";
+import { getGuestBookings } from "@/pages/Guest/services/bookingService";
 import ReviewModal from "@/components/ReviewModal";
 import CouponModal from "@/components/CouponModal";
+import Recommendations from "@/components/Recommendations";
 import { createCoupon, getHostCoupons, updateCoupon, deleteCoupon } from "@/pages/Host/services/couponService";
 
 const AccountSettings = () => {
@@ -117,13 +119,13 @@ const AccountSettings = () => {
     ? [
         { id: "profile", label: "Profile", icon: User },
         { id: "bookings", label: "Bookings", icon: CalendarCheck },
-        { id: "wishlist", label: "Wishlist", icon: Heart },
+        { id: "wishlist", label: "Wishlist", icon: Heart }, // Host: wishlist by guests on your listings
         { id: "coupon", label: "Coupon", icon: Ticket },
       ]
     : [
         { id: "profile", label: "Profile", icon: User },
-        { id: "bookings", label: "Bookings", icon: CalendarCheck },
-        { id: "wishlist", label: "Wishlist", icon: Heart },
+        { id: "bookings", label: "Bookings", icon: CalendarCheck }, // Guest: all their booking requests
+        { id: "wishlist", label: "Wishlist", icon: Heart }, // Guest: all their own wishlisted listings
       ];
 
   // Update isHost based on current view mode (guest vs host)
@@ -194,19 +196,33 @@ const AccountSettings = () => {
   useEffect(() => {
     if (!user || activeTab !== 'bookings') return;
     if (isHost) {
+      // Host: show all guest requests to host's listings
       loadHostBookings();
       loadHostListings();
     } else {
+      // Guest: show all booking requests made by guest
       loadGuestBookings();
     }
   }, [user, activeTab, isHost]);
+
+  // Refresh bookings when navigating to bookings tab (to catch newly created bookings)
+  useEffect(() => {
+    if (!user || activeTab !== 'bookings' || isHost) return;
+    // Small delay to ensure tab is fully set before loading
+    const timer = setTimeout(() => {
+      loadGuestBookings();
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [location.search]); // Reload when URL changes (e.g., navigating with ?tab=bookings)
 
   // Load wishlist based on user role
   useEffect(() => {
     if (!user || activeTab !== 'wishlist') return;
     if (isHost) {
+      // Host: wishlist by guests on host's listings
       loadHostWishlists();
     } else {
+      // Guest: all their own wishlisted listings
       const cleanup = loadGuestFavorites();
       return cleanup;
     }
@@ -551,7 +567,9 @@ const AccountSettings = () => {
 
     try {
       setBookingsLoading(true);
+      console.log('📦 AccountSettings: Loading guest bookings for user:', user.uid);
       const guestBookings = await getGuestBookings(user.uid);
+      console.log('📦 AccountSettings: Loaded', guestBookings.length, 'bookings');
 
       const bookingsWithDetails = await Promise.all(
         guestBookings.map(async (booking) => {
@@ -612,6 +630,7 @@ const AccountSettings = () => {
       );
 
       setBookings(bookingsWithDetails);
+      console.log('📦 AccountSettings: Set bookings with details:', bookingsWithDetails.length);
     } catch (error) {
       console.error('Error loading guest bookings:', error);
       setBookings([]);
@@ -619,6 +638,42 @@ const AccountSettings = () => {
       setBookingsLoading(false);
     }
   };
+
+  // Set up real-time listener for guest bookings (to catch newly created bookings immediately)
+  useEffect(() => {
+    if (!user || isHost || activeTab !== 'bookings') return;
+
+    console.log('📦 AccountSettings: Setting up real-time listener for bookings');
+    const bookingsQuery = query(
+      collection(db, 'bookings'),
+      where('guestId', '==', user.uid)
+    );
+
+    let isFirstSnapshot = true;
+    const unsubscribe = onSnapshot(
+      bookingsQuery,
+      async (snapshot) => {
+        console.log('📦 AccountSettings: Real-time booking update - docs:', snapshot.docs.length);
+        // Skip first snapshot (it's the initial load, already handled by loadGuestBookings)
+        if (isFirstSnapshot) {
+          isFirstSnapshot = false;
+          return;
+        }
+        // Reload bookings when real-time update is received (new booking created or updated)
+        console.log('📦 AccountSettings: Booking change detected, reloading...');
+        loadGuestBookings();
+      },
+      (error) => {
+        console.error('Error in bookings real-time listener:', error);
+      }
+    );
+
+    return () => {
+      console.log('📦 AccountSettings: Cleaning up real-time listener');
+      unsubscribe();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, isHost, activeTab]);
 
   const loadGuestFavorites = () => {
     if (!user || isHost) return;
@@ -1853,26 +1908,6 @@ const AccountSettings = () => {
                 </div>
               </div>
 
-              {isEditing && (
-                <div className="flex justify-end gap-4 mt-6">
-                  <button
-                    onClick={() => setIsEditing(false)}
-                    className="btn-outline"
-                    disabled={saving}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleSaveProfile}
-                    className="btn-primary flex items-center gap-2"
-                    disabled={saving}
-                  >
-                    <Save className="w-4 h-4" />
-                    {saving ? 'Saving...' : 'Save Changes'}
-                  </button>
-                </div>
-              )}
-
               {/* Deactivate or Delete Account Section */}
               <div className="mt-12 pt-8 border-t border-border">
                 <div className="bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800 rounded-xl p-6">
@@ -2111,69 +2146,75 @@ const AccountSettings = () => {
                           
                           return (
                             <div key={booking.id} className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow">
-                              <div className="flex items-start justify-between">
-                                <div className="flex-1">
-                                  <div className="flex items-center gap-3 mb-3">
-                                    <div className="flex-1">
-                                      <div className="flex items-center gap-2 mb-1">
-                                        <span className="font-heading text-lg font-semibold text-foreground">
-                                          {booking.guestEmail || 'Guest'}
-                                        </span>
-                                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                          booking.status === 'confirmed' ? 'bg-green-100 text-green-700' :
-                                          booking.status === 'completed' ? 'bg-blue-100 text-blue-700' :
-                                          booking.status === 'cancelled' ? 'bg-red-100 text-red-700' :
-                                          'bg-yellow-100 text-yellow-700'
-                                        }`}>
-                                          {booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}
-                                        </span>
-                                      </div>
-                                      <p className="text-sm text-muted-foreground mb-2">
-                                        Listing: {listing?.title || `Listing ${booking.listingId}`}
-                                      </p>
-                                      <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                                        <div className="flex items-center gap-1">
-                                          <CalendarIcon className="w-4 h-4" />
-                                          <span>{booking.checkInFormatted} - {booking.checkOutFormatted}</span>
-                                        </div>
-                                        <div className="flex items-center gap-1">
-                                          <Users className="w-4 h-4" />
-                                          <span>{booking.guests || 1} guest{(booking.guests || 1) > 1 ? 's' : ''}</span>
-                                        </div>
-                                        <div className="flex items-center gap-1">
-                                          <Clock className="w-4 h-4" />
-                                          <span>Booked {booking.createdAtFormatted}</span>
-                                        </div>
-                                      </div>
-                                    </div>
+                              <div className="flex items-start justify-between mb-4">
+                                <div className="flex items-start gap-4 flex-1">
+                                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center text-white font-semibold flex-shrink-0">
+                                    {booking.guestEmail ? (
+                                      <img
+                                        src={booking.guestEmail}
+                                        alt={booking.guestEmail}
+                                        className="w-12 h-12 rounded-full object-cover"
+                                      />
+                                    ) : (
+                                      <span>{booking.guestEmail?.[0]?.toUpperCase() || 'G'}</span>
+                                    )}
                                   </div>
-                                  <div className="mt-3 pt-3 border-t border-gray-100">
-                                    <div className="flex items-center justify-between mb-3">
-                                      <span className="text-sm text-muted-foreground">Total Price:</span>
-                                      <span className="font-heading text-xl font-bold text-foreground">
-                                        ₱{(booking.totalPrice || 0).toLocaleString()}
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-3 mb-2">
+                                      <h3 className="font-heading text-lg font-semibold text-foreground">
+                                        {booking.guestEmail || 'Guest'}
+                                      </h3>
+                                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                        booking.status === 'confirmed' ? 'bg-green-100 text-green-700' :
+                                        booking.status === 'completed' ? 'bg-blue-100 text-blue-700' :
+                                        booking.status === 'cancelled' ? 'bg-red-100 text-red-700' :
+                                        'bg-yellow-100 text-yellow-700'
+                                      }`}>
+                                        {booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}
                                       </span>
                                     </div>
-                                    {booking.guestId && (
-                                      <button
-                                        onClick={async () => {
-                                          try {
-                                            const conversationId = await startConversationFromHost(
-                                              booking.guestId,
-                                              booking.listingId,
-                                              booking.id
-                                            );
-                                            navigate(`/host/messages?conversation=${conversationId}`);
-                                          } catch (error) {
-                                            console.error('Error starting conversation:', error);
-                                          }
-                                        }}
-                                        className="btn-outline px-4 py-2 text-sm font-medium flex items-center gap-2 mt-2 w-full"
-                                      >
-                                        <MessageSquare className="w-4 h-4" />
-                                        Message Guest
-                                      </button>
-                                    )}
+                                    <div className="flex items-center gap-2 mb-2">
+                                      <div className="flex items-center gap-1">
+                                        <CalendarIcon className="w-4 h-4" />
+                                        <span>{booking.checkInFormatted} - {booking.checkOutFormatted}</span>
+                                      </div>
+                                      <div className="flex items-center gap-1">
+                                        <Users className="w-4 h-4" />
+                                        <span>{booking.guests || 1} guest{(booking.guests || 1) > 1 ? 's' : ''}</span>
+                                      </div>
+                                      <div className="flex items-center gap-1">
+                                        <Clock className="w-4 h-4" />
+                                        <span>Booked {booking.createdAtFormatted}</span>
+                                      </div>
+                                    </div>
+                                    <div className="mt-3 pt-3 border-t border-gray-100">
+                                      <div className="flex items-center justify-between mb-3">
+                                        <span className="text-sm text-muted-foreground">Total Price:</span>
+                                        <span className="font-heading text-xl font-bold text-foreground">
+                                          ₱{(booking.totalPrice || 0).toLocaleString()}
+                                        </span>
+                                      </div>
+                                      {booking.guestId && (
+                                        <button
+                                          onClick={async () => {
+                                            try {
+                                              const conversationId = await startConversationFromHost(
+                                                booking.guestId,
+                                                booking.listingId,
+                                                booking.id
+                                              );
+                                              navigate(`/host/messages?conversation=${conversationId}`);
+                                            } catch (error) {
+                                              console.error('Error starting conversation:', error);
+                                            }
+                                          }}
+                                          className="btn-outline px-4 py-2 text-sm font-medium flex items-center gap-2 mt-2 w-full"
+                                        >
+                                          <MessageSquare className="w-4 h-4" />
+                                          Message Guest
+                                        </button>
+                                      )}
+                                    </div>
                                   </div>
                                 </div>
                                 <div className="ml-4 flex flex-col gap-2">
@@ -2229,9 +2270,9 @@ const AccountSettings = () => {
               // Guest Bookings
               <>
                 {/* Upcoming Bookings */}
-                {upcomingGuestBookings.length > 0 && (
-                  <section>
-                    <h2 className="text-2xl font-heading font-semibold mb-6">Upcoming</h2>
+                <section>
+                  <h2 className="text-2xl font-heading font-semibold mb-6">Upcoming</h2>
+                  {upcomingGuestBookings.length > 0 ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                       {upcomingGuestBookings.map((booking) => (
                         <div key={booking.id} className="card-listing hover-lift cursor-pointer" onClick={() => navigate(`/${booking.category}s/${booking.listingId}`)}>
@@ -2287,13 +2328,15 @@ const AccountSettings = () => {
                         </div>
                       ))}
                     </div>
-                  </section>
-                )}
+                  ) : (
+                    <div className="text-center py-8 text-muted-foreground">No upcoming bookings.</div>
+                  )}
+                </section>
 
                 {/* Past Bookings */}
-                {pastGuestBookings.length > 0 && (
-                  <section>
-                    <h2 className="text-2xl font-heading font-semibold mb-6">Past Bookings</h2>
+                <section>
+                  <h2 className="text-2xl font-heading font-semibold mb-6">Past Bookings</h2>
+                  {pastGuestBookings.length > 0 ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                       {pastGuestBookings.map((booking) => (
                         <div key={booking.id} className="card-listing hover-lift cursor-pointer" onClick={() => navigate(`/${booking.category}s/${booking.listingId}`)}>
@@ -2338,36 +2381,26 @@ const AccountSettings = () => {
                                 <p className="text-xs text-muted-foreground">Total</p>
                                 <p className="text-lg font-bold text-foreground">₱{(booking.totalPrice || 0).toLocaleString()}</p>
                               </div>
-                              {booking.status === 'completed' && (
-                                <button 
-                                  className="btn-outline text-xs px-3 py-1.5"
-                                  onClick={async (e) => {
-                                    e.stopPropagation();
-                                    // Check if review already exists
-                                    const existingReview = await getReviewByBookingId(booking.id);
-                                    if (existingReview) {
-                                      // Already reviewed
-                                      return;
-                                    }
-                                    setSelectedBookingForReview(booking);
-                                    setShowReviewModal(true);
-                                  }}
-                                >
-                                  {booking.reviewed ? 'Reviewed' : 'Review'}
-                                </button>
+                              {booking.status === 'pending' && (
+                                <span className="text-xs text-yellow-600">Pending</span>
+                              )}
+                              {booking.status === 'confirmed' && (
+                                <span className="text-xs text-green-600">✓ Confirmed</span>
                               )}
                             </div>
                           </div>
                         </div>
                       ))}
                     </div>
-                  </section>
-                )}
+                  ) : (
+                    <div className="text-center py-8 text-muted-foreground">No past bookings.</div>
+                  )}
+                </section>
 
                 {/* Cancelled Bookings */}
-                {cancelledGuestBookings.length > 0 && (
-                  <section>
-                    <h2 className="text-2xl font-heading font-semibold mb-6">Cancelled</h2>
+                <section>
+                  <h2 className="text-2xl font-heading font-semibold mb-6">Cancelled</h2>
+                  {cancelledGuestBookings.length > 0 ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                       {cancelledGuestBookings.map((booking) => (
                         <div key={booking.id} className="card-listing opacity-75" onClick={() => navigate(`/${booking.category}s/${booking.listingId}`)}>
@@ -2417,8 +2450,10 @@ const AccountSettings = () => {
                         </div>
                       ))}
                     </div>
-                  </section>
-                )}
+                  ) : (
+                    <div className="text-center py-8 text-muted-foreground">No cancelled bookings.</div>
+                  )}
+                </section>
 
                 {/* Empty State */}
                 {bookings.length === 0 && !bookingsLoading && (
@@ -2430,6 +2465,18 @@ const AccountSettings = () => {
                       Browse Accommodations
                     </button>
                   </div>
+                )}
+
+                {/* Recommendations Section - Show when there are bookings */}
+                {bookings.length > 0 && (
+                  <section className="mt-12">
+                    <h2 className="text-2xl font-heading font-semibold mb-6">Recommended for You</h2>
+                    <Recommendations 
+                      title="" 
+                      showTitle={false} 
+                      limit={6}
+                    />
+                  </section>
                 )}
               </>
             )}

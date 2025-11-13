@@ -213,11 +213,39 @@ const ServiceOfferings = () => {
   // Handle Save & Exit
   const handleSaveAndExit = async () => {
     try {
+      const { auth } = await import("@/lib/firebase");
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        alert("Please log in to save your progress.");
+        navigate("/login");
+        return;
+      }
+
+      const draftId = state.draftId || location.state?.draftId;
       await saveOfferingsToFirebase(offerings);
-      navigate("/host/listings");
+      
+      // Save currentStep
+      if (draftId) {
+        try {
+          const draftRef = doc(db, "onboardingDrafts", draftId);
+          await updateDoc(draftRef, {
+            currentStep: "service-offerings", // Save CURRENT step
+            lastModified: new Date(),
+          });
+        } catch (error) {
+          console.error("Error saving currentStep:", error);
+        }
+      }
+      
+      navigate("/host/listings", {
+        state: {
+          scrollToDrafts: true,
+          message: "Draft saved successfully!",
+        },
+      });
     } catch (error) {
-      console.error("Error in handleSaveAndExit:", error);
-      alert("Failed to save draft: " + error.message);
+      console.error("❌ Error saving draft:", error);
+      alert("Failed to save. Please try again.");
     }
   };
 

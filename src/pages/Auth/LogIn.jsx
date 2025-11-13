@@ -71,23 +71,19 @@ const LogIn = ({ isModal = false, onClose, onLoginSuccess, setUserData, onSwitch
       if (!userData.favorites) userData.favorites = [];
       const userRoles = Array.isArray(userData.roles) ? userData.roles.flat() : ["guest"];
 
-      // Update emailVerified in Firestore (non-blocking)
-      // Don't overwrite for admin users - preserve their emailVerified status
+      // For admin users, ensure emailVerified is true in Firestore
       try {
-        if (!userRoles.includes("admin")) {
-          await updateDoc(userDocRef, { emailVerified: user.emailVerified });
-        } else {
-          // For admin, ensure emailVerified is true
-          if (!userData.emailVerified) {
+        if (userRoles.includes("admin") && !userData.emailVerified) {
             await updateDoc(userDocRef, { emailVerified: true });
-          }
+          userData.emailVerified = true; // Update local copy
         }
       } catch (err) {
         console.warn("⚠️ Could not update emailVerified in Firestore:", err.code);
       }
 
-      // Check email verification
-      if (!user.emailVerified && !userRoles.includes("admin")) {
+      // Check email verification - use Firestore emailVerified (set by EmailJS) instead of Firebase Auth's emailVerified
+      const isEmailVerified = userData.emailVerified === true;
+      if (!isEmailVerified && !userRoles.includes("admin")) {
         // Show toast for 5 seconds in both modal and non-modal
         showToast("Please verify your email before logging in.", "warning", 5000);
         setIsLoading(false);
@@ -109,8 +105,8 @@ const LogIn = ({ isModal = false, onClose, onLoginSuccess, setUserData, onSwitch
         localStorage.removeItem("rememberedPassword");
       }
 
-      // Only close modal if login successful
-      if (user.emailVerified || userRoles.includes("admin")) {
+      // Only close modal if login successful - use Firestore emailVerified (set by EmailJS)
+      if (isEmailVerified || userRoles.includes("admin")) {
         // If upgradeToHost is true, call onLoginSuccess instead of onClose
         // This allows the parent to show host type selection after successful login
         // Don't navigate - let the HostTypeModal handle the flow

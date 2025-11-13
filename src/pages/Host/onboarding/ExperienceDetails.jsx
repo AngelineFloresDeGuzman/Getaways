@@ -4,6 +4,7 @@ import { useOnboarding } from "@/pages/Host/contexts/OnboardingContext";
 import { db } from "@/lib/firebase";
 import { doc, updateDoc, getDoc } from "firebase/firestore";
 import { createListing } from "@/pages/Host/services/listing";
+import imageCompression from 'browser-image-compression';
 import { Plus, ChevronRight, GraduationCap, Sparkles, X, Award, Facebook, Instagram, Trash2, ChevronDown, Search, Camera, Upload, Clock, ChevronLeft, BookOpen, User, MapPin, Image, DollarSign, Clipboard, Building } from "lucide-react";
 import { MapContainer, TileLayer, Marker, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
@@ -634,6 +635,117 @@ const ExperienceDetails = () => {
     await saveQualificationData(newValue);
   };
 
+  // Helper function to convert base64 to File
+  const base64ToFile = (base64String, fileName, mimeType = 'image/jpeg') => {
+    // Remove data URL prefix if present
+    const base64Data = base64String.replace(/^data:image\/\w+;base64,/, '');
+    const byteCharacters = atob(base64Data);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    const byteArray = new Uint8Array(byteNumbers);
+    return new File([byteArray], fileName, { type: mimeType });
+  };
+
+  // Compress and prepare photos for Firestore storage
+  const compressPhotosForStorage = async (photos) => {
+    if (!photos || photos.length === 0) {
+      console.log('📷 ExperienceDetails: No photos to compress');
+      return [];
+    }
+
+    console.log(`📤 ExperienceDetails: Starting compression of ${photos.length} photos for Firestore...`);
+    const compressedPhotos = [];
+    
+    for (let i = 0; i < photos.length; i++) {
+      const photo = photos[i];
+      
+      try {
+        // If photo already has a compressed base64 string, check if it's small enough
+        // Recompress if it's still too large (need to be under 70KB to be safe)
+        if (photo.base64 && photo.base64.length < 70000) { // Already small (<70KB)
+          console.log(`⏭️ ExperienceDetails: Photo ${i + 1} already compressed, using existing base64`);
+          compressedPhotos.push({
+            id: photo.id || `photo_${i}`,
+            name: photo.name || `photo_${i + 1}`,
+            url: photo.base64, // Use base64 as URL for display
+            base64: photo.base64, // Store for Firestore
+          });
+          continue;
+        }
+        
+        // Limit to 8 photos max to stay well under 1MB document limit (8 * 50KB = 400KB max)
+        if (compressedPhotos.length >= 8) {
+          console.warn(`⚠️ ExperienceDetails: Photo limit reached (8 photos max). Skipping remaining ${photos.length - i} photos.`);
+          break;
+        }
+
+        // Determine mime type from base64 or default to jpeg
+        let mimeType = 'image/jpeg';
+        if (photo.base64 && photo.base64.includes('data:image/')) {
+          const mimeMatch = photo.base64.match(/data:image\/([^;]+)/);
+          if (mimeMatch) {
+            const ext = mimeMatch[1].split('+')[0];
+            mimeType = `image/${ext}`;
+          }
+        }
+        
+        const base64String = photo.base64 || photo.url;
+        if (!base64String || base64String.startsWith('blob:')) {
+          console.warn(`⚠️ ExperienceDetails: Photo ${i + 1} has no valid base64 or is a blob URL, skipping`);
+          continue;
+        }
+        
+        // Convert base64 to File for compression
+        const fileName = photo.name || `photo_${i + 1}.jpg`;
+        const file = base64ToFile(base64String, fileName, mimeType);
+        
+        // Compress image very aggressively to reduce size (max 50KB per image)
+        // With 8 photos max, total would be ~400KB, well under 1MB Firestore limit
+        console.log(`📦 ExperienceDetails: Compressing photo ${i + 1}/${photos.length}...`);
+        const compressionOptions = {
+          maxSizeMB: 0.05, // 50KB max per image (very aggressive compression)
+          maxWidthOrHeight: 800, // Reduced max dimensions for smaller file size
+          useWebWorker: true,
+          fileType: mimeType,
+          initialQuality: 0.6 // Lower quality for smaller size
+        };
+        
+        const compressedFile = await imageCompression(file, compressionOptions);
+        
+        // Convert compressed file back to base64
+        const reader = new FileReader();
+        const compressedBase64 = await new Promise((resolve, reject) => {
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(compressedFile);
+        });
+        
+        // Check size after compression
+        const sizeInBytes = (compressedBase64.length * 3) / 4; // Approximate base64 size
+        const sizeInKB = sizeInBytes / 1024;
+        console.log(`✅ ExperienceDetails: Photo ${i + 1} compressed to ${sizeInKB.toFixed(2)}KB`);
+        
+        compressedPhotos.push({
+          id: photo.id || `photo_${i}`,
+          name: fileName,
+          url: compressedBase64, // Use compressed base64 for display
+          base64: compressedBase64, // Store compressed base64 in Firestore
+        });
+        
+        console.log(`✅ ExperienceDetails: Compressed photo ${i + 1}/${photos.length}`);
+      } catch (error) {
+        console.error(`❌ ExperienceDetails: Error compressing photo ${i + 1}:`, error);
+        // If compression fails, skip this photo to avoid exceeding size limit
+        console.warn(`⚠️ ExperienceDetails: Skipping photo ${i + 1} (compression failed)`);
+      }
+    }
+    
+    console.log(`✅ ExperienceDetails: Photo compression complete: ${compressedPhotos.length}/${photos.length} processed`);
+    return compressedPhotos;
+  };
+
   const saveQualificationData = async (overrideYearsOfExperience = null) => {
     let draftId = state.draftId || location.state?.draftId;
     
@@ -710,6 +822,11 @@ const ExperienceDetails = () => {
       try {
         const draftRef = doc(db, "onboardingDrafts", draftId);
         
+        // Compress photos before saving to avoid exceeding Firestore 1MB limit
+        console.log("📦 ExperienceDetails: Compressing photos before saving...");
+        const compressedPhotos = await compressPhotosForStorage(photos);
+        console.log(`✅ ExperienceDetails: Compressed ${compressedPhotos.length} photos for draft save`);
+        
         // Build update object with all form data
         const updateData = {
           "data.introTitle": introTitle,
@@ -740,25 +857,12 @@ const ExperienceDetails = () => {
           "data.mapLat": mapPosition[0],
           "data.mapLng": mapPosition[1],
           "data.showMap": showMap,
-          "data.photos": photos.map(photo => {
-            // Save photo data with base64 for listing creation
-            // Remove blob URLs (they can't be serialized), but keep base64
-            const photoData = {
+          "data.photos": compressedPhotos.map(photo => ({
               id: photo.id,
               name: photo.name,
-            };
-            // Only include URL if it's a real URL (not a blob URL)
-            if (photo.url && !photo.url.startsWith('blob:')) {
-              photoData.url = photo.url;
-            }
-            // Include base64 if available (needed for listing creation)
-            // Firebase Firestore has a 1MB document size limit, but we'll include base64
-            // and let Firebase handle size limits (it will error if too large)
-            if (photo.base64) {
-              photoData.base64 = photo.base64;
-            }
-            return photoData;
-          }),
+            url: photo.url || photo.base64, // Use compressed base64 for display
+            base64: photo.base64 // Store compressed base64 in Firestore
+          })),
           "data.itineraryItems": itineraryItems.map(item => ({
             ...item,
             description: item.description || '',
