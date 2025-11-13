@@ -1,6 +1,9 @@
 import { db } from '@/lib/firebase';
 import { collection, query, where, getDocs, updateDoc, doc, serverTimestamp, getDoc } from 'firebase/firestore';
 
+// Fixed 10% commission deducted from host earnings
+export const HOST_COMMISSION_PERCENTAGE = 0.10;
+
 /**
  * Automatically mark bookings as completed if checkout date has passed + 1 day
  * This runs on admin dashboard load
@@ -69,6 +72,7 @@ export const autoCompleteBookings = async () => {
         status: 'completed',
         autoCompleted: true,
         autoCompletedAt: serverTimestamp(),
+        earningsReleasePending: true, // Mark as pending for admin to release earnings
         updatedAt: serverTimestamp()
       });
     }
@@ -104,16 +108,15 @@ export const releaseHostEarnings = async (bookingId) => {
       return { success: false, message: 'Earnings already released for this booking' };
     }
     
-    // Get booking amount (what host should receive) and guest fee (what admin keeps)
+    // Get booking amount (what guest paid - no service fee)
     // bookingAmount is stored when booking is created
-    // If not stored (for old bookings), calculate from totalPrice (assuming 14% guest fee)
-    const totalPrice = booking.totalPrice || 0;
-    const bookingAmount = booking.bookingAmount || (totalPrice ? Math.round((totalPrice / 1.14) * 100) / 100 : 0);
-    const guestFee = booking.guestFee || (totalPrice ? Math.round((totalPrice - bookingAmount) * 100) / 100 : 0);
+    // For old bookings, use totalPrice as fallback (should equal bookingAmount since no guest fees)
+    const bookingAmount = booking.bookingAmount || booking.totalPrice || 0;
     
     // Admin keeps 10% commission from bookingAmount
-    const adminCommission = Math.round((bookingAmount * 0.10) * 100) / 100;
-    const hostEarnings = Math.round((bookingAmount - adminCommission) * 100) / 100; // Host receives 90% of booking amount
+    // Host receives 90% of bookingAmount
+    const adminCommission = Math.round((bookingAmount * HOST_COMMISSION_PERCENTAGE) * 100) / 100;
+    const hostEarnings = Math.round((bookingAmount * (1 - HOST_COMMISSION_PERCENTAGE)) * 100) / 100;
     
     // Transfer bookingAmount from admin's GetPay wallet to host's GetPay wallet
     try {
@@ -143,7 +146,7 @@ export const releaseHostEarnings = async (bookingId) => {
       await deductFromAdminWallet(
         adminUserId,
         hostEarnings,
-        `Earnings Release - Host Payment (Admin commission: ₱${adminCommission.toFixed(2)})`,
+        `Earnings Release - Host Payment (10% commission: ₱${adminCommission.toFixed(2)})`,
         {
           bookingId: bookingId,
           listingId: booking.listingId,
@@ -186,15 +189,15 @@ export const releaseHostEarnings = async (bookingId) => {
       earningsReleasePending: false, // Clear pending flag
       hostEarnings: hostEarnings,
       adminCommission: adminCommission, // Store admin commission (10%)
-      guestFee: guestFee, // Store guest fee for record keeping
+      bookingAmount: bookingAmount, // Store booking amount for record keeping
       updatedAt: serverTimestamp()
     });
     
     return {
       success: true,
-      message: `Earnings of ₱${hostEarnings.toLocaleString()} released to host's GetPay wallet`,
+      message: `Earnings of ₱${hostEarnings.toLocaleString()} released to host's GetPay wallet (10% commission: ₱${adminCommission.toFixed(2)})`,
       hostEarnings,
-      guestFee
+      adminCommission
     };
   } catch (error) {
     console.error('Error releasing host earnings:', error);
@@ -221,14 +224,14 @@ export const getPendingEarnings = async () => {
       
       // Only show bookings that are pending earnings release
       if (booking.earningsReleasePending && !booking.earningsReleased) {
-        const totalPrice = booking.totalPrice || 0;
-        // Use stored bookingAmount and guestFee if available, otherwise calculate (assuming 14% guest fee)
-        const bookingAmount = booking.bookingAmount || (totalPrice ? Math.round((totalPrice / 1.14) * 100) / 100 : 0);
-        const guestFee = booking.guestFee || (totalPrice ? Math.round((totalPrice - bookingAmount) * 100) / 100 : 0);
+        // Get bookingAmount (what guest paid - no service fee)
+        // For old bookings, use totalPrice as fallback
+        const bookingAmount = booking.bookingAmount || booking.totalPrice || 0;
         
         // Admin keeps 10% commission from bookingAmount
-        const adminCommission = Math.round((bookingAmount * 0.10) * 100) / 100;
-        const hostEarnings = Math.round((bookingAmount - adminCommission) * 100) / 100; // Host receives 90% of booking amount
+        // Host receives 90% of bookingAmount
+        const adminCommission = Math.round((bookingAmount * HOST_COMMISSION_PERCENTAGE) * 100) / 100;
+        const hostEarnings = Math.round((bookingAmount * (1 - HOST_COMMISSION_PERCENTAGE)) * 100) / 100;
         
         // Get host info
         const hostDoc = await getDoc(doc(db, 'users', booking.ownerId));
@@ -249,9 +252,7 @@ export const getPendingEarnings = async () => {
           hostEmail: hostData.email,
           guestName: `${guestData.firstName || ''} ${guestData.lastName || ''}`.trim() || guestData.email || 'Unknown',
           listingTitle: listingData.title || 'Unknown Listing',
-          totalPrice,
           bookingAmount: bookingAmount,
-          guestFee: guestFee,
           adminCommission: adminCommission,
           hostEarnings,
           completedAt: booking.autoCompletedAt || booking.updatedAt || booking.createdAt
@@ -317,10 +318,10 @@ export const getReleasedEarningsSummary = async () => {
     bookingsSnapshot.forEach(bookingDoc => {
       const booking = bookingDoc.data();
       const hostEarnings = booking.hostEarnings || 0;
-      const guestFee = booking.guestFee || booking.serviceFee || 0; // Use guestFee, fallback to serviceFee for old bookings
+      const adminCommission = booking.adminCommission || 0; // 10% commission (admin's earnings)
       
       totalReleased += hostEarnings;
-      totalServiceFees += guestFee; // Track guest fees (admin's earnings)
+      totalServiceFees += adminCommission; // Track 10% commission (admin's earnings)
       
       if (!byHost[booking.ownerId]) {
         byHost[booking.ownerId] = {
@@ -334,7 +335,7 @@ export const getReleasedEarningsSummary = async () => {
       }
       
       byHost[booking.ownerId].totalEarnings += hostEarnings;
-      byHost[booking.ownerId].totalServiceFees += guestFee; // Track guest fees
+      byHost[booking.ownerId].totalServiceFees += adminCommission; // Track 10% commission
       byHost[booking.ownerId].bookingCount += 1;
     });
     

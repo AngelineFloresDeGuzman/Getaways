@@ -13,6 +13,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { toast } from '@/components/ui/sonner';
 import { PayPalScriptProvider, PayPalButtons, usePayPalScriptReducer } from '@paypal/react-paypal-js';
 import { getWalletBalance, hasSufficientBalance, initializeWallet, deductFromWallet } from '@/pages/Common/services/getpayService';
+import imageCompression from 'browser-image-compression';
 
 // PayPal Client ID - defined outside component to avoid re-creation
 const PAYPAL_CLIENT_ID = import.meta.env.VITE_PAYPAL_CLIENT_ID || '';
@@ -35,8 +36,29 @@ const BookingRequest = () => {
   const location = useLocation();
 
   // Use React state for dates and guests to allow dynamic changes
-  const [checkInDate, setCheckInDate] = useState(location.state?.checkInDate || '');
-  const [checkOutDate, setCheckOutDate] = useState(location.state?.checkOutDate || '');
+  // For experiences, convert experienceDate to checkInDate/checkOutDate
+  const getInitialCheckInDate = () => {
+    if (location.state?.experienceDate && location.state?.category === 'experience') {
+      return location.state.experienceDate;
+    }
+    return location.state?.checkInDate || '';
+  };
+  
+  const getInitialCheckOutDate = () => {
+    if (location.state?.experienceDate && location.state?.category === 'experience') {
+      // For experiences, set checkOutDate to the next day (same day + 1 day)
+      const experienceDate = new Date(location.state.experienceDate);
+      experienceDate.setDate(experienceDate.getDate() + 1);
+      const year = experienceDate.getFullYear();
+      const month = String(experienceDate.getMonth() + 1).padStart(2, '0');
+      const day = String(experienceDate.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+    return location.state?.checkOutDate || '';
+  };
+  
+  const [checkInDate, setCheckInDate] = useState(getInitialCheckInDate());
+  const [checkOutDate, setCheckOutDate] = useState(getInitialCheckOutDate());
   const [guests, setGuests] = useState(location.state?.guests || 1);
 
   // Temporary state for editing dates/guests
@@ -334,6 +356,19 @@ const BookingRequest = () => {
     reader.readAsDataURL(file);
   };
 
+  // Helper function to convert base64 to File
+  const base64ToFile = (base64String, fileName, mimeType = 'image/jpeg') => {
+    // Remove data URL prefix if present
+    const base64Data = base64String.replace(/^data:image\/\w+;base64,/, '');
+    const byteCharacters = atob(base64Data);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    const byteArray = new Uint8Array(byteNumbers);
+    return new File([byteArray], fileName, { type: mimeType });
+  };
+
   // Save photo to profile
   const handleSavePhoto = async (shouldProceed = true) => {
     if (!profilePhotoPreview) {
@@ -349,14 +384,62 @@ const BookingRequest = () => {
     try {
       setUploadingPhoto(true);
       
+      // Compress image before saving to Firestore (must be under 1MB)
+      let compressedBase64 = profilePhotoPreview;
+      
+      // Check if image needs compression (if base64 string is too large)
+      const base64Size = profilePhotoPreview.length;
+      const estimatedSizeInBytes = (base64Size * 3) / 4; // Approximate base64 size
+      
+      if (estimatedSizeInBytes > 800000) { // Compress if over 800KB (to be safe under 1MB)
+        toast.info('Compressing image...');
+        
+        // Determine mime type from base64
+        let mimeType = 'image/jpeg';
+        if (profilePhotoPreview.includes('data:image/')) {
+          const mimeMatch = profilePhotoPreview.match(/data:image\/([^;]+)/);
+          if (mimeMatch) {
+            const ext = mimeMatch[1].split('+')[0];
+            mimeType = `image/${ext}`;
+          }
+        }
+        
+        // Convert base64 to File for compression
+        const file = base64ToFile(profilePhotoPreview, 'profile-photo.jpg', mimeType);
+        
+        // Compress image aggressively to reduce size (max 200KB to be safe)
+        const compressionOptions = {
+          maxSizeMB: 0.2, // 200KB max
+          maxWidthOrHeight: 800, // Max dimensions
+          useWebWorker: true,
+          fileType: mimeType,
+          initialQuality: 0.7 // Good quality but smaller size
+        };
+        
+        const compressedFile = await imageCompression(file, compressionOptions);
+        
+        // Convert compressed file back to base64
+        const reader = new FileReader();
+        compressedBase64 = await new Promise((resolve, reject) => {
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(compressedFile);
+        });
+        
+        // Check final size
+        const finalSize = (compressedBase64.length * 3) / 4;
+        const finalSizeKB = finalSize / 1024;
+        console.log(`✅ Profile photo compressed to ${finalSizeKB.toFixed(2)}KB`);
+      }
+      
       // Save to Firebase user profile
       const userRef = doc(db, 'users', user.uid);
       await updateDoc(userRef, {
-        profileImage: profilePhotoPreview,
+        profileImage: compressedBase64,
         updatedAt: new Date().toISOString()
       });
 
-      setProfilePhoto(profilePhotoPreview);
+      setProfilePhoto(compressedBase64);
       toast.success('Profile photo saved successfully!');
       
       if (shouldProceed) {
@@ -364,7 +447,11 @@ const BookingRequest = () => {
       }
     } catch (error) {
       console.error('Error saving profile photo:', error);
+      if (error.message && error.message.includes('longer than')) {
+        toast.error('Image is too large. Please try a smaller image.');
+      } else {
       toast.error('Failed to save profile photo. Please try again.');
+      }
     } finally {
       setUploadingPhoto(false);
     }
@@ -373,49 +460,12 @@ const BookingRequest = () => {
   const handleNext = () => {
     // Validate Step 2: Payment method must be set
     if (currentStep === 2) {
-      if (paymentProvider === 'paypal' && !paypalConnected) {
-        toast.error('Please connect your PayPal account before proceeding');
-        return;
-      }
+      // PayPal is always enabled, no need to check connection
       if (paymentProvider === 'getpay' && paymentOption === 'now') {
         // Check wallet balance if paying now with GetPay
-        let payNights = 0;
-        if (checkInDate && checkOutDate) {
-          const inDate = new Date(checkInDate);
-          const outDate = new Date(checkOutDate);
-          if (outDate > inDate) {
-            payNights = Math.ceil((outDate - inDate) / (1000 * 60 * 60 * 24));
-          }
-        }
-        let payOriginalListingPrice = 0;
-        if (listing && checkInDate && checkOutDate && payNights > 0) {
-          const nightlyRate = listing.price || listing.weekdayPrice || 0;
-          payOriginalListingPrice = nightlyRate * payNights;
-        }
-        let payHighestPromo = null;
-        let payHighestPromoAmount = 0;
-        if (listing && checkInDate && checkOutDate && payNights > 0) {
-          const promoOptions = [];
-          if (listing.weeklyDiscount && payNights >= 7) {
-            promoOptions.push({ label: 'Weekly stay discount', amount: Math.round(payOriginalListingPrice * (listing.weeklyDiscount / 100)) });
-          }
-          if (listing.monthlyDiscount && payNights >= 28) {
-            promoOptions.push({ label: 'Monthly stay discount', amount: Math.round(payOriginalListingPrice * (listing.monthlyDiscount / 100)) });
-          }
-          if (listing.earlyBirdDiscount) {
-            promoOptions.push({ label: 'Early bird discount', amount: Math.round(payOriginalListingPrice * (listing.earlyBirdDiscount / 100)) });
-          }
-          if (listing.lastMinuteDiscount) {
-            promoOptions.push({ label: 'Last minute discount', amount: Math.round(payOriginalListingPrice * (listing.lastMinuteDiscount / 100)) });
-          }
-          if (promoOptions.length > 0) {
-            payHighestPromo = promoOptions.reduce((max, curr) => curr.amount > max.amount ? curr : max, promoOptions[0]);
-            payHighestPromoAmount = payHighestPromo.amount;
-          }
-        }
-        let payFinalPrice = payOriginalListingPrice - (payHighestPromoAmount || 0) - (couponDiscount || 0);
-        if (walletBalance < payFinalPrice) {
-          toast.error(`Insufficient GetPay wallet balance. You need ₱${(Math.max(0, payFinalPrice)?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00')} but your balance is ₱${walletBalance.toLocaleString()}. Please cash in first.`);
+        // Use unified price breakdown (no guest fee)
+        if (walletBalance < displayTotalPrice) {
+          toast.error(`Insufficient GetPay wallet balance. You need ₱${displayTotalPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} but your balance is ₱${walletBalance.toLocaleString()}. Please cash in first.`);
           return;
         }
       }
@@ -502,7 +552,13 @@ const BookingRequest = () => {
     }
 
     if (!checkInDate || !checkOutDate) {
+      if (category === 'experience') {
+        toast.error('Please select a date for the experience');
+      } else if (category === 'service') {
+        toast.error('Please select a date for the service');
+      } else {
       toast.error('Please select check-in and check-out dates');
+      }
       return;
     }
 
@@ -581,12 +637,7 @@ const BookingRequest = () => {
           
           // For PayPal, payment will NOT be processed here
           // Payment will only be processed when host confirms the booking (same as GetPay wallet)
-          // Just verify PayPal account is connected
-          if (!paypalConnected) {
-            toast.error('Please connect your PayPal account before proceeding');
-            setIsSubmitting(false);
-            return;
-          }
+          // PayPal is always available, connection is optional
           
           console.log('✅ PayPal payment method selected - payment will be processed when host confirms');
         }
@@ -601,9 +652,9 @@ const BookingRequest = () => {
         checkInDate: checkInDate,
         checkOutDate: checkOutDate,
         guests: guests || 1,
-        totalPrice: displayTotalPrice, // Final total (discountedBookingAmount + guestFee)
-        bookingAmount: displayBasePrice, // Base booking amount after coupon discount (before guest fee)
-        guestFee: calculatedGuestFee, // Guest fee calculated on discounted amount
+        totalPrice: displayTotalPrice, // Final total (discountedBookingAmount, no service fee)
+        bookingAmount: displayBasePrice, // Base booking amount after coupon discount
+        guestFee: 0, // No guest service fee
         useWallet: paymentOption === 'now' && paymentProvider === 'getpay', // Pay now with GetPay = use wallet (but payment still happens on host confirmation)
         paymentProvider: paymentProvider, // 'getpay' or 'paypal'
         paymentMethod: paymentProvider === 'getpay' ? 'wallet' : 'paypal',
@@ -611,8 +662,10 @@ const BookingRequest = () => {
         couponCode: couponCode || undefined,
         couponDiscount: couponDiscount || 0,
         couponId: location.state?.couponId || undefined,
-        paypalOrderId: paypalOrderId || undefined, // PayPal order ID if payment was authorized
-        paypalTransactionId: paypalTransactionId || undefined // PayPal transaction ID if payment was captured
+        // For PayPal: Do NOT pass paypalOrderId or paypalTransactionId - payment will be processed after host confirms
+        // Guest will have 24 hours after host confirmation to complete PayPal payment
+        paypalOrderId: undefined, // PayPal payment not processed upfront
+        paypalTransactionId: undefined // PayPal payment not processed upfront
       });
 
       toast.success('Booking request submitted successfully! The host will be notified.');
@@ -629,6 +682,7 @@ const BookingRequest = () => {
 
   // Calculate nights (for accommodations) or participants (for experiences)
   const isExperience = category === 'experience';
+  const isService = category === 'service';
   
   let nights = 0;
   let dateError = '';
@@ -638,13 +692,15 @@ const BookingRequest = () => {
     if (isExperience) {
       // For experiences, check-in and check-out are the same day (check-out is next day for booking system)
       nights = 1; // Single day experience
-    } else {
+    } else if (!isService) {
+      // For accommodations, validate dates
       if (outDate <= inDate) {
         dateError = 'Check-out date must be after check-in date.';
       } else {
         nights = Math.ceil((outDate - inDate) / (1000 * 60 * 60 * 24));
       }
     }
+    // Services don't need night calculation
   }
 
   // Calculate original listing price (before any discounts/coupons)
@@ -654,6 +710,9 @@ const BookingRequest = () => {
       // For experiences: price per person × number of participants
       const pricePerGuest = listing.pricePerGuest || listing.price || 0;
       originalListingPrice = pricePerGuest * (guests || 1);
+    } else if (isService) {
+      // For services: fixed price (not per night)
+      originalListingPrice = listing.price || 0;
     } else {
       // For accommodations: nightly rate × number of nights
       if (nights > 0) {
@@ -672,10 +731,25 @@ const BookingRequest = () => {
   let highestPromoAmount = 0;
   let promoLabel = '';
   if (listing && checkInDate && checkOutDate && originalListingPrice > 0) {
+    // Calculate days in advance for early bird and last minute discounts
+    const checkInDateObj = stringToDate(checkInDate);
+    const daysInAdvance = checkInDateObj ? Math.floor((checkInDateObj - new Date()) / (1000 * 60 * 60 * 24)) : 0;
+    
     const promoOptions = [];
     if (isExperience) {
       // Experience discounts (if any)
       // For now, experiences don't have the same discount structure, but we can add them later
+    } else if (isService) {
+      // Service discounts (if any)
+      // Services can have discounts too, but typically simpler structure
+      // Early bird: only if booking 30+ days in advance
+      if (listing.earlyBirdDiscount && daysInAdvance >= 30) {
+        promoOptions.push({ label: 'Early bird discount', amount: Math.round(originalListingPrice * (listing.earlyBirdDiscount / 100)) });
+      }
+      // Last minute: only if booking 0-7 days in advance
+      if (listing.lastMinuteDiscount && daysInAdvance <= 7 && daysInAdvance >= 0) {
+        promoOptions.push({ label: 'Last minute discount', amount: Math.round(originalListingPrice * (listing.lastMinuteDiscount / 100)) });
+      }
     } else {
       // Accommodation discounts
       if (listing.weeklyDiscount && nights >= 7) {
@@ -684,10 +758,12 @@ const BookingRequest = () => {
       if (listing.monthlyDiscount && nights >= 28) {
         promoOptions.push({ label: 'Monthly stay discount', amount: Math.round(originalListingPrice * (listing.monthlyDiscount / 100)) });
       }
-      if (listing.earlyBirdDiscount) {
+      // Early bird: only if booking 30+ days in advance
+      if (listing.earlyBirdDiscount && daysInAdvance >= 30) {
         promoOptions.push({ label: 'Early bird discount', amount: Math.round(originalListingPrice * (listing.earlyBirdDiscount / 100)) });
       }
-      if (listing.lastMinuteDiscount) {
+      // Last minute: only if booking 0-7 days in advance
+      if (listing.lastMinuteDiscount && daysInAdvance <= 7 && daysInAdvance >= 0) {
         promoOptions.push({ label: 'Last minute discount', amount: Math.round(originalListingPrice * (listing.lastMinuteDiscount / 100)) });
       }
     }
@@ -700,51 +776,33 @@ const BookingRequest = () => {
     }
   }
   
-  // This is the amount before coupon discount and guest fee
-  // Use calculateTotalPrice for accommodations, or calculate directly for experiences
-  const calculatedBasePrice = (checkInDate && checkOutDate && listing)
-    ? (isExperience 
-        ? (listing.pricePerGuest || listing.price || 0) * (guests || 1)
-        : calculateTotalPrice(listing.pricing, checkInDate, checkOutDate, guests))
-    : 0;
+  // Calculate final total price
+  // 1. Start with original listing price (before any discounts)
+  // 2. Subtract promo discount (highest applicable promo)
+  // 3. Subtract coupon discount
+  // 4. Final total = original price - promo discount - coupon discount (no service fee)
   
-  // Guest fee percentage (14% like Airbnb-style service fee)
-  const GUEST_FEE_PERCENTAGE = 0.14;
-  
-  // Calculate prices with coupon discount
-  // 1. Get the base booking amount (before coupon) - use calculatedBasePrice or totalPrice from state
-  // 2. Apply coupon discount
-  // 3. Calculate guest fee on discounted booking amount
-  // 4. Calculate final total = discounted booking amount + guest fee
-  
-  // If totalPrice from state exists, it might already include discounts but not guest fee
-  // Otherwise, use calculatedBasePrice
   let baseBookingAmount = 0;
   let discountedBookingAmount = 0;
-  let calculatedGuestFee = 0;
+  let calculatedGuestFee = 0; // Always 0 - no guest service fee
   let finalTotalPrice = 0;
 
-  // Determine base booking amount
-  // Always use calculatedBasePrice to ensure consistency with listing pricing
-  // totalPrice from state is just for reference/display, but we recalculate to ensure accuracy
-  if (calculatedBasePrice > 0) {
-    baseBookingAmount = calculatedBasePrice;
-    // Apply coupon discount if any
-    discountedBookingAmount = Math.max(0, baseBookingAmount - (couponDiscount || 0));
-  } else if (typeof totalPrice === 'number' && totalPrice > 0) {
-    // Fallback: if calculatedBasePrice is 0, use totalPrice from state
-    // Assume it doesn't include guest fee (it's the base booking amount)
-    baseBookingAmount = totalPrice;
-    discountedBookingAmount = Math.max(0, baseBookingAmount - (couponDiscount || 0));
-  }
-
-  // Calculate guest fee on the discounted booking amount
-  calculatedGuestFee = Math.round((discountedBookingAmount * GUEST_FEE_PERCENTAGE) * 100) / 100;
+  // Use original listing price as base (before discounts)
+  baseBookingAmount = originalListingPrice;
   
-  // Final total = discounted booking amount + guest fee
-  finalTotalPrice = Math.round((discountedBookingAmount + calculatedGuestFee) * 100) / 100;
+  // Apply promo discount (highest applicable)
+  const priceAfterPromo = Math.max(0, baseBookingAmount - highestPromoAmount);
+  
+  // Apply coupon discount
+  discountedBookingAmount = Math.max(0, priceAfterPromo - (couponDiscount || 0));
 
-  // Use finalTotalPrice for display and booking (includes guest fee)
+  // No guest service fee
+  calculatedGuestFee = 0;
+  
+  // Final total = original price - promo discount - coupon discount (no service fee)
+  finalTotalPrice = Math.round(discountedBookingAmount * 100) / 100;
+
+  // Use finalTotalPrice for display and booking (no service fee)
   const displayTotalPrice = finalTotalPrice;
   const displayBasePrice = discountedBookingAmount;
   
@@ -809,44 +867,7 @@ const BookingRequest = () => {
                 </div>
                 <div className="space-y-4">
                   <div className="font-medium text-foreground">
-                    {(() => {
-                      let payNights = 0;
-                      if (checkInDate && checkOutDate) {
-                        const inDate = new Date(checkInDate);
-                        const outDate = new Date(checkOutDate);
-                        if (outDate > inDate) {
-                          payNights = Math.ceil((outDate - inDate) / (1000 * 60 * 60 * 24));
-                        }
-                      }
-                      let payOriginalListingPrice = 0;
-                      if (listing && checkInDate && checkOutDate && payNights > 0) {
-                        const nightlyRate = listing.price || listing.weekdayPrice || 0;
-                        payOriginalListingPrice = nightlyRate * payNights;
-                      }
-                      let payHighestPromo = null;
-                      let payHighestPromoAmount = 0;
-                      if (listing && checkInDate && checkOutDate && payNights > 0) {
-                        const promoOptions = [];
-                        if (listing.weeklyDiscount && payNights >= 7) {
-                          promoOptions.push({ label: 'Weekly stay discount', amount: Math.round(payOriginalListingPrice * (listing.weeklyDiscount / 100)) });
-                        }
-                        if (listing.monthlyDiscount && payNights >= 28) {
-                          promoOptions.push({ label: 'Monthly stay discount', amount: Math.round(payOriginalListingPrice * (listing.monthlyDiscount / 100)) });
-                        }
-                        if (listing.earlyBirdDiscount) {
-                          promoOptions.push({ label: 'Early bird discount', amount: Math.round(payOriginalListingPrice * (listing.earlyBirdDiscount / 100)) });
-                        }
-                        if (listing.lastMinuteDiscount) {
-                          promoOptions.push({ label: 'Last minute discount', amount: Math.round(payOriginalListingPrice * (listing.lastMinuteDiscount / 100)) });
-                        }
-                        if (promoOptions.length > 0) {
-                          payHighestPromo = promoOptions.reduce((max, curr) => curr.amount > max.amount ? curr : max, promoOptions[0]);
-                          payHighestPromoAmount = payHighestPromo.amount;
-                        }
-                      }
-                      let payFinalPrice = payOriginalListingPrice - (payHighestPromoAmount || 0) - (couponDiscount || 0);
-                      return `Pay ₱${(Math.max(0, payFinalPrice)?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00')} now`;
-                    })()}
+                    Pay ₱{displayTotalPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} now
                   </div>
                   <button
                     onClick={handleNext}
@@ -880,12 +901,12 @@ const BookingRequest = () => {
                     {paymentProvider === 'getpay' ? (
                       <>
                         <CheckCircle className="w-4 h-4 text-green-600" />
-                        <span>GetPay E-Wallet Selected</span>
+                        <span>GetPay Selected</span>
                       </>
                     ) : paypalConnected ? (
                       <>
                         <CheckCircle className="w-4 h-4 text-green-600" />
-                        <span>PayPal Direct Selected ({paypalEmail})</span>
+                        <span>PayPal Selected ({paypalEmail})</span>
                       </>
                     ) : (
                       <>
@@ -934,53 +955,16 @@ const BookingRequest = () => {
                         />
                         <Wallet className="w-5 h-5 text-primary" />
                         <div className="flex-1">
-                          <div className="font-medium text-foreground">GetPay E-Wallet</div>
+                          <div className="font-medium text-foreground">GetPay</div>
                           <div className="text-xs text-muted-foreground">Pay using your GetPay wallet balance</div>
                           {paymentOption === 'now' && isCheckingBalance && (
                             <div className="text-xs text-muted-foreground mt-1">Checking balance...</div>
                           )}
-                          {paymentOption === 'now' && !isCheckingBalance && paymentProvider === 'getpay' && (() => {
-                            let payNights = 0;
-                            if (checkInDate && checkOutDate) {
-                              const inDate = new Date(checkInDate);
-                              const outDate = new Date(checkOutDate);
-                              if (outDate > inDate) {
-                                payNights = Math.ceil((outDate - inDate) / (1000 * 60 * 60 * 24));
-                              }
-                            }
-                            let payOriginalListingPrice = 0;
-                            if (listing && checkInDate && checkOutDate && payNights > 0) {
-                              const nightlyRate = listing.price || listing.weekdayPrice || 0;
-                              payOriginalListingPrice = nightlyRate * payNights;
-                            }
-                            let payHighestPromo = null;
-                            let payHighestPromoAmount = 0;
-                            if (listing && checkInDate && checkOutDate && payNights > 0) {
-                              const promoOptions = [];
-                              if (listing.weeklyDiscount && payNights >= 7) {
-                                promoOptions.push({ label: 'Weekly stay discount', amount: Math.round(payOriginalListingPrice * (listing.weeklyDiscount / 100)) });
-                              }
-                              if (listing.monthlyDiscount && payNights >= 28) {
-                                promoOptions.push({ label: 'Monthly stay discount', amount: Math.round(payOriginalListingPrice * (listing.monthlyDiscount / 100)) });
-                              }
-                              if (listing.earlyBirdDiscount) {
-                                promoOptions.push({ label: 'Early bird discount', amount: Math.round(payOriginalListingPrice * (listing.earlyBirdDiscount / 100)) });
-                              }
-                              if (listing.lastMinuteDiscount) {
-                                promoOptions.push({ label: 'Last minute discount', amount: Math.round(payOriginalListingPrice * (listing.lastMinuteDiscount / 100)) });
-                              }
-                              if (promoOptions.length > 0) {
-                                payHighestPromo = promoOptions.reduce((max, curr) => curr.amount > max.amount ? curr : max, promoOptions[0]);
-                                payHighestPromoAmount = payHighestPromo.amount;
-                              }
-                            }
-                            let payFinalPrice = payOriginalListingPrice - (payHighestPromoAmount || 0) - (couponDiscount || 0);
-                            return (
-                              <div className={`text-xs mt-1 ${walletBalance >= payFinalPrice ? 'text-green-600' : 'text-amber-600'}`}>
-                                Balance: ₱{walletBalance.toLocaleString()} {walletBalance < payFinalPrice && '(Insufficient)'}
+                          {paymentOption === 'now' && !isCheckingBalance && paymentProvider === 'getpay' && (
+                            <div className={`text-xs mt-1 ${walletBalance >= displayTotalPrice ? 'text-green-600' : 'text-amber-600'}`}>
+                              Balance: ₱{walletBalance.toLocaleString()} {walletBalance < displayTotalPrice && '(Insufficient)'}
                               </div>
-                            );
-                          })()}
+                          )}
                         </div>
                       </label>
                       
@@ -988,25 +972,21 @@ const BookingRequest = () => {
                         paymentProvider === 'paypal' 
                           ? 'border-primary bg-primary/5 shadow-md' 
                           : 'border-border hover:border-primary/50 bg-card'
-                      } ${!paypalConnected ? 'opacity-60' : ''}`}>
+                      }`}>
                         <input
                           type="radio"
                           name="paymentProvider"
                           value="paypal"
                           checked={paymentProvider === 'paypal'}
                           onChange={(e) => setPaymentProvider(e.target.value)}
-                          disabled={!paypalConnected}
                           className="w-4 h-4 text-primary"
                         />
                         <div className="flex items-center justify-center w-10 h-10 rounded bg-[#0070ba]">
                           <span className="text-white font-bold text-sm">P</span>
                         </div>
                         <div className="flex-1">
-                          <div className="font-medium text-foreground">PayPal Direct</div>
+                          <div className="font-medium text-foreground">PayPal</div>
                           <div className="text-xs text-muted-foreground">Pay directly via PayPal</div>
-                          {!paypalConnected && (
-                            <div className="text-xs text-amber-600 mt-1">PayPal account not connected</div>
-                          )}
                         </div>
                       </label>
                     </div>
@@ -1029,12 +1009,12 @@ const BookingRequest = () => {
                           </div>
                         ) : (
                           <div className="space-y-3">
-                            <div className="flex items-start gap-3 p-4 border-2 border-amber-500 rounded-lg bg-amber-50">
-                              <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                            <div className="flex items-start gap-3 p-4 border-2 border-blue-500 rounded-lg bg-blue-50">
+                              <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
                               <div className="flex-1">
-                                <div className="font-medium text-amber-900 mb-1">PayPal Account Not Connected</div>
-                                <div className="text-sm text-amber-800">
-                                  Connect your PayPal account to use PayPal direct payment.
+                                <div className="font-medium text-blue-900 mb-1">PayPal Account Not Connected (Optional)</div>
+                                <div className="text-sm text-blue-800">
+                                  You can proceed without connecting. Connect your PayPal account for faster checkout next time.
                                 </div>
                               </div>
                             </div>
@@ -1043,7 +1023,7 @@ const BookingRequest = () => {
                             <div className="space-y-3">
                               <div>
                                 <label className="block text-sm font-medium text-foreground mb-2">
-                                  PayPal Email Address
+                                  PayPal Email Address (Optional)
                                 </label>
                                 <input
                                   type="email"
@@ -1054,7 +1034,7 @@ const BookingRequest = () => {
                                   disabled={isConnectingPaypal}
                                 />
                                 <p className="text-xs text-muted-foreground mt-1">
-                                  Enter the email address associated with your PayPal account
+                                  Enter the email address associated with your PayPal account (optional)
                                 </p>
                               </div>
                               
@@ -1071,7 +1051,7 @@ const BookingRequest = () => {
                                 ) : (
                                   <>
                                     <CheckCircle className="w-4 h-4" />
-                                    Connect PayPal Account
+                                    Connect PayPal Account (Optional)
                                   </>
                                 )}
                               </button>
@@ -1321,108 +1301,49 @@ const BookingRequest = () => {
                         </div>
                       </div>
 
-                      {/* Price Breakdown - MATCHES SIDE CARD */}
+                      {/* Price Breakdown - MATCHES PRICE BREAKDOWN MODAL */}
                       <div className="space-y-2 pb-4 border-b border-border">
                         <h3 className="font-semibold text-foreground">Price Summary</h3>
+                        {/* Booking Details - Original Listing Price */}
                         <div className="flex items-center justify-between text-sm">
                           <span className="text-muted-foreground">
                             {isExperience 
                               ? `${guests || 1} ${guests === 1 ? 'person' : 'people'} × ₱${(listing && (listing.pricePerGuest || listing.price) ? (listing.pricePerGuest || listing.price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00')}`
-                              : (() => {
-                                  let cardNights = 0;
-                                  if (checkInDate && checkOutDate) {
-                                    const inDate = new Date(checkInDate);
-                                    const outDate = new Date(checkOutDate);
-                                    if (outDate > inDate) {
-                                      cardNights = Math.ceil((outDate - inDate) / (1000 * 60 * 60 * 24));
-                                    }
-                                  }
-                                  return `${cardNights} ${cardNights === 1 ? 'night' : 'nights'} × ₱${(listing && listing.price ? listing.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00')}`;
-                                })()}
+                              : `${nights} ${nights === 1 ? 'night' : 'nights'} · ${checkInDate ? format(new Date(checkInDate), 'MMM d') : ''} – ${checkOutDate ? format(new Date(checkOutDate), 'MMM d') : ''}`}
                           </span>
                           <span className="font-medium text-foreground">
-                            {isExperience
-                              ? `₱${originalListingPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                              : (() => {
-                                  let cardNights = 0;
-                                  if (checkInDate && checkOutDate) {
-                                    const inDate = new Date(checkInDate);
-                                    const outDate = new Date(checkOutDate);
-                                    if (outDate > inDate) {
-                                      cardNights = Math.ceil((outDate - inDate) / (1000 * 60 * 60 * 24));
-                                    }
-                                  }
-                                  let cardOriginalListingPrice = 0;
-                                  if (listing && checkInDate && checkOutDate && cardNights > 0) {
-                                    const nightlyRate = listing.price || listing.weekdayPrice || 0;
-                                    cardOriginalListingPrice = nightlyRate * cardNights;
-                                  }
-                                  return `₱${cardOriginalListingPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-                                })()}
+                            ₱{originalListingPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </span>
                         </div>
-                        {(() => {
-                          let cardNights = 0;
-                          if (checkInDate && checkOutDate) {
-                            const inDate = new Date(checkInDate);
-                            const outDate = new Date(checkOutDate);
-                            if (outDate > inDate) {
-                              cardNights = Math.ceil((outDate - inDate) / (1000 * 60 * 60 * 24));
-                            }
-                          }
-                          let cardOriginalListingPrice = 0;
-                          if (listing && checkInDate && checkOutDate && cardNights > 0) {
-                            const nightlyRate = listing.price || listing.weekdayPrice || 0;
-                            cardOriginalListingPrice = nightlyRate * cardNights;
-                          }
-                          let promoOptions = [];
-                          if (listing && checkInDate && checkOutDate && cardNights > 0) {
-                            if (listing.weeklyDiscount && cardNights >= 7) {
-                              promoOptions.push({ label: 'Weekly stay discount', amount: Math.round(cardOriginalListingPrice * (listing.weeklyDiscount / 100)) });
-                            }
-                            if (listing.monthlyDiscount && cardNights >= 28) {
-                              promoOptions.push({ label: 'Monthly stay discount', amount: Math.round(cardOriginalListingPrice * (listing.monthlyDiscount / 100)) });
-                            }
-                            if (listing.earlyBirdDiscount) {
-                              promoOptions.push({ label: 'Early bird discount', amount: Math.round(cardOriginalListingPrice * (listing.earlyBirdDiscount / 100)) });
-                            }
-                            if (listing.lastMinuteDiscount) {
-                              promoOptions.push({ label: 'Last minute discount', amount: Math.round(cardOriginalListingPrice * (listing.lastMinuteDiscount / 100)) });
-                            }
-                          }
-                          return (
-                            <>
-                              {promoOptions.map((promo, idx) => (
-                                <div key={idx} className="flex items-center justify-between text-sm text-green-600">
-                                  <span>{promo.label}</span>
-                                  <span className="font-medium">-₱{promo.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+
+                        {/* Promo Discounts - Only show highest applicable discount */}
+                        {discountsApplied && discountsApplied.length > 0 && discountsApplied.map((discount, idx) => (
+                          <div key={idx} className="flex items-center justify-between text-sm text-red-600">
+                            <span className="font-medium">{discount.label}</span>
+                            <span className="font-medium">-₱{discount.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                 </div>
                               ))}
+
+                        {/* Coupon Discount */}
                               {couponCode && couponDiscount > 0 && (
-                                <div className="flex items-center justify-between text-sm text-green-600">
-                                  <span>Coupon discount ({couponCode})</span>
+                          <div className="flex items-center justify-between text-sm text-red-600">
+                            <span className="font-medium">Coupon discount ({couponCode})</span>
                                   <span className="font-medium">-₱{couponDiscount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                 </div>
                               )}
-                            </>
-                          );
-                        })()}
-                        {calculatedGuestFee > 0 && (
-                          <div className="flex items-center justify-between text-sm">
-                            <span className="text-muted-foreground">Service Fee (14%)</span>
-                            <span className="font-medium text-foreground">
-                              ₱{calculatedGuestFee.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </span>
-                          </div>
-                        )}
-                        <div className="flex items-center justify-between pt-2 border-t border-border">
-                          <span className="font-semibold text-foreground">Total</span>
+
+                        {/* Separator */}
+                        <div className="border-t border-border my-2"></div>
+
+                        {/* Total */}
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-foreground">Total <span className="underline">PHP</span></span>
                           <span className="font-semibold text-foreground text-lg">
                             ₱{(displayTotalPrice || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </span>
                         </div>
                         <div className="text-xs text-muted-foreground mt-2">
-                          Platform receives 10% from host payout (not charged to guest).
+                          Getaways receives a 10% commission from the host's payout, which already includes VAT. This fee is not charged to guests.
                         </div>
                       </div>
 
@@ -1445,14 +1366,14 @@ const BookingRequest = () => {
                           </div>
                         )}
                         
-                        {/* For PayPal, just create booking without payment - payment happens when host confirms */}
-                        {paymentProvider === 'paypal' && paypalConnected && HAS_VALID_PAYPAL_CLIENT_ID && (
-                          <div className="text-center py-4 px-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg mb-4">
-                            <p className="text-sm text-blue-800 dark:text-blue-200 font-semibold mb-1">
+                        {/* For PayPal, just create booking without payment - payment happens after host confirms */}
+                        {paymentProvider === 'paypal' && HAS_VALID_PAYPAL_CLIENT_ID && (
+                          <div className="text-center py-4 px-4 bg-primary/10 dark:bg-primary/20 border border-primary/30 dark:border-primary/30 rounded-lg mb-4">
+                            <p className="text-sm text-primary dark:text-primary font-semibold mb-1">
                               PayPal Payment Method Selected
                             </p>
-                            <p className="text-xs text-blue-700 dark:text-blue-300">
-                              Your PayPal account will be charged when the host confirms your booking request.
+                            <p className="text-xs text-primary/90 dark:text-primary/80">
+                              After the host confirms your booking, you'll have 24 hours to complete your PayPal payment. The booking will be automatically cancelled if payment is not completed within 24 hours.
                             </p>
                           </div>
                         )}
@@ -1496,13 +1417,13 @@ const BookingRequest = () => {
                   <img
                     src={listingImage}
                     alt={listingTitle}
-                    className="w-24 h-24 object-cover rounded-lg"
+                    className="w-24 h-24 object-cover rounded-lg flex-shrink-0"
                   />
-                  <div className="flex-1">
-                    <h3 className="font-semibold text-foreground line-clamp-2 mb-1">
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-foreground line-clamp-2 mb-1 break-words overflow-hidden">
                       {listingTitle}
                     </h3>
-                    <div className="flex items-center gap-1 text-sm">
+                    <div className="flex items-center gap-1 text-sm flex-wrap">
                       <span className="font-medium">★ {listingRating.toFixed(2)}</span>
                       <span className="text-muted-foreground">({listingReviews})</span>
                       {listing.isGuestFavorite && (
@@ -1788,6 +1709,10 @@ const BookingRequest = () => {
         let modalHighestPromoAmount = 0;
         let modalPromoLabel = '';
         if (listing && checkInDate && checkOutDate && modalNights > 0) {
+          // Calculate days in advance for early bird and last minute discounts
+          const modalCheckInDateObj = stringToDate(checkInDate);
+          const modalDaysInAdvance = modalCheckInDateObj ? Math.floor((modalCheckInDateObj - new Date()) / (1000 * 60 * 60 * 24)) : 0;
+          
           const promoOptions = [];
           if (listing.weeklyDiscount && modalNights >= 7) {
             promoOptions.push({ label: 'Weekly stay discount', amount: Math.round(modalOriginalListingPrice * (listing.weeklyDiscount / 100)) });
@@ -1795,10 +1720,12 @@ const BookingRequest = () => {
           if (listing.monthlyDiscount && modalNights >= 28) {
             promoOptions.push({ label: 'Monthly stay discount', amount: Math.round(modalOriginalListingPrice * (listing.monthlyDiscount / 100)) });
           }
-          if (listing.earlyBirdDiscount) {
+          // Early bird: only if booking 30+ days in advance
+          if (listing.earlyBirdDiscount && modalDaysInAdvance >= 30) {
             promoOptions.push({ label: 'Early bird discount', amount: Math.round(modalOriginalListingPrice * (listing.earlyBirdDiscount / 100)) });
           }
-          if (listing.lastMinuteDiscount) {
+          // Last minute: only if booking 0-7 days in advance
+          if (listing.lastMinuteDiscount && modalDaysInAdvance <= 7 && modalDaysInAdvance >= 0) {
             promoOptions.push({ label: 'Last minute discount', amount: Math.round(modalOriginalListingPrice * (listing.lastMinuteDiscount / 100)) });
           }
           if (promoOptions.length > 0) {
@@ -1808,10 +1735,11 @@ const BookingRequest = () => {
             modalDiscountsApplied.push({ label: modalPromoLabel, amount: modalHighestPromoAmount });
           }
         }
-        // Use the already-calculated values instead of recalculating
+        // Calculate total price: original price minus all discounts
+        const totalDiscountAmount = modalDiscountsApplied.reduce((sum, discount) => sum + discount.amount, 0) + (couponDiscount || 0);
+        const modalTotalPrice = Math.max(0, modalOriginalListingPrice - totalDiscountAmount);
         const modalBookingAmount = displayBasePrice || 0;
         const modalGuestFee = calculatedGuestFee || 0;
-        const modalTotalPrice = displayTotalPrice || 0;
         return (
           <div 
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
@@ -1870,31 +1798,6 @@ const BookingRequest = () => {
                     </div>
                     <div className="text-sm font-medium">
                       -₱{couponDiscount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </div>
-                  </div>
-                )}
-
-                {/* Separator */}
-                <div className="border-t border-border my-4"></div>
-
-                {/* Booking Amount After Discounts */}
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-foreground font-medium">Subtotal</p>
-                  </div>
-                  <div className="text-sm font-medium text-foreground">
-                    ₱{modalBookingAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </div>
-                </div>
-
-                {/* Service Fee */}
-                {modalGuestFee > 0 && (
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-foreground font-medium">Service Fee (14%)</p>
-                    </div>
-                    <div className="text-sm font-medium text-foreground">
-                      ₱{modalGuestFee.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </div>
                   </div>
                 )}

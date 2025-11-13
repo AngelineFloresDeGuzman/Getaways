@@ -305,8 +305,8 @@ export const initializeDefaultPolicies = async () => {
 - Canceling confirmed bookings without valid reason
 
 ### Service Fees
-- Hosts pay a 3.3% service fee on each booking
-- Service fees are deducted from booking amount
+- Hosts pay a 10% commission on each booking
+- Commission is deducted from booking amount when earnings are released
 - Fees are non-refundable`,
         isActive: true,
         appliesTo: ['host'],

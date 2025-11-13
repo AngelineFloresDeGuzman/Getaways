@@ -1517,6 +1517,38 @@ const Payment = () => {
         return;
       }
 
+      // Record subscription payment in admin wallet (for tracking)
+      try {
+        const { getAdminUserId, addToWallet: addToAdminWallet } = await import('@/pages/Common/services/getpayService');
+        const adminUserId = await getAdminUserId();
+        
+        if (adminUserId) {
+          const { initializeWallet: initAdminWallet } = await import('@/pages/Common/services/getpayService');
+          await initAdminWallet(adminUserId);
+          await addToAdminWallet(
+            adminUserId,
+            planPrice,
+            `Payment Received - Host Subscription (PayPal)`,
+            {
+              subscriptionType: selectedPlan,
+              subscriptionPlan: selectedPlan === 'yearly' ? 'Yearly' : 'Monthly',
+              hostId: auth.currentUser.uid,
+              hostEmail: auth.currentUser.email,
+              paymentType: 'subscription_payment',
+              paymentMethod: 'paypal',
+              paypalOrderId: paypalDetails.id || null,
+              paypalTransactionId: paypalDetails.purchase_units?.[0]?.payments?.captures?.[0]?.id || null
+            }
+          );
+          console.log('✅ Subscription payment (PayPal) recorded in admin wallet');
+        } else {
+          console.warn('⚠️ Admin user ID not found - subscription payment not recorded in admin wallet');
+        }
+      } catch (adminWalletError) {
+        console.error('⚠️ Error recording subscription payment in admin wallet:', adminWalletError);
+        // Don't block payment flow if admin wallet recording fails
+      }
+
       // Update user payment status
       const userRef = doc(db, 'users', auth.currentUser.uid);
       const userSnap = await getDoc(userRef);

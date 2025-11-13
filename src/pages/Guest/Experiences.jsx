@@ -425,7 +425,15 @@ const Experiences = () => {
                       </span>
                       <span className="font-body text-muted-foreground"> / person</span>
                     </div>
-                    <button className="btn-primary">Book Experience</button>
+                    <button 
+                      className="btn-primary"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(`/experiences/${experience.id}`);
+                      }}
+                    >
+                      Book Experience
+                    </button>
                   </div>
                 </div>
               </div>

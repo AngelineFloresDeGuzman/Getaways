@@ -3,7 +3,10 @@ import { ThemeProvider } from "next-themes";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useNavigate, useLocation } from "react-router-dom";
+import { auth, db } from "@/lib/firebase";
+import { getRedirectResult, onAuthStateChanged } from "firebase/auth";
+import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { OnboardingProvider } from "./pages/Host/contexts/OnboardingContext";
 import Index from "./pages/Index.jsx";
 import NotFound from "@/pages/Common/NotFound.jsx";
@@ -98,6 +101,141 @@ import HostNotifications from "./pages/Host/Notifications";
 
 const queryClient = new QueryClient();
 
+// Global Google redirect handler component
+const GoogleRedirectHandler = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  useEffect(() => {
+    const handleGoogleRedirect = async () => {
+      // Check if already processing (prevent double processing)
+      const processingFlag = sessionStorage.getItem('processingGoogleRedirect');
+      if (isProcessing || processingFlag === 'true') {
+        return;
+      }
+
+      try {
+        console.log("🔍 [Global] Checking for Google redirect result...");
+        const result = await getRedirectResult(auth);
+        
+        if (result) {
+          sessionStorage.setItem('processingGoogleRedirect', 'true');
+          setIsProcessing(true);
+          console.log("✅ [Global] Google redirect result found:", result.user.email);
+          
+          const user = result.user;
+          await user.reload();
+
+          const userDocRef = doc(db, "users", user.uid);
+          const userDoc = await getDoc(userDocRef);
+
+          if (!userDoc.exists()) {
+            // Create new user document
+            const displayName = user.displayName || "";
+            const nameParts = displayName.split(" ");
+            const firstName = nameParts[0] || "";
+            const lastName = nameParts.slice(1).join(" ") || "";
+
+            const savedAccountType = localStorage.getItem('pendingGoogleSignUpAccountType') || 'guest';
+            const roles = savedAccountType === "host" ? ["guest", "host"] : ["guest"];
+            localStorage.removeItem('pendingGoogleSignUpAccountType');
+
+            await setDoc(userDocRef, {
+              firstName,
+              lastName,
+              email: user.email,
+              emailVerified: user.emailVerified,
+              roles: roles,
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            });
+            
+            console.log("✅ [Global] New user document created");
+            
+            // Navigate based on account type
+            setTimeout(() => {
+              if (savedAccountType === "host") {
+                navigate("/pages/hostingsteps", { replace: true });
+              } else {
+                navigate("/guest/index", { replace: true });
+              }
+            }, 100);
+          } else {
+            // User already exists
+            const userData = userDoc.data();
+            const userRoles = Array.isArray(userData.roles) ? userData.roles.flat() : ["guest"];
+            
+            try {
+              if (!userRoles.includes("admin")) {
+                await updateDoc(userDocRef, { 
+                  emailVerified: user.emailVerified,
+                  updatedAt: serverTimestamp()
+                });
+              }
+            } catch (err) {
+              console.warn("⚠️ Could not update emailVerified:", err.code);
+            }
+
+            console.log("✅ [Global] Existing user signed in");
+            
+            // Navigate based on roles
+            setTimeout(() => {
+              if (userRoles.includes("host")) {
+                navigate("/host/hostdashboard", { replace: true });
+              } else if (userRoles.includes("guest")) {
+                navigate("/guest/index", { replace: true });
+              } else if (userRoles.includes("admin")) {
+                navigate("/admin/admindashboard", { replace: true });
+              } else {
+                navigate("/", { replace: true });
+              }
+            }, 100);
+          }
+          
+          // Clear processing flag after a delay
+          setTimeout(() => {
+            sessionStorage.removeItem('processingGoogleRedirect');
+            setIsProcessing(false);
+          }, 2000);
+        } else {
+          // No redirect result - clear any stale processing flag
+          sessionStorage.removeItem('processingGoogleRedirect');
+        }
+      } catch (error) {
+        console.error("❌ [Global] Google redirect error:", error);
+        sessionStorage.removeItem('processingGoogleRedirect');
+        setIsProcessing(false);
+      }
+    };
+
+    // Check immediately
+    handleGoogleRedirect();
+    
+    // Also listen for auth state changes
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user && !isProcessing) {
+        const currentUser = auth.currentUser;
+        if (currentUser && currentUser.providerData.some(provider => provider.providerId === 'google.com')) {
+          const hasPendingRedirect = localStorage.getItem('pendingGoogleSignUpAccountType');
+          if (hasPendingRedirect) {
+            console.log("🔄 [Global] Auth state changed - processing Google redirect...");
+            setTimeout(() => {
+              handleGoogleRedirect();
+            }, 500);
+          }
+        }
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [location.pathname, navigate, isProcessing]);
+
+  return null;
+};
+
 const App = () => {
   const [darkMode, setDarkMode] = useState(false);
 
@@ -120,6 +258,7 @@ const App = () => {
   <Sonner richColors position="top-right" />
 
         <BrowserRouter>
+          <GoogleRedirectHandler />
           <Routes>
             <Route path="/" element={<Index darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/accommodations" element={<Accommodations darkMode={darkMode} setDarkMode={setDarkMode} />} />

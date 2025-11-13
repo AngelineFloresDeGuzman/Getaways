@@ -420,19 +420,7 @@ const Services = () => {
                       className="btn-primary"
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (!user) {
-                          setShowLoginModal(true);
-                          return;
-                        }
-                        navigate('/booking-request', {
-                          state: {
-                            listingId: service.id,
-                            listing: service,
-                            category: 'service',
-                            totalPrice: service.price,
-                            nightlyPrice: service.price
-                          }
-                        });
+                        navigate(`/services/${service.id}`);
                       }}
                     >
                       Reserve

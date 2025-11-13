@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import { Eye, EyeOff, X } from "lucide-react";
-import { signInWithEmailAndPassword, setPersistence, browserLocalPersistence, browserSessionPersistence, GoogleAuthProvider, signInWithPopup } from "firebase/auth";
+import { signInWithEmailAndPassword, setPersistence, browserLocalPersistence, browserSessionPersistence, GoogleAuthProvider, signInWithRedirect, getRedirectResult, onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc, updateDoc, setDoc, serverTimestamp, collection, query, where, getDocs } from "firebase/firestore";
 import { generatePasswordResetToken, sendPasswordResetEmail } from "@/lib/emailService";
@@ -212,84 +212,168 @@ const LogIn = ({ isModal = false, onClose, onLoginSuccess, setUserData, onSwitch
     }
   };
 
+  // Handle Google redirect result on mount
+  useEffect(() => {
+    let isProcessing = false;
+    
+    const handleRedirectResult = async () => {
+      // Check if global handler is already processing
+      const processingFlag = sessionStorage.getItem('processingGoogleRedirect');
+      if (isProcessing || processingFlag === 'true') {
+        return;
+      }
+      
+      try {
+        console.log("🔍 [LogIn] Checking for Google redirect result...");
+        const result = await getRedirectResult(auth);
+        
+        if (result) {
+          sessionStorage.setItem('processingGoogleRedirect', 'true');
+          console.log("✅ [LogIn] Google redirect result found:", result.user.email);
+          // User signed in via redirect
+          const user = result.user;
+          
+          // Ensure emailVerified is up-to-date
+          await user.reload();
+
+          const userDocRef = doc(db, "users", user.uid);
+          const userDoc = await getDoc(userDocRef);
+
+          if (!userDoc.exists()) {
+            // Create user document if it doesn't exist
+            const displayName = user.displayName || "";
+            const nameParts = displayName.split(" ");
+            const firstName = nameParts[0] || "";
+            const lastName = nameParts.slice(1).join(" ") || "";
+
+            await setDoc(userDocRef, {
+              firstName,
+              lastName,
+              email: user.email,
+              emailVerified: user.emailVerified,
+              roles: ["guest"],
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            });
+            
+            console.log("✅ New user document created");
+          } else {
+            // Update existing user document
+            const userData = userDoc.data();
+            const userRoles = Array.isArray(userData.roles) ? userData.roles.flat() : ["guest"];
+            
+            // Update emailVerified status
+            try {
+              if (!userRoles.includes("admin")) {
+                await updateDoc(userDocRef, { 
+                  emailVerified: user.emailVerified,
+                  updatedAt: serverTimestamp()
+                });
+              }
+            } catch (err) {
+              console.warn("⚠️ Could not update emailVerified in Firestore:", err.code);
+            }
+            
+            console.log("✅ Existing user signed in");
+          }
+
+          // Get updated user data
+          const updatedUserDoc = await getDoc(userDocRef);
+          const userData = updatedUserDoc.data();
+          const userRoles = Array.isArray(userData.roles) ? userData.roles.flat() : ["guest"];
+
+          // Store user data
+          setUserData?.(userData);
+
+          // Google sign-in always succeeds (email is verified by Google)
+          if (upgradeToHost && onLoginSuccess) {
+            onLoginSuccess();
+          } else {
+            // Redirect based on roles
+            let redirectPath = "/";
+            if (userRoles.includes("host")) {
+              redirectPath = "/host/hostdashboard";
+            } else if (userRoles.includes("guest")) {
+              redirectPath = "/guest/index";
+            } else if (userRoles.includes("admin")) {
+              redirectPath = "/admin/admindashboard";
+            }
+            
+            console.log("🚀 Navigating user to:", redirectPath);
+            
+            // Use setTimeout to ensure navigation happens after state updates
+            setTimeout(() => {
+              navigate(redirectPath, { replace: true });
+              onClose?.();
+            }, 100);
+            
+            // Clear processing flag after navigation
+            setTimeout(() => {
+              sessionStorage.removeItem('processingGoogleRedirect');
+            }, 2000);
+          }
+        } else {
+          console.log("ℹ️ [LogIn] No redirect result found (user may not have come from Google auth)");
+        }
+      } catch (error) {
+        console.error("❌ [LogIn] Google redirect error:", error);
+        console.error("Error details:", {
+          code: error.code,
+          message: error.message,
+          stack: error.stack
+        });
+        sessionStorage.removeItem('processingGoogleRedirect');
+        setIsGoogleLoading(false);
+        showToast(`Failed to complete Google sign-in: ${error.message || "Please try again."}`, "error");
+      }
+    };
+
+    // Also listen for auth state changes as a fallback
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user && !isProcessing) {
+        // Check if user just signed in (might be from redirect)
+        const currentUser = auth.currentUser;
+        if (currentUser && currentUser.providerData.some(provider => provider.providerId === 'google.com')) {
+          console.log("🔄 Auth state changed - Google user detected, processing...");
+          // Small delay to ensure redirect result is available
+          setTimeout(() => {
+            handleRedirectResult();
+          }, 500);
+        }
+      }
+    });
+
+    // Check for redirect result immediately
+    handleRedirectResult();
+    
+    return () => {
+      unsubscribe();
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleGoogleSignIn = async () => {
     setIsGoogleLoading(true);
     const provider = new GoogleAuthProvider();
+    
+    // Set custom parameters for better UX
+    provider.setCustomParameters({
+      prompt: 'select_account'
+    });
 
     try {
-      const result = await signInWithPopup(auth, provider);
-      const user = result.user;
+      // Use redirect instead of popup to avoid COOP issues
+      await signInWithRedirect(auth, provider);
       
-      // Ensure emailVerified is up-to-date
-      await user.reload();
-
-      const userDocRef = doc(db, "users", user.uid);
-      const userDoc = await getDoc(userDocRef);
-
-      if (!userDoc.exists()) {
-        // Create user document if it doesn't exist
-        const displayName = user.displayName || "";
-        const nameParts = displayName.split(" ");
-        const firstName = nameParts[0] || "";
-        const lastName = nameParts.slice(1).join(" ") || "";
-
-        await setDoc(userDocRef, {
-          firstName,
-          lastName,
-          email: user.email,
-          emailVerified: user.emailVerified,
-          roles: ["guest"],
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-      } else {
-        // Update existing user document
-        const userData = userDoc.data();
-        const userRoles = Array.isArray(userData.roles) ? userData.roles.flat() : ["guest"];
-        
-        // Update emailVerified status
-        try {
-          if (!userRoles.includes("admin")) {
-            await updateDoc(userDocRef, { 
-              emailVerified: user.emailVerified,
-              updatedAt: serverTimestamp()
-            });
-          }
-        } catch (err) {
-          console.warn("⚠️ Could not update emailVerified in Firestore:", err.code);
-        }
-      }
-
-      // Get updated user data
-      const updatedUserDoc = await getDoc(userDocRef);
-      const userData = updatedUserDoc.data();
-      const userRoles = Array.isArray(userData.roles) ? userData.roles.flat() : ["guest"];
-
-      // Store user data
-      setUserData?.(userData);
-
-      // Google sign-in always succeeds (email is verified by Google)
-      if (upgradeToHost && onLoginSuccess) {
-        onLoginSuccess();
-      } else {
-        // Redirect based on roles
-        if (userRoles.includes("host")) {
-          navigate("/host/hostdashboard", { replace: true });
-        } else if (userRoles.includes("guest")) {
-          navigate("/guest/index", { replace: true });
-        } else if (userRoles.includes("admin")) {
-          navigate("/admin/admindashboard", { replace: true });
-        } else {
-          navigate("/", { replace: true });
-        }
-        onClose?.();
-      }
+      // Note: The rest of the flow is handled in the useEffect above
+      // when the user returns from Google authentication
     } catch (error) {
-      console.error("Google sign-in error:", error);
+      // Loading state will be reset after redirect completes
+      // The redirect result is handled in useEffect above
+      
       let message = "Failed to sign in with Google. Please try again.";
       
-      if (error.code === "auth/popup-closed-by-user") {
-        message = "Sign-in popup was closed. Please try again.";
+      if (error.code === "auth/popup-closed-by-user" || error.code === "auth/cancelled-popup-request") {
+        message = "Sign-in was cancelled. Please try again.";
       } else if (error.code === "auth/popup-blocked") {
         message = "Popup was blocked. Please allow popups and try again.";
       } else if (error.code === "auth/network-request-failed") {
@@ -297,7 +381,6 @@ const LogIn = ({ isModal = false, onClose, onLoginSuccess, setUserData, onSwitch
       }
 
       showToast(message, "error");
-    } finally {
       setIsGoogleLoading(false);
     }
   };

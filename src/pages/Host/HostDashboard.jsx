@@ -811,42 +811,13 @@ const HostDashboard = () => {
               getAdminUserId
             } = await import('@/pages/Common/services/getpayService');
             
-            let remainingAmount = bookingData.remainingAmount || totalAmount;
-            let pointsUsed = bookingData.pointsUsed || 0;
-            
-            // Process points payment first (if points were planned to be used)
-            if (pointsUsed > 0) {
-              try {
-                const { deductPointsForPayment } = await import('@/pages/Host/services/pointsService');
-                const pointsResult = await deductPointsForPayment(
-                  guestId,
-                  totalAmount,
-                  'booking',
-                  {
-                    bookingId: bookingId,
-                    listingId: bookingData.listingId,
-                    listingTitle: listingTitle
-                  }
-                );
-                
-                if (pointsResult.success) {
-                  const actualPointsUsed = pointsResult.pointsUsed;
-                  const currencyFromPoints = pointsResult.currencyAmount;
-                  remainingAmount = Math.max(0, totalAmount - currencyFromPoints);
-                  console.log(`✅ Points deducted: ${actualPointsUsed} points (₱${currencyFromPoints.toFixed(2)})`);
-                } else {
-                  // Points deduction failed, need full wallet payment
-                  remainingAmount = totalAmount;
-                  pointsUsed = 0;
-                  console.warn('⚠️ Points deduction failed, will use wallet payment');
-                }
-              } catch (pointsError) {
-                console.error('Error deducting points:', pointsError);
-                // If points fail, use wallet for full amount
-                remainingAmount = totalAmount;
-                pointsUsed = 0;
-              }
-            }
+            // Points are NOT automatically deducted during booking confirmation
+            // Points can only be used with explicit host consent:
+            // 1. Manual cash out
+            // 2. Subscription payment page
+            // 3. Listing payment page during onboarding
+            const remainingAmount = totalAmount;
+            const pointsUsed = 0; // No automatic points deduction
             
             // Initialize guest wallet
             await initializeWallet(guestId);
@@ -860,6 +831,13 @@ const HostDashboard = () => {
               }
               
               // Deduct remaining amount from guest's wallet
+              // Skip auth check since host is confirming on behalf of the system
+              console.log('🔍 About to deduct from wallet:', {
+                guestId,
+                remainingAmount,
+                currentUserId: auth.currentUser?.uid,
+                skipAuthCheck: true
+              });
               await deductFromWallet(
                 guestId,
                 remainingAmount,
@@ -875,7 +853,8 @@ const HostDashboard = () => {
                   bookingAmount: bookingAmount,
                   guestFee: guestFee,
                   pointsUsed: pointsUsed > 0 ? pointsUsed : null
-                }
+                },
+                true // Skip auth check - host is processing payment on behalf of system
               );
               console.log(`✅ Payment deducted from guest wallet: ₱${remainingAmount.toFixed(2)}`);
             }
@@ -916,7 +895,15 @@ const HostDashboard = () => {
           }
         } catch (paymentError) {
           console.error('❌ Error processing payment on booking confirmation:', paymentError);
-          toast.error('Failed to process payment. Booking confirmation cancelled.');
+          console.error('❌ Payment error details:', {
+            message: paymentError.message,
+            stack: paymentError.stack,
+            guestId,
+            paymentProvider,
+            paymentMethod,
+            totalAmount
+          });
+          toast.error(`Failed to process payment: ${paymentError.message || 'Unknown error'}. Booking confirmation cancelled.`);
           return; // Don't update status if payment fails
         }
       } else {

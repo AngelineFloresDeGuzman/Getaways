@@ -1,11 +1,11 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import TermsModal from "@/components/TermsModal";
 import PrivacyModal from "@/components/PrivacyModal";
 import { Eye, EyeOff, Mail, User, X } from "lucide-react";
-import { createUserWithEmailAndPassword, signOut, signInWithEmailAndPassword, onAuthStateChanged, GoogleAuthProvider, signInWithPopup } from "firebase/auth";
+import { createUserWithEmailAndPassword, signOut, signInWithEmailAndPassword, onAuthStateChanged, GoogleAuthProvider, signInWithRedirect, getRedirectResult } from "firebase/auth";
 import { auth, db, app } from "@/lib/firebase";
 import { doc, setDoc, collection, getDocs, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";  // Add collection, getDocs if missing
 import { Checkbox } from "@/components/ui/checkbox";
@@ -419,6 +419,137 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
         }
     };
 
+    // Handle Google redirect result on mount
+    useEffect(() => {
+        let isProcessing = false;
+        
+        const handleRedirectResult = async () => {
+            // Check if global handler is already processing
+            const processingFlag = sessionStorage.getItem('processingGoogleRedirect');
+            if (isProcessing || processingFlag === 'true') {
+                return;
+            }
+            
+            try {
+                console.log("🔍 [SignUp] Checking for Google redirect result...");
+                const result = await getRedirectResult(auth);
+                
+                if (result) {
+                    sessionStorage.setItem('processingGoogleRedirect', 'true');
+                    console.log("✅ [SignUp] Google redirect result found:", result.user.email);
+                    // User signed in via redirect
+                    const user = result.user;
+                    
+                    // Ensure emailVerified is up-to-date
+                    await user.reload();
+
+                    const userDocRef = doc(db, "users", user.uid);
+                    const userDoc = await getDoc(userDocRef);
+
+                    if (!userDoc.exists()) {
+                        // Create new user document
+                        const displayName = user.displayName || "";
+                        const nameParts = displayName.split(" ");
+                        const firstName = nameParts[0] || "";
+                        const lastName = nameParts.slice(1).join(" ") || "";
+
+                        // Prepare user data with proper role structure based on accountType
+                        // Note: accountType is from localStorage if set during redirect
+                        const savedAccountType = localStorage.getItem('pendingGoogleSignUpAccountType') || accountType;
+                        const roles = savedAccountType === "host" ? ["guest", "host"] : ["guest"];
+                        localStorage.removeItem('pendingGoogleSignUpAccountType');
+
+                        await setDoc(userDocRef, {
+                            firstName,
+                            lastName,
+                            email: user.email,
+                            emailVerified: user.emailVerified,
+                            roles: roles,
+                            createdAt: serverTimestamp(),
+                            updatedAt: serverTimestamp(),
+                        });
+                        
+                        console.log("✅ New user document created");
+                    } else {
+                        // User already exists, just update emailVerified
+                        const userData = userDoc.data();
+                        const userRoles = Array.isArray(userData.roles) ? userData.roles.flat() : ["guest"];
+                        
+                        try {
+                            if (!userRoles.includes("admin")) {
+                                await updateDoc(userDocRef, { 
+                                    emailVerified: user.emailVerified,
+                                    updatedAt: serverTimestamp()
+                                });
+                            }
+                        } catch (err) {
+                            console.warn("⚠️ Could not update emailVerified in Firestore:", err.code);
+                        }
+
+                        showToast("Signed in successfully!", "success");
+                        console.log("✅ Existing user signed in");
+                    }
+
+                    // Navigate based on account type
+                    const savedAccountType = localStorage.getItem('pendingGoogleSignUpAccountType') || accountType;
+                    localStorage.removeItem('pendingGoogleSignUpAccountType');
+                    
+                    console.log("🚀 Navigating user to:", savedAccountType === "host" ? "/pages/hostingsteps" : "/guest/index");
+                    
+                    if (isModal) {
+                        onClose();
+                    }
+                    
+                    // Use setTimeout to ensure navigation happens after state updates
+                    setTimeout(() => {
+                        if (savedAccountType === "host") {
+                            navigate("/pages/hostingsteps", { replace: true });
+                        } else {
+                            navigate("/guest/index", { replace: true });
+                        }
+                    }, 100);
+                    
+                    // Clear processing flag after navigation
+                    setTimeout(() => {
+                        sessionStorage.removeItem('processingGoogleRedirect');
+                    }, 2000);
+                } else {
+                    console.log("ℹ️ [SignUp] No redirect result found (user may not have come from Google auth)");
+                }
+            } catch (error) {
+                console.error("❌ [SignUp] Google redirect error:", error);
+                console.error("Error details:", {
+                    code: error.code,
+                    message: error.message,
+                    stack: error.stack
+                });
+                localStorage.removeItem('pendingGoogleSignUpAccountType');
+                sessionStorage.removeItem('processingGoogleRedirect');
+                setIsGoogleLoading(false);
+                showToast(`Failed to complete Google sign-in: ${error.message || "Please try again."}`, "error");
+            }
+        };
+
+        // Also listen for auth state changes as a fallback
+        const unsubscribe = onAuthStateChanged(auth, async (user) => {
+            if (user && !isProcessing) {
+                // Check if this is a Google sign-in by checking if there's a pending redirect
+                const hasPendingRedirect = localStorage.getItem('pendingGoogleSignUpAccountType');
+                if (hasPendingRedirect) {
+                    console.log("🔄 Auth state changed - processing Google sign-in...");
+                    await handleRedirectResult();
+                }
+            }
+        });
+
+        // Check for redirect result immediately
+        handleRedirectResult();
+        
+        return () => {
+            unsubscribe();
+        };
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
     const handleGoogleSignUp = async () => {
         // Validate terms and conditions
         if (!agreedTerms || !agreedPrivacy) {
@@ -428,73 +559,30 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
 
         setIsGoogleLoading(true);
         const provider = new GoogleAuthProvider();
+        
+        // Set custom parameters for better UX
+        provider.setCustomParameters({
+            prompt: 'select_account'
+        });
 
         try {
-            const result = await signInWithPopup(auth, provider);
-            const user = result.user;
+            // Save account type before redirect
+            localStorage.setItem('pendingGoogleSignUpAccountType', accountType);
             
-            // Ensure emailVerified is up-to-date
-            await user.reload();
-
-            const userDocRef = doc(db, "users", user.uid);
-            const userDoc = await getDoc(userDocRef);
-
-            if (!userDoc.exists()) {
-                // Create new user document
-                const displayName = user.displayName || "";
-                const nameParts = displayName.split(" ");
-                const firstName = nameParts[0] || "";
-                const lastName = nameParts.slice(1).join(" ") || "";
-
-                // Prepare user data with proper role structure based on accountType
-                const roles = accountType === "host" ? ["guest", "host"] : ["guest"];
-
-                await setDoc(userDocRef, {
-                    firstName,
-                    lastName,
-                    email: user.email,
-                    emailVerified: user.emailVerified, // Google accounts are already verified
-                    roles: roles,
-                    createdAt: serverTimestamp(),
-                    updatedAt: serverTimestamp(),
-                });
-            } else {
-                // User already exists, just update emailVerified
-                const userData = userDoc.data();
-                const userRoles = Array.isArray(userData.roles) ? userData.roles.flat() : ["guest"];
-                
-                try {
-                    if (!userRoles.includes("admin")) {
-                        await updateDoc(userDocRef, { 
-                            emailVerified: user.emailVerified,
-                            updatedAt: serverTimestamp()
-                        });
-                    }
-                } catch (err) {
-                    console.warn("⚠️ Could not update emailVerified in Firestore:", err.code);
-                }
-
-                showToast("Signed in successfully!", "success");
-            }
-
-            // Google sign-up always succeeds (email is verified by Google)
-            // Close modal and navigate based on account type
-            if (isModal) {
-                onClose();
-            }
+            // Use redirect instead of popup to avoid COOP issues
+            await signInWithRedirect(auth, provider);
             
-            // Navigate based on account type
-            if (accountType === "host") {
-                navigate("/pages/hostingsteps", { replace: true });
-            } else {
-                navigate("/guest/index", { replace: true });
-            }
+            // Note: The rest of the flow is handled in the useEffect above
+            // when the user returns from Google authentication
         } catch (error) {
             console.error("Google sign-up error:", error);
+            localStorage.removeItem('pendingGoogleSignUpAccountType');
+            setIsGoogleLoading(false);
+            
             let message = "Failed to sign up with Google. Please try again.";
             
-            if (error.code === "auth/popup-closed-by-user") {
-                message = "Sign-up popup was closed. Please try again.";
+            if (error.code === "auth/popup-closed-by-user" || error.code === "auth/cancelled-popup-request") {
+                message = "Sign-up was cancelled. Please try again.";
             } else if (error.code === "auth/popup-blocked") {
                 message = "Popup was blocked. Please allow popups and try again.";
             } else if (error.code === "auth/network-request-failed") {
@@ -502,8 +590,6 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
             }
 
             showToast(message, "error");
-        } finally {
-            setIsGoogleLoading(false);
         }
     };
 

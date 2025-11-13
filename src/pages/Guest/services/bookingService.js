@@ -24,6 +24,20 @@ export const createBooking = async (bookingData) => {
     throw new Error('Missing required booking information');
   }
 
+  // Get listing info first to determine category for date validation
+  const listingRef = doc(db, 'listings', listingId);
+  const listingSnap = await getDoc(listingRef);
+  
+  if (!listingSnap.exists()) {
+    throw new Error('Listing not found');
+  }
+
+  const listingData = listingSnap.data();
+  const ownerId = listingData.ownerId || listingData.userId;
+  const category = listingData.category || 'accommodation';
+  const isExperience = category === 'experience';
+  const isService = category === 'service';
+
   // Validate dates - convert to Date objects and normalize to midnight
   const checkIn = new Date(checkInDate);
   const checkOut = new Date(checkOutDate);
@@ -37,60 +51,41 @@ export const createBooking = async (bookingData) => {
     throw new Error('Check-in date cannot be in the past');
   }
 
-  if (checkOut <= checkIn) {
+  // For experiences, checkOutDate can be equal to or after checkInDate (usually next day)
+  // For accommodations and services, checkOutDate must be after checkInDate
+  if (!isExperience && !isService && checkOut <= checkIn) {
     throw new Error('Check-out date must be after check-in date');
   }
+  
+  // For experiences, checkOutDate should be at least the same day (usually next day)
+  // Allow checkOutDate >= checkInDate for experiences
+  if (isExperience && checkOut < checkIn) {
+    throw new Error('Invalid date selection for experience');
+  }
 
-  // Check for date conflicts
+  // Check for date conflicts (only for accommodations, experiences can have multiple bookings per day)
+  // Actually, let's check for all categories to prevent double-booking
   const hasConflict = await checkDateConflict(listingId, checkIn, checkOut);
   if (hasConflict) {
     throw new Error('Selected dates are not available. Please choose different dates.');
   }
-
-  // Get listing info to extract ownerId
-  const listingRef = doc(db, 'listings', listingId);
-  const listingSnap = await getDoc(listingRef);
   
-  if (!listingSnap.exists()) {
-    throw new Error('Listing not found');
-  }
-
-  const listingData = listingSnap.data();
-  const ownerId = listingData.ownerId || listingData.userId;
-  
-  // Use provided bookingAmount and guestFee if available (from BookingRequest page)
-  // Otherwise, calculate from totalPrice (backward compatibility)
-  // Guest fee is a percentage of the booking amount (default 14% like Airbnb-style service fee)
-  // Guest pays: bookingAmount + guestFee
-  // Admin receives: bookingAmount + guestFee (total)
-  // Host receives: bookingAmount (released manually by admin after booking completion)
-  // Admin keeps: guestFee
-  const GUEST_FEE_PERCENTAGE = 0.14; // 14% guest service fee
+  // Guest pays: bookingAmount (no service fee)
+  // Admin keeps: 10% commission from bookingAmount (deducted when earnings are released)
+  // Host receives: 90% of bookingAmount when earnings are released
   
   let bookingAmount;
-  let guestFee;
+  let guestFee = 0; // No guest service fee
   let totalAmount;
   
-  if (providedBookingAmount !== undefined && providedGuestFee !== undefined) {
-    // Use exact values provided from BookingRequest page
+  if (providedBookingAmount !== undefined) {
+    // Use exact bookingAmount provided from BookingRequest page
     bookingAmount = Math.round(providedBookingAmount * 100) / 100;
-    guestFee = Math.round(providedGuestFee * 100) / 100;
-    totalAmount = Math.round((bookingAmount + guestFee) * 100) / 100;
-    // Ensure totalAmount matches totalPrice (with rounding tolerance)
-    if (Math.abs(totalAmount - totalPrice) > 0.01) {
-      console.warn('⚠️ Price mismatch: totalAmount from breakdown does not match totalPrice. Using totalPrice.');
-      totalAmount = Math.round(totalPrice * 100) / 100;
-    }
+    totalAmount = bookingAmount; // totalPrice = bookingAmount (no service fee)
   } else {
-    // Fallback: calculate from totalPrice (backward compatibility)
-    // If totalPrice includes the guest fee, calculate backwards
-    // totalPrice = bookingAmount + guestFee
-    // totalPrice = bookingAmount + (bookingAmount * 0.14)
-    // totalPrice = bookingAmount * 1.14
-    // bookingAmount = totalPrice / 1.14
-    bookingAmount = Math.round((totalPrice / (1 + GUEST_FEE_PERCENTAGE)) * 100) / 100;
-    guestFee = Math.round((totalPrice - bookingAmount) * 100) / 100;
-    totalAmount = Math.round((bookingAmount + guestFee) * 100) / 100;
+    // Fallback: use totalPrice as bookingAmount (no service fee)
+    bookingAmount = Math.round(totalPrice * 100) / 100;
+    totalAmount = bookingAmount;
   }
   
   const listingTitle = listingData.title || 'Accommodation';
@@ -262,9 +257,9 @@ export const createBooking = async (bookingData) => {
       checkInDate: checkIn,
       checkOutDate: checkOut,
       guests: guests || 1,
-      totalPrice: totalAmount, // Total amount guest will pay (bookingAmount + guestFee)
-      bookingAmount: bookingAmount, // Amount host will receive (released by admin)
-      guestFee: guestFee, // Fee kept by admin
+      totalPrice: totalAmount, // Total amount guest pays (equals bookingAmount, no service fee)
+      bookingAmount: bookingAmount, // Amount guest paid (host receives 90% when earnings released)
+      guestFee: 0, // No guest service fee (admin takes 10% commission from host earnings)
       status: 'pending',
       paymentProvider: paymentProvider || 'getpay', // 'getpay' or 'paypal' - IMPORTANT: This determines payment method
       paymentMethod: 'pending', // Always pending until host confirms
@@ -753,6 +748,99 @@ export const calculateTotalPrice = (pricing, checkIn, checkOut, guests = 1) => {
   }
 
   return Math.round(total);
+};
+
+// No guest service fee - guests only pay booking amount
+// Admin takes 10% commission from host earnings when released
+export const GUEST_FEE_PERCENTAGE = 0; // No guest fee
+
+/**
+ * Calculate complete booking price breakdown
+ * @param {Object} params - Calculation parameters
+ * @param {Object} params.listing - Listing data
+ * @param {string|Date} params.checkInDate - Check-in date
+ * @param {string|Date} params.checkOutDate - Check-out date
+ * @param {number} params.guests - Number of guests/participants
+ * @param {number} params.couponDiscount - Coupon discount amount (default: 0)
+ * @param {string} params.category - Category: 'accommodation', 'experience', or 'service'
+ * @returns {Object} - Complete price breakdown
+ */
+export const calculateBookingPrice = ({
+  listing,
+  checkInDate,
+  checkOutDate,
+  guests = 1,
+  couponDiscount = 0,
+  category = 'accommodation'
+}) => {
+  if (!listing || !checkInDate || !checkOutDate) {
+    return {
+      originalPrice: 0,
+      basePrice: 0,
+      discountedPrice: 0,
+      guestFee: 0,
+      totalPrice: 0,
+      nights: 0
+    };
+  }
+
+  const isExperience = category === 'experience';
+  const isService = category === 'service';
+  
+  // Calculate nights
+  const checkIn = new Date(checkInDate);
+  const checkOut = new Date(checkOutDate);
+  const nights = isExperience ? 1 : Math.ceil((checkOut - checkIn) / (1000 * 60 * 60 * 24));
+
+  // Calculate original price (before discounts)
+  let originalPrice = 0;
+  if (isExperience) {
+    const pricePerGuest = listing.pricePerGuest || listing.price || 0;
+    originalPrice = pricePerGuest * guests;
+  } else if (isService) {
+    originalPrice = listing.price || 0;
+  } else {
+    // Accommodation: use calculateTotalPrice which handles weekday/weekend and discounts
+    // But we need original price first (before discounts)
+    const weekdayPrice = listing.price || listing.pricing?.weekdayPrice || listing.pricing?.basePrice || 0;
+    const weekendPrice = listing.weekendPrice || listing.pricing?.weekendPrice || weekdayPrice;
+    
+    let total = 0;
+    const currentDate = new Date(checkIn);
+    while (currentDate < checkOut) {
+      const dayOfWeek = currentDate.getDay();
+      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+      const pricePerNight = isWeekend ? weekendPrice : weekdayPrice;
+      total += pricePerNight;
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+    originalPrice = total;
+  }
+
+  // Calculate base price (after automatic discounts like weekly/monthly)
+  let basePrice = originalPrice;
+  if (!isExperience && !isService) {
+    // Use calculateTotalPrice which applies automatic discounts
+    basePrice = calculateTotalPrice(listing.pricing || listing, checkInDate, checkOutDate, guests);
+  }
+
+  // Apply coupon discount
+  const discountedPrice = Math.max(0, basePrice - couponDiscount);
+
+  // No guest service fee - guest only pays booking amount
+  const guestFee = 0;
+
+  // Calculate total (discounted price, no service fee)
+  const totalPrice = Math.round(discountedPrice * 100) / 100;
+
+  return {
+    originalPrice: Math.round(originalPrice * 100) / 100,
+    basePrice: Math.round(basePrice * 100) / 100,
+    discountedPrice: Math.round(discountedPrice * 100) / 100,
+    guestFee: Math.round(guestFee * 100) / 100,
+    totalPrice: Math.round(totalPrice * 100) / 100,
+    nights
+  };
 };
 
 /**

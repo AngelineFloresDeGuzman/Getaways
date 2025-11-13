@@ -618,29 +618,6 @@ const EWallet = () => {
             {/* Admin Account Info */}
             {userRoles.includes('admin') && (
             <div className="mt-4 pt-4 border-t border-white/20">
-                <div className="bg-white/10 rounded-lg p-3 mb-2">
-                  <div className="flex items-start gap-2 mb-2">
-                    <CheckCircle className="w-4 h-4 text-white/90 mt-0.5 flex-shrink-0" />
-                    <div className="flex-1">
-                      <p className="text-white/90 text-sm font-medium mb-1">
-                        Getaways Platform Transactions Only
-                      </p>
-                      <p className="text-white/80 text-xs mb-2">
-                        Your GetPay wallet receives payments <strong>directly from guests and hosts</strong> through the Getaways platform:
-                      </p>
-                      <ul className="text-white/80 text-xs mt-2 space-y-1 ml-4 list-disc">
-                        <li>Guest booking payments (paid directly to your GetPay wallet)</li>
-                        <li>Host subscription payments (paid directly to your GetPay wallet)</li>
-                      </ul>
-                      <p className="text-white/80 text-xs mt-2 font-medium">
-                        ✅ GetPay is a standalone e-wallet system. Payments are received directly to your GetPay wallet, not through PayPal.
-                      </p>
-                      <p className="text-white/80 text-xs mt-2">
-                        Use Cash In/Cash Out buttons to add or withdraw funds from your GetPay wallet via PayPal (for external funding/withdrawals only).
-                      </p>
-                    </div>
-                  </div>
-                </div>
                 {merchantPayPalEmail && (
                   <p className="text-white/80 text-xs">
                     Merchant Account: <strong>{merchantPayPalEmail}</strong>

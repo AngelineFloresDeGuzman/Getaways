@@ -350,20 +350,6 @@ const Navigation = () => {
                 >
                   <Wallet className="w-5 h-5" /> GetPay
                 </Link>
-                <Link
-                  to="/accountsettings"
-                  className={`flex items-center gap-1 font-body transition-colors ${
-                    isActive("/accountsettings")
-                      ? darkMode
-                        ? "text-white font-semibold"
-                        : "text-primary font-semibold"
-                      : darkMode
-                        ? "text-gray-300 hover:text-white"
-                        : "text-foreground hover:text-primary"
-                  }`}
-                >
-                  <Settings className="w-5 h-5" /> Settings
-                </Link>
               </>
             ) : shouldShowHostNav ? (
               // Host Navigation
@@ -518,19 +504,8 @@ const Navigation = () => {
               )}
             </button>
 
-            {/* User Menu - Only show for non-admin users, or show logout button for admin */}
-            {shouldShowAdminNav ? (
-              // Admin: Show logout button directly in navbar
-              <button
-                onClick={handleLogout}
-                className={`flex items-center gap-2 px-4 py-2 rounded-full hover:shadow-md transition ${
-                  darkMode ? "border border-gray-700 hover:bg-gray-800" : "border border-border hover:bg-muted"
-                }`}
-              >
-                <LogOut className={`w-4 h-4 ${darkMode ? "text-gray-300" : ""}`} />
-                <span className={`text-sm font-medium ${darkMode ? "text-gray-300" : ""}`}>Log out</span>
-              </button>
-            ) : (
+            {/* User Menu - Only show for non-admin users */}
+            {!shouldShowAdminNav && (
               // Guest/Host: Show menu button with dropdown
               <div className="relative">
               <button
@@ -570,48 +545,17 @@ const Navigation = () => {
                             </>
                           )}
                           
-                          {/* Notifications link now in host menu */}
-                          <Link to="/host/notifications" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
-                            <Bell className="w-5 h-5" />
-                            Notifications
-                          </Link>
-                          <Link to="/accountsettings" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
-                            <Settings className="w-5 h-5" />
-                            Account settings
-                          </Link>
                           <Link to="/ewallet" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
                             <Wallet className="w-5 h-5" />
                             GetPay
                           </Link>
-                          <Link to="/languages" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
-                            <Globe className="w-5 h-5" />
-                            Languages & currency
-                          </Link>
-                          <Link to="/host/resources" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
-                            <BookOpen className="w-5 h-5" />
-                            Hosting resources
+                          <Link to="/accountsettings" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
+                            <Settings className="w-5 h-5" />
+                            Account Settings
                           </Link>
                           <Link to="/help" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
                             <HelpCircle className="w-5 h-5" />
                             Get help
-                          </Link>
-                          <Link to="/find-cohost" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
-                            <UserPlus className="w-5 h-5" />
-                            Find a co-host
-                          </Link>
-                          <button 
-                            onClick={() => {
-                              setShowHostModal(true);
-                              setMenuOpen(false);
-                            }} 
-                            className="flex items-center gap-3 w-full text-left px-4 py-3 hover:bg-muted"
-                          >
-                            <Plus className="w-5 h-5" />
-                            Create a new listing
-                          </button>
-                          <Link to="/refer" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
-                            <Users className="w-5 h-5" />
-                            Refer a host
                           </Link>
                           <hr className="my-1 mx-4 border-border" />
                           <button onClick={() => { handleLogout(); setMenuOpen(false); }} className="flex items-center gap-3 w-full text-left px-4 py-3 hover:bg-muted">
@@ -647,25 +591,13 @@ const Navigation = () => {
                             <MessageSquare className="w-5 h-5" />
                             Messages
                           </Link>
-                          <Link to="/notifications" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
-                            <Bell className="w-5 h-5" />
-                            Notifications
-                          </Link>
-                          <Link to="/accountsettings" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
-                            <Settings className="w-5 h-5" />
-                            Account settings
-                          </Link>
                           <Link to="/ewallet" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
                             <Wallet className="w-5 h-5" />
                             GetPay
                           </Link>
-                          <Link to="/languages" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
-                            <Globe className="w-5 h-5" />
-                            Languages & currency
-                          </Link>
-                          <Link to="/help" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
-                            <HelpCircle className="w-5 h-5" />
-                            Help Center
+                          <Link to="/accountsettings" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
+                            <Settings className="w-5 h-5" />
+                            Account Settings
                           </Link>
                           <hr className="my-2 mx-4 border-border" />
                           <button onClick={() => { handleLogout(); setMenuOpen(false); }} className="flex items-center gap-3 w-full text-left px-4 py-3 hover:bg-muted">

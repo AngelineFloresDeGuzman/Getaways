@@ -681,7 +681,13 @@ const Photos = () => {
         } else {
           // No drafts exist, create a new one
           console.log('📍 Photos: No existing drafts, creating new draft');
-          const nextStep = targetRoute === '/pages/titledescription' ? 'titledescription' : 'photos';
+          // IMPORTANT: For save & exit, always save 'photos' as currentStep when targetRoute is '/pages/photos'
+          let nextStep;
+          if (targetRoute === '/pages/photos') {
+            nextStep = 'photos'; // Save & exit case
+          } else {
+            nextStep = targetRoute === '/pages/titledescription' ? 'titledescription' : 'photos';
+          }
           const newDraftData = {
             currentStep: nextStep,
             category: state.category || 'accommodation',
@@ -714,7 +720,16 @@ const Photos = () => {
           await savePhotosToSubcollection(photosToSave, draftIdToUse);
           
           // Update existing document - save currentStep but NOT photos (they're in subcollection)
-          const nextStep = targetRoute === '/pages/titledescription' ? 'titledescription' : 'photos';
+          // IMPORTANT: For save & exit, always save 'photos' as currentStep when targetRoute is '/pages/photos'
+          // For next navigation, save 'titledescription' if going forward, 'photos' otherwise
+          let nextStep;
+          if (targetRoute === '/pages/photos') {
+            // Save & exit case - always save 'photos'
+            nextStep = 'photos';
+          } else {
+            // Navigation case - determine based on targetRoute
+            nextStep = targetRoute === '/pages/titledescription' ? 'titledescription' : 'photos';
+          }
           
           try {
             await updateDoc(draftRef, {
@@ -723,7 +738,7 @@ const Photos = () => {
               currentStep: nextStep,
               lastModified: new Date()
             });
-            console.log('📍 Photos: ✅ Saved currentStep to Firebase:', draftIdToUse, '-', photosToSave.length, 'photos in subcollection, currentStep:', nextStep);
+            console.log('📍 Photos: ✅ Saved currentStep to Firebase:', draftIdToUse, '-', photosToSave.length, 'photos in subcollection, currentStep:', nextStep, '(targetRoute:', targetRoute, ')');
           } catch (updateError) {
             // If error is due to document size, try to clean up photos first
             if (updateError.message?.includes('exceeds the maximum allowed size')) {
@@ -745,8 +760,15 @@ const Photos = () => {
           // Document doesn't exist, create it
           console.log('📍 Photos: Document not found, creating new one');
           const { saveDraft } = await import('@/pages/Host/services/draftService');
+          // IMPORTANT: For save & exit, always save 'photos' as currentStep when targetRoute is '/pages/photos'
+          let newCurrentStep;
+          if (targetRoute === '/pages/photos') {
+            newCurrentStep = 'photos'; // Save & exit case
+          } else {
+            newCurrentStep = targetRoute === '/pages/titledescription' ? 'titledescription' : 'photos';
+          }
           const newDraftData = {
-            currentStep: targetRoute === '/pages/titledescription' ? 'titledescription' : 'photos',
+            currentStep: newCurrentStep,
             category: state.category || 'accommodation',
             data: {
               hasPhotos: photosToSave.length > 0,
@@ -776,7 +798,13 @@ const Photos = () => {
             await savePhotosToSubcollection(photosToSave, draftIdToUse);
             // Retry update
             const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
-            const nextStep = targetRoute === '/pages/titledescription' ? 'titledescription' : 'photos';
+            // IMPORTANT: For save & exit, always save 'photos' as currentStep when targetRoute is '/pages/photos'
+            let nextStep;
+            if (targetRoute === '/pages/photos') {
+              nextStep = 'photos'; // Save & exit case
+            } else {
+              nextStep = targetRoute === '/pages/titledescription' ? 'titledescription' : 'photos';
+            }
             await updateDoc(draftRef, {
               'data.hasPhotos': photosToSave.length > 0,
               'data.photos': [],

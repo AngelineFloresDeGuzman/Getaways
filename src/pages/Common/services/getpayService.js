@@ -196,7 +196,21 @@ export const cashInFromPayPal = async (userId, amount, paypalTransactionId, payp
  */
 export const deductFromWallet = async (userId, amount, description, metadata = {}, skipAuthCheck = false) => {
   // Allow system-level deductions (like points deduction) to skip auth check
+  console.log('🔍 deductFromWallet called:', {
+    userId,
+    amount,
+    currentUserId: auth.currentUser?.uid,
+    skipAuthCheck,
+    willSkipAuth: skipAuthCheck
+  });
+  
   if (!skipAuthCheck && (!auth.currentUser || auth.currentUser.uid !== userId)) {
+    console.error('❌ Auth check failed:', {
+      skipAuthCheck,
+      hasCurrentUser: !!auth.currentUser,
+      currentUserId: auth.currentUser?.uid,
+      targetUserId: userId
+    });
     throw new Error('User not authenticated');
   }
 

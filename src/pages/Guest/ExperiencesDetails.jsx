@@ -15,7 +15,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faFacebookF, faInstagram, faFacebookMessenger, faXTwitter } from "@fortawesome/free-brands-svg-icons";
 import { Calendar } from '@/components/ui/calendar';
 import { format } from 'date-fns';
-import { getUnavailableDates } from '@/pages/Guest/services/bookingService';
+import { getUnavailableDates, calculateBookingPrice } from '@/pages/Guest/services/bookingService';
 import { toast } from '@/components/ui/sonner';
 import { getListingReviews } from '@/pages/Guest/services/reviewService';
 
@@ -91,9 +91,35 @@ const ExperiencesDetails = () => {
   // Calculate total price when date/participants change
   useEffect(() => {
     if (experience && selectedDate && participants > 0) {
-      const pricePerGuest = experience.pricePerGuest || experience.price || 0;
-      const total = pricePerGuest * participants;
-      setTotalPrice(total);
+      // For experiences, check-out is same day (next day for booking system)
+      const bookingDate = new Date(selectedDate);
+      bookingDate.setHours(0, 0, 0, 0);
+      const checkOutDate = new Date(bookingDate);
+      checkOutDate.setDate(checkOutDate.getDate() + 1);
+      
+      const priceBreakdown = calculateBookingPrice({
+        listing: experience,
+        checkInDate: bookingDate,
+        checkOutDate: checkOutDate,
+        guests: participants,
+        couponDiscount: 0,
+        category: 'experience'
+      });
+      
+      // Calculate discounts for experiences
+      const originalPrice = priceBreakdown.originalPrice;
+      const daysInAdvance = Math.floor((bookingDate - new Date()) / (1000 * 60 * 60 * 24));
+      let discountAmount = 0;
+      
+      if (experience.earlyBirdDiscount && daysInAdvance >= 30) {
+        discountAmount = Math.round(originalPrice * (experience.earlyBirdDiscount / 100));
+      } else if (experience.lastMinuteDiscount && daysInAdvance <= 7 && daysInAdvance >= 0) {
+        discountAmount = Math.round(originalPrice * (experience.lastMinuteDiscount / 100));
+      }
+      
+      // Total = original price - discount (no service fee)
+      const finalTotal = Math.max(0, originalPrice - discountAmount);
+      setTotalPrice(finalTotal);
     } else {
       setTotalPrice(0);
     }
@@ -366,6 +392,16 @@ const ExperiencesDetails = () => {
     const checkOutDate = new Date(bookingDate);
     checkOutDate.setDate(checkOutDate.getDate() + 1); // Next day for check-out
 
+    // Calculate price breakdown using unified function
+    const priceBreakdown = calculateBookingPrice({
+      listing: experience,
+      checkInDate: bookingDate,
+      checkOutDate: checkOutDate,
+      guests: participants,
+      couponDiscount: 0,
+      category: 'experience'
+    });
+
     // Navigate to booking request page
     navigate('/booking-request', {
       state: {
@@ -374,7 +410,7 @@ const ExperiencesDetails = () => {
         checkInDate: bookingDate.toISOString().split('T')[0],
         checkOutDate: checkOutDate.toISOString().split('T')[0],
         guests: participants,
-        totalPrice: totalPrice,
+        totalPrice: priceBreakdown.totalPrice,
         nightlyPrice: experience.pricePerGuest || experience.price || 0,
         category: 'experience',
         selectedTime: selectedTime,
@@ -745,16 +781,62 @@ const ExperiencesDetails = () => {
               </div>
 
               {/* Price Summary */}
-              {totalPrice > 0 && (
+              {totalPrice > 0 && selectedDate && (
                 <div className="mb-6 pb-6 border-b border-border">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">
-                      {participants} {participants === 1 ? 'person' : 'people'} × ₱{experience.pricePerGuest?.toLocaleString() || experience.price?.toLocaleString() || '0'}
-                    </span>
-                    <span className="font-semibold text-foreground">
-                      ₱{totalPrice.toLocaleString()}
-                    </span>
-                  </div>
+                  {(() => {
+                    const bookingDate = new Date(selectedDate);
+                    bookingDate.setHours(0, 0, 0, 0);
+                    const checkOutDate = new Date(bookingDate);
+                    checkOutDate.setDate(checkOutDate.getDate() + 1);
+                    
+                    const priceBreakdown = calculateBookingPrice({
+                      listing: experience,
+                      checkInDate: bookingDate,
+                      checkOutDate: checkOutDate,
+                      guests: participants,
+                      couponDiscount: 0,
+                      category: 'experience'
+                    });
+                    
+                    // Calculate discounts for experiences
+                    const originalPrice = priceBreakdown.originalPrice;
+                    const daysInAdvance = Math.floor((bookingDate - new Date()) / (1000 * 60 * 60 * 24));
+                    let discountAmount = 0;
+                    let discountLabel = '';
+                    
+                    if (experience.earlyBirdDiscount && daysInAdvance >= 30) {
+                      discountAmount = Math.round(originalPrice * (experience.earlyBirdDiscount / 100));
+                      discountLabel = 'Early bird discount';
+                    } else if (experience.lastMinuteDiscount && daysInAdvance <= 7 && daysInAdvance >= 0) {
+                      discountAmount = Math.round(originalPrice * (experience.lastMinuteDiscount / 100));
+                      discountLabel = 'Last minute discount';
+                    }
+                    
+                    return (
+                      <>
+                        <div className="flex items-center justify-between text-sm mb-2">
+                          <span className="text-muted-foreground">
+                            {participants} {participants === 1 ? 'person' : 'people'} × ₱{experience.pricePerGuest?.toLocaleString() || experience.price?.toLocaleString() || '0'}
+                          </span>
+                          <span className="font-medium text-foreground">
+                            ₱{originalPrice.toLocaleString()}
+                          </span>
+                        </div>
+                        {discountAmount > 0 && (
+                          <div className="flex items-center justify-between text-sm mb-2 text-red-600">
+                            <span className="font-medium">{discountLabel}</span>
+                            <span className="font-medium">-₱{discountAmount.toLocaleString()}</span>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between pt-2 border-t border-border">
+                          <span className="font-semibold text-foreground">Total</span>
+                          <span className="font-semibold text-foreground text-lg">
+                            ₱{Math.max(0, originalPrice - discountAmount).toLocaleString()}
+                          </span>
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
               )}
               

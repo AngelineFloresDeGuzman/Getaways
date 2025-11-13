@@ -580,19 +580,7 @@ const Accommodations = () => {
                                                 className="btn-primary cursor-pointer"
                                                 onClick={e => {
                                                     e.stopPropagation();
-                                                    navigate('/booking-request', {
-                                                        state: {
-                                                            listingId: accommodation.id,
-                                                            listing: accommodation,
-                                                            checkInDate: filters.checkIn,
-                                                            checkOutDate: filters.checkOut,
-                                                            guests: filters.guests || 1,
-                                                            totalPrice: accommodation.price,
-                                                            nightlyPrice: accommodation.weekdayPrice,
-                                                            couponCode: filters.couponCode || '',
-                                                            couponDiscount: filters.couponDiscount || 0
-                                                        }
-                                                    });
+                                                    navigate(`/accommodations/${accommodation.id}`);
                                                 }}
                                             >
                                                 Book Now

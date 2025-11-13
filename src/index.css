@@ -359,12 +359,12 @@ button.rdp-day.unavailable:hover,
   @keyframes fadeIn {
     from {
       opacity: 0;
-      transform: translateY(20px);
+      transform: translateX(-10px);
     }
 
     to {
       opacity: 1;
-      transform: translateY(0);
+      transform: translateX(0);
     }
   }
 
@@ -441,6 +441,17 @@ button.rdp-day.unavailable:hover,
 
   .bg-inherit {
     background-color: inherit;
+  }
+
+  /* Hide scrollbar but keep scrolling functionality */
+  .scrollbar-hide {
+    /* Chrome, Safari, Edge */
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
   }
 }
 

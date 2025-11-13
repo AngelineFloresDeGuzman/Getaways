@@ -18,10 +18,8 @@ const Footer = () => {
             title: 'Hosting',
             links: [
                 { label: 'Become a Host', to: '/pages/hostingsteps', external: false },
-                { label: 'Host Resources', to: '/host/resources', external: false },
                 { label: 'Host Dashboard', to: '/host/hostdashboard', external: false },
-                { label: 'Host Policies', to: '/host/policies', external: false },
-                { label: 'Find a Co-host', to: '/find-cohost', external: false }
+                { label: 'Host Policies', to: '/host/policies', external: false }
             ]
         },
         {
@@ -36,8 +34,7 @@ const Footer = () => {
             title: 'Company',
             links: [
                 { label: 'Account Settings', to: '/accountsettings', external: false },
-                { label: 'GetPay', to: '/ewallet', external: false },
-                { label: 'Refer & Earn', to: '/refer', external: false }
+                { label: 'GetPay', to: '/ewallet', external: false }
             ]
         }
     ];

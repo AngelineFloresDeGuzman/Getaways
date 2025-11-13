@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import Navigation from '@/components/Navigation';
 import Footer from '@/components/Footer';
 import Loading from '@/components/Loading';
 import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, collection, query, where, getDocs } from 'firebase/firestore';
 import { cancelBooking } from '@/pages/Guest/services/bookingService';
 import { startConversationFromHost } from '@/pages/Guest/services/messagingService';
 import { createReview, getReviewByBookingId } from '@/pages/Guest/services/reviewService';
@@ -15,7 +15,7 @@ import {
   ArrowLeft, Calendar, MapPin, Users, MessageSquare, 
   CreditCard, CheckCircle, XCircle, Clock, User,
   AlertCircle, Home, DollarSign, Phone, Mail, 
-  Building2, FileText
+  Building2, FileText, Star, Shield, UserCheck
 } from 'lucide-react';
 import { toast } from '@/components/ui/sonner';
 import LogIn from '@/pages/Auth/LogIn';
@@ -28,6 +28,7 @@ const HAS_VALID_PAYPAL_CLIENT_ID = PAYPAL_CLIENT_ID && PAYPAL_CLIENT_ID !== 'tes
 const BookingDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const [user, setUser] = useState(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -42,6 +43,7 @@ const BookingDetail = () => {
   const [isExpired, setIsExpired] = useState(false);
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState(null);
+  const [guestStats, setGuestStats] = useState(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -74,7 +76,21 @@ const BookingDetail = () => {
         const isGuest = bookingData.guestId === user.uid;
         const isHost = bookingData.ownerId === user.uid;
 
-        if (!isGuest && !isHost) {
+        // Check if user is admin
+        let isAdmin = false;
+        try {
+          const userDocRef = doc(db, 'users', user.uid);
+          const userDoc = await getDoc(userDocRef);
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            const roles = Array.isArray(userData.roles) ? userData.roles : [userData.role || 'guest'];
+            isAdmin = roles.includes('admin');
+          }
+        } catch (error) {
+          console.error('Error checking admin role:', error);
+        }
+
+        if (!isGuest && !isHost && !isAdmin) {
           toast.error('You do not have access to this booking');
           navigate('/bookings');
           return;
@@ -134,6 +150,31 @@ const BookingDetail = () => {
               email: guestData.email,
               ...guestData
             });
+
+            // Load additional guest stats for hosts (only if not guest viewing their own booking)
+            if (!isGuest) {
+              try {
+                // Get booking count
+                const bookingsQuery = query(
+                  collection(db, 'bookings'),
+                  where('guestId', '==', bookingData.guestId)
+                );
+                const bookingsSnapshot = await getDocs(bookingsQuery);
+                const bookingsCount = bookingsSnapshot.size;
+
+                // Get review stats
+                const { getUserReviewStats } = await import('@/pages/Guest/services/reviewService');
+                const reviewStats = await getUserReviewStats(bookingData.guestId);
+
+                setGuestStats({
+                  bookingsCount,
+                  reviewsCount: reviewStats.totalReviews,
+                  averageRating: reviewStats.averageRating
+                });
+              } catch (error) {
+                console.error('Error loading guest stats:', error);
+              }
+            }
           }
         }
 
@@ -340,44 +381,14 @@ const BookingDetail = () => {
           const totalAmount = bookingData.totalPrice || 0;
           const bookingAmount = bookingData.bookingAmount || 0;
           const guestFee = bookingData.guestFee || 0;
-          let remainingAmount = bookingData.remainingAmount || totalAmount;
-          let pointsUsed = bookingData.pointsUsed || 0;
+          // Points are NOT automatically deducted during booking confirmation
+          // Points can only be used with explicit host consent:
+          // 1. Manual cash out
+          // 2. Subscription payment page
+          // 3. Listing payment page during onboarding
+          const remainingAmount = totalAmount;
+          const pointsUsed = 0; // No automatic points deduction
           const listingTitle = bookingData.listingTitle || 'Accommodation';
-          
-          // Process points payment first (if points were planned to be used)
-          if (pointsUsed > 0) {
-            try {
-              const { deductPointsForPayment } = await import('@/pages/Host/services/pointsService');
-              const pointsResult = await deductPointsForPayment(
-                guestId,
-                totalAmount,
-                'booking',
-                {
-                  bookingId: booking.id,
-                  listingId: bookingData.listingId,
-                  listingTitle: listingTitle
-                }
-              );
-              
-              if (pointsResult.success) {
-                const actualPointsUsed = pointsResult.pointsUsed;
-                const currencyFromPoints = pointsResult.currencyAmount;
-                remainingAmount = Math.max(0, totalAmount - currencyFromPoints);
-                pointsUsed = actualPointsUsed;
-                console.log(`✅ Points deducted: ${actualPointsUsed} points (₱${currencyFromPoints.toFixed(2)})`);
-              } else {
-                // Points deduction failed, need full wallet payment
-                remainingAmount = totalAmount;
-                pointsUsed = 0;
-                console.warn('⚠️ Points deduction failed, will use wallet payment');
-              }
-            } catch (pointsError) {
-              console.error('Error deducting points:', pointsError);
-              // If points fail, use wallet for full amount
-              remainingAmount = totalAmount;
-              pointsUsed = 0;
-            }
-          }
           
           // Initialize guest wallet
           await initializeWallet(guestId);
@@ -392,6 +403,8 @@ const BookingDetail = () => {
             }
             
             // Deduct remaining amount from guest's wallet
+            // Skip auth check if host is confirming (host is authenticated, not guest)
+            const isHostConfirming = user.uid === bookingData.ownerId;
             await deductFromWallet(
               guestId,
               remainingAmount,
@@ -407,7 +420,8 @@ const BookingDetail = () => {
                 bookingAmount: bookingAmount,
                 guestFee: guestFee,
                 pointsUsed: pointsUsed > 0 ? pointsUsed : null
-              }
+              },
+              isHostConfirming // Skip auth check if host is confirming
             );
             console.log(`✅ Payment deducted from guest wallet: ₱${remainingAmount.toFixed(2)}`);
           }
@@ -527,7 +541,15 @@ const BookingDetail = () => {
           <div className="text-center py-12">
             <AlertCircle className="w-16 h-16 text-gray-400 mx-auto mb-4" />
             <p className="text-lg font-medium text-foreground mb-2">Booking not found</p>
-            <button onClick={() => navigate('/bookings')} className="btn-primary mt-4">
+            <button onClick={() => {
+              if (location.state?.from) {
+                navigate(location.state.from);
+              } else if (window.history.length > 1) {
+                navigate(-1);
+              } else {
+                navigate('/bookings');
+              }
+            }} className="btn-primary mt-4">
               Back to Bookings
             </button>
           </div>
@@ -547,7 +569,20 @@ const BookingDetail = () => {
       <main className="pt-36 pb-20 px-4 max-w-7xl mx-auto">
         {/* Back Button */}
         <button
-          onClick={() => navigate('/bookings')}
+          onClick={() => {
+            // If there's a previous location state (from account settings), navigate there
+            // Otherwise, try to go back in history, fallback to /bookings
+            if (location.state?.from) {
+              navigate(location.state.from);
+            } else {
+              // Use browser history to go back, or fallback to bookings page
+              if (window.history.length > 1) {
+                navigate(-1);
+              } else {
+                navigate('/bookings');
+              }
+            }
+          }}
           className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-6"
         >
           <ArrowLeft className="w-4 h-4" />
@@ -667,7 +702,11 @@ const BookingDetail = () => {
                           {hostInfo.phone && (
                             <p className="text-sm text-muted-foreground flex items-center gap-2">
                               <Phone className="w-4 h-4" />
-                              {hostInfo.phoneCountryCode || ''}{hostInfo.phone}
+                              <span>
+                                {hostInfo.phone.startsWith('+') 
+                                  ? hostInfo.phone 
+                                  : `${hostInfo.phoneCountryCode || ''}${hostInfo.phone}`}
+                              </span>
                             </p>
                           )}
                           {hostInfo.location && (
@@ -682,46 +721,122 @@ const BookingDetail = () => {
                   </div>
                 )}
                 {!isGuest && guestInfo && (
-                  <div className="space-y-3">
+                  <div className="space-y-4">
                     <div className="flex items-start gap-4">
                       {guestInfo.profileImage && (
                         <img
                           src={guestInfo.profileImage}
                           alt={guestInfo.name}
-                          className="w-16 h-16 rounded-full object-cover border-2 border-border"
+                          className="w-20 h-20 rounded-full object-cover border-2 border-border"
                           onError={(e) => {
                             e.target.style.display = 'none';
                           }}
                         />
                       )}
                       <div className="flex-1">
-                        <p className="font-semibold text-lg text-foreground">{guestInfo.name}</p>
-                        <div className="space-y-1 mt-2">
-                          <p className="text-sm text-muted-foreground flex items-center gap-2">
-                            <Mail className="w-4 h-4" />
-                            {guestInfo.email}
-                          </p>
-                          {guestInfo.phone && (
+                        <div className="flex items-center gap-2 mb-2">
+                          <p className="font-semibold text-lg text-foreground">{guestInfo.name}</p>
+                          {guestInfo.emailVerified && (
+                            <Shield className="w-4 h-4 text-green-600" title="Verified Email" />
+                          )}
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+                          <div className="space-y-2">
                             <p className="text-sm text-muted-foreground flex items-center gap-2">
-                              <Phone className="w-4 h-4" />
-                              {guestInfo.phoneCountryCode || ''}{guestInfo.phone}
+                              <Mail className="w-4 h-4" />
+                              <span>{guestInfo.email}</span>
+                              {guestInfo.emailVerified && (
+                                <span className="text-xs px-2 py-0.5 bg-green-100 text-green-700 rounded-full">Verified</span>
+                              )}
                             </p>
-                          )}
-                          {guestInfo.location && (
-                            <p className="text-sm text-muted-foreground flex items-center gap-2">
-                              <MapPin className="w-4 h-4" />
-                              {guestInfo.location}
-                            </p>
-                          )}
-                          {guestInfo.residentialAddress && (
-                            <p className="text-sm text-muted-foreground flex items-start gap-2">
-                              <Building2 className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                              <span>{guestInfo.residentialAddress}</span>
-                            </p>
-                          )}
+                            {guestInfo.phone && (
+                              <p className="text-sm text-muted-foreground flex items-center gap-2">
+                                <Phone className="w-4 h-4" />
+                                <span>
+                                  {guestInfo.phone.startsWith('+') 
+                                    ? guestInfo.phone 
+                                    : `${guestInfo.phoneCountryCode || ''}${guestInfo.phone}`}
+                                </span>
+                              </p>
+                            )}
+                            {guestInfo.gender && (
+                              <p className="text-sm text-muted-foreground flex items-center gap-2">
+                                <User className="w-4 h-4" />
+                                <span className="capitalize">{guestInfo.gender}</span>
+                              </p>
+                            )}
+                            {guestInfo.birthday && (() => {
+                              const birthday = new Date(guestInfo.birthday);
+                              const today = new Date();
+                              let age = today.getFullYear() - birthday.getFullYear();
+                              const monthDiff = today.getMonth() - birthday.getMonth();
+                              if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthday.getDate())) {
+                                age--;
+                              }
+                              return (
+                                <p className="text-sm text-muted-foreground flex items-center gap-2">
+                                  <Calendar className="w-4 h-4" />
+                                  <span>Age {age} • {format(birthday, 'MMM dd, yyyy')}</span>
+                                </p>
+                              );
+                            })()}
+                          </div>
+                          <div className="space-y-2">
+                            {guestInfo.location && (
+                              <p className="text-sm text-muted-foreground flex items-center gap-2">
+                                <MapPin className="w-4 h-4" />
+                                <span>{guestInfo.location}</span>
+                              </p>
+                            )}
+                            {guestInfo.residentialAddress && (
+                              <p className="text-sm text-muted-foreground flex items-start gap-2">
+                                <Building2 className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                                <span>{guestInfo.residentialAddress}</span>
+                              </p>
+                            )}
+                            {guestInfo.createdAt && (() => {
+                              const createdAt = guestInfo.createdAt?.toDate ? guestInfo.createdAt.toDate() : new Date(guestInfo.createdAt);
+                              return (
+                                <p className="text-sm text-muted-foreground flex items-center gap-2">
+                                  <UserCheck className="w-4 h-4" />
+                                  <span>Member since {format(createdAt, 'MMM yyyy')}</span>
+                                </p>
+                              );
+                            })()}
+                          </div>
                         </div>
                       </div>
                     </div>
+
+                    {/* Guest Stats */}
+                    {guestStats && (
+                      <div className="pt-3 border-t border-border">
+                        <p className="text-sm text-muted-foreground mb-2 font-medium">Guest Activity</p>
+                        <div className="flex flex-wrap gap-4">
+                          <div className="flex items-center gap-2">
+                            <Calendar className="w-4 h-4 text-muted-foreground" />
+                            <span className="text-sm text-foreground">
+                              <span className="font-semibold">{guestStats.bookingsCount}</span> {guestStats.bookingsCount === 1 ? 'booking' : 'bookings'}
+                            </span>
+                          </div>
+                          {guestStats.reviewsCount > 0 && (
+                            <div className="flex items-center gap-2">
+                              <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
+                              <span className="text-sm text-foreground">
+                                <span className="font-semibold">{guestStats.averageRating.toFixed(1)}</span> ({guestStats.reviewsCount} {guestStats.reviewsCount === 1 ? 'review' : 'reviews'})
+                              </span>
+                            </div>
+                          )}
+                          {guestStats.reviewsCount === 0 && (
+                            <div className="flex items-center gap-2">
+                              <Star className="w-4 h-4 text-muted-foreground" />
+                              <span className="text-sm text-muted-foreground">No reviews yet</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
                     {guestInfo.bio && (
                       <div className="pt-3 border-t border-border">
                         <p className="text-sm text-muted-foreground mb-1 font-medium">About Guest</p>
@@ -838,15 +953,15 @@ const BookingDetail = () => {
                    booking.paymentStatus === 'pending' && 
                    (booking.paymentProvider === 'paypal' || booking.paymentMethod === 'paypal') && 
                    HAS_VALID_PAYPAL_CLIENT_ID && (
-                    <div className={`mb-4 p-4 border rounded-lg ${
+                    <div className={`mb-4 p-4 border-2 rounded-lg shadow-md ${
                       isExpired || (timeRemaining && timeRemaining.total < 3600000) // Less than 1 hour
-                        ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
-                        : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800'
+                        ? 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-700'
+                        : 'bg-primary/10 dark:bg-primary/20 border-primary/40 dark:border-primary/50'
                     }`}>
                       <p className={`text-sm font-semibold mb-2 ${
                         isExpired || (timeRemaining && timeRemaining.total < 3600000)
                           ? 'text-red-800 dark:text-red-200'
-                          : 'text-amber-800 dark:text-amber-200'
+                          : 'text-primary dark:text-primary'
                       }`}>
                         {isExpired ? 'Payment Deadline Expired' : 'Complete PayPal Payment'}
                       </p>
@@ -856,22 +971,22 @@ const BookingDetail = () => {
                         </p>
                       ) : (
                         <>
-                          <p className="text-xs text-amber-700 dark:text-amber-300 mb-2">
+                          <p className="text-xs text-primary/90 dark:text-primary/80 mb-2">
                             Your booking has been confirmed by the host. Please complete your PayPal payment to finalize the booking.
                           </p>
                           {timeRemaining && (
-                            <div className="mb-3 p-2 bg-white dark:bg-gray-800 rounded border border-amber-300 dark:border-amber-700">
-                              <p className="text-xs font-medium text-amber-900 dark:text-amber-100 mb-1">
+                            <div className="mb-3 p-3 bg-white dark:bg-gray-800 rounded-lg border-2 border-primary/30 dark:border-primary/40 shadow-sm">
+                              <p className="text-xs font-medium text-primary dark:text-primary mb-1">
                                 ⏰ Payment Deadline:
                               </p>
                               <p className={`text-sm font-bold ${
                                 timeRemaining.total < 3600000 // Less than 1 hour
                                   ? 'text-red-600 dark:text-red-400'
-                                  : 'text-amber-700 dark:text-amber-300'
+                                  : 'text-primary dark:text-primary'
                               }`}>
                                 {timeRemaining.hours}h {timeRemaining.minutes}m {timeRemaining.seconds}s remaining
                               </p>
-                              <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                              <p className="text-xs text-primary/80 dark:text-primary/70 mt-1">
                                 Booking will be automatically cancelled if payment is not completed within 24 hours.
                               </p>
                             </div>
@@ -1043,7 +1158,8 @@ const BookingDetail = () => {
                       </button>
                     </>
                   )}
-                  {booking.status === 'confirmed' && (
+                  {/* Mark as Completed - Only show for guests when booking is confirmed and payment is paid */}
+                  {isGuest && booking.status === 'confirmed' && booking.paymentStatus === 'paid' && (
                     <button
                       onClick={async () => {
                         if (!booking) return;

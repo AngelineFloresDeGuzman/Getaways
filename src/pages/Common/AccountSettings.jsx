@@ -7,7 +7,7 @@ import {
   User, Calendar, Heart, Camera, Edit3, Save, X, MapPin,
   Star, CalendarCheck, Grid, List, Loader2, CalendarIcon, Users,
   Sparkles, Mail, Clock, CheckCircle, Circle, Search, Filter, ExternalLink,
-  MessageSquare, Ticket, Plus, Trash2, Edit, Copy, CreditCard, Shield, CheckCircle2, Link2, Unlink
+  MessageSquare, Ticket, Plus, Trash2, Edit, Copy, CreditCard, Shield, CheckCircle2, Link2, Unlink, AlertCircle
 } from "lucide-react";
 import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
@@ -95,6 +95,7 @@ const AccountSettings = () => {
   
   // Cancel booking state
   const [cancellingBooking, setCancellingBooking] = useState(null);
+  const [markingCompleted, setMarkingCompleted] = useState(null);
   
   // User reviews modal state
   const [showUserReviewsModal, setShowUserReviewsModal] = useState(false);
@@ -211,12 +212,10 @@ const AccountSettings = () => {
   // Refresh bookings when navigating to bookings tab (to catch newly created bookings)
   useEffect(() => {
     if (!user || activeTab !== 'bookings' || isHost) return;
-    // Small delay to ensure tab is fully set before loading
-    const timer = setTimeout(() => {
-      loadGuestBookings();
-    }, 100);
-    return () => clearTimeout(timer);
-  }, [location.search]); // Reload when URL changes (e.g., navigating with ?tab=bookings)
+    // Force reload when navigating to bookings tab to ensure newly created bookings appear
+    console.log('📦 AccountSettings: Bookings tab activated, loading bookings...');
+    loadGuestBookings();
+  }, [location.search, activeTab]); // Reload when URL changes or tab becomes active
 
   // Load wishlist based on user role
   useEffect(() => {
@@ -662,9 +661,13 @@ const AccountSettings = () => {
       bookingsQuery,
       async (snapshot) => {
         console.log('📦 AccountSettings: Real-time booking update - docs:', snapshot.docs.length);
-        // Skip first snapshot (it's the initial load, already handled by loadGuestBookings)
+        // Always reload bookings when snapshot changes (including first snapshot if navigating from booking creation)
+        // This ensures newly created bookings appear immediately
         if (isFirstSnapshot) {
           isFirstSnapshot = false;
+          // Still reload on first snapshot to catch any bookings created just before listener was set up
+          console.log('📦 AccountSettings: First snapshot received, reloading bookings...');
+          loadGuestBookings();
           return;
         }
         // Reload bookings when real-time update is received (new booking created or updated)
@@ -1026,45 +1029,13 @@ const AccountSettings = () => {
               getAdminUserId
             } = await import('@/pages/Common/services/getpayService');
             
-            const remainingAmount = bookingData.remainingAmount || totalAmount;
-            let pointsUsed = bookingData.pointsUsed || 0;
-            
-            // Process points payment first (if points were planned to be used)
-            let actualPointsUsed = pointsUsed;
-            let actualRemainingAmount = remainingAmount;
-            
-            if (pointsUsed > 0) {
-              try {
-                const { deductPointsForPayment } = await import('@/pages/Host/services/pointsService');
-                const pointsResult = await deductPointsForPayment(
-                  guestId,
-                  totalAmount,
-                  'booking',
-                  {
-                    bookingId: bookingId,
-                    listingId: bookingData.listingId,
-                    listingTitle: listingTitle
-                  }
-                );
-                
-                if (pointsResult.success) {
-                  actualPointsUsed = pointsResult.pointsUsed;
-                  const currencyFromPoints = pointsResult.currencyAmount;
-                  actualRemainingAmount = Math.max(0, totalAmount - currencyFromPoints);
-                  console.log(`✅ Points deducted: ${actualPointsUsed} points (₱${currencyFromPoints.toFixed(2)})`);
-                } else {
-                  // Points deduction failed, need full wallet payment
-                  actualRemainingAmount = totalAmount;
-                  actualPointsUsed = 0;
-                  console.warn('⚠️ Points deduction failed, will use wallet payment');
-                }
-              } catch (pointsError) {
-                console.error('Error deducting points:', pointsError);
-                // If points fail, use wallet for full amount
-                actualRemainingAmount = totalAmount;
-                actualPointsUsed = 0;
-              }
-            }
+            // Points are NOT automatically deducted during booking confirmation
+            // Points can only be used with explicit host consent:
+            // 1. Manual cash out
+            // 2. Subscription payment page
+            // 3. Listing payment page during onboarding
+            const actualPointsUsed = 0; // No automatic points deduction
+            const actualRemainingAmount = totalAmount;
             
             // Initialize guest wallet
             await initializeWallet(guestId);
@@ -1078,6 +1049,7 @@ const AccountSettings = () => {
               }
               
               // Deduct remaining amount from guest's wallet
+              // Skip auth check since host is confirming (not the guest)
               await deductFromWallet(
                 guestId,
                 actualRemainingAmount,
@@ -1093,7 +1065,8 @@ const AccountSettings = () => {
                   bookingAmount: bookingAmount,
                   guestFee: guestFee,
                   pointsUsed: actualPointsUsed > 0 ? actualPointsUsed : null
-                }
+                },
+                true // skipAuthCheck = true (host is confirming, not guest)
               );
               console.log(`✅ Payment deducted from guest wallet: ₱${actualRemainingAmount.toFixed(2)}`);
             }
@@ -1142,10 +1115,10 @@ const AccountSettings = () => {
         }
       } else {
         // For other status changes, just update the status
-        await updateDoc(bookingRef, {
-          status: newStatus,
-          updatedAt: new Date().toISOString()
-        });
+      await updateDoc(bookingRef, {
+        status: newStatus,
+        updatedAt: new Date().toISOString()
+      });
       }
 
       // Send booking confirmation/cancellation email to guest
@@ -1222,6 +1195,54 @@ const AccountSettings = () => {
     } catch (error) {
       console.error('❌ Error updating booking status:', error);
       toast.error('Failed to update booking status');
+    }
+  };
+
+  // Handle marking booking as completed (for guests)
+  const handleMarkBookingCompleted = async (bookingId) => {
+    if (markingCompleted === bookingId) return;
+    
+    setMarkingCompleted(bookingId);
+    try {
+      const { updateDoc: updateFirestoreDoc, getDoc: getFirestoreDoc, serverTimestamp } = await import('firebase/firestore');
+      const bookingRef = doc(db, 'bookings', bookingId);
+      const bookingDoc = await getFirestoreDoc(bookingRef);
+      
+      if (!bookingDoc.exists()) {
+        toast.error('Booking not found');
+        return;
+      }
+      
+      const bookingData = bookingDoc.data();
+      
+      // Update booking status and create earnings release request for admin
+      await updateFirestoreDoc(bookingRef, {
+        status: 'completed',
+        earningsReleasePending: true, // Mark as pending for admin to release
+        earningsRequestedAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      
+      toast.success('Booking marked as completed! Host earnings will be released by admin.');
+      
+      // Prepare booking data for review modal (before reloading)
+      const bookingForReview = {
+        id: bookingId,
+        listingId: bookingData.listingId,
+        listingTitle: bookingData.listingTitle || 'Listing'
+      };
+      
+      // Reload bookings to show updated status
+      await loadGuestBookings();
+      
+      // Show review modal immediately after marking as completed
+      setSelectedBookingForReview(bookingForReview);
+      setShowReviewModal(true);
+    } catch (error) {
+      console.error('Error marking booking as completed:', error);
+      toast.error('Failed to mark booking as completed');
+    } finally {
+      setMarkingCompleted(null);
     }
   };
 
@@ -1582,15 +1603,36 @@ const AccountSettings = () => {
 
   // Guest bookings categorization
   const now = new Date();
+  now.setHours(0, 0, 0, 0); // Normalize to midnight for accurate date comparison
+  
   const upcomingGuestBookings = !isHost ? bookings.filter(b => {
     if (b.status === 'cancelled') return false;
-    const checkIn = b.checkInDate;
-    return checkIn >= now && b.status !== 'completed';
+    if (b.status === 'completed') return false;
+    
+    // Ensure checkInDate is a Date object and normalize to midnight
+    let checkIn = b.checkInDate;
+    if (!(checkIn instanceof Date)) {
+      checkIn = checkIn?.toDate ? checkIn.toDate() : new Date(checkIn);
+    }
+    checkIn.setHours(0, 0, 0, 0);
+    
+    // Include pending and confirmed bookings with check-in date >= today
+    return checkIn >= now;
   }) : [];
 
   const pastGuestBookings = !isHost ? bookings.filter(b => {
-    const checkOut = b.checkOutDate;
-    return checkOut < now || b.status === 'completed';
+    if (b.status === 'cancelled') return false;
+    if (b.status === 'completed') return true;
+    
+    // Ensure checkOutDate is a Date object and normalize to midnight
+    let checkOut = b.checkOutDate;
+    if (!(checkOut instanceof Date)) {
+      checkOut = checkOut?.toDate ? checkOut.toDate() : new Date(checkOut);
+    }
+    checkOut.setHours(0, 0, 0, 0);
+    
+    // Include bookings where check-out date < today
+    return checkOut < now;
   }) : [];
 
   const cancelledGuestBookings = !isHost ? bookings.filter(b => b.status === 'cancelled') : [];
@@ -1649,24 +1691,31 @@ const AccountSettings = () => {
         </div>
 
         {/* Tabs */}
-        <div className="flex flex-wrap gap-2 mb-8 border-b border-border pb-2">
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-t-lg font-medium transition-colors ${
-                  activeTab === tab.id
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                }`}
-              >
-                <Icon className="w-4 h-4" />
-                {tab.label}
-              </button>
-            );
-          })}
+        <div className="w-full mb-8 border-b border-border pb-2">
+          <div className={`grid gap-2 items-center ${isHost ? 'grid-cols-4' : 'grid-cols-3'}`}>
+            {tabs.map((tab, index) => {
+              const Icon = tab.icon;
+              // First tab on left, middle tab(s) in center, last tab on right
+              const isFirst = index === 0;
+              const isLast = index === tabs.length - 1;
+              const isMiddle = !isFirst && !isLast;
+              
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-t-lg font-medium transition-colors ${
+                    activeTab === tab.id
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                  } ${isFirst ? 'justify-start' : ''} ${isLast ? 'justify-end' : ''} ${isMiddle ? 'justify-center' : ''}`}
+                >
+                  <Icon className="w-4 h-4" />
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {/* Profile Tab */}
@@ -1763,23 +1812,23 @@ const AccountSettings = () => {
                       )}
                     </button>
                   )}
-                  <button
-                    onClick={() => {
-                      if (isEditing) {
-                        setIsEditing(false);
+                <button
+                  onClick={() => {
+                    if (isEditing) {
+                      setIsEditing(false);
                         // Reload profile data to discard changes
                         if (user) {
                           loadUserProfile(user.uid);
                         }
-                      } else {
-                        setIsEditing(true);
-                      }
-                    }}
-                    className="btn-outline flex items-center gap-2"
-                  >
-                    {isEditing ? <X className="w-4 h-4" /> : <Edit3 className="w-4 h-4" />}
-                    {isEditing ? 'Cancel' : 'Edit Profile'}
-                  </button>
+                    } else {
+                      setIsEditing(true);
+                    }
+                  }}
+                  className="btn-outline flex items-center gap-2"
+                >
+                  {isEditing ? <X className="w-4 h-4" /> : <Edit3 className="w-4 h-4" />}
+                  {isEditing ? 'Cancel' : 'Edit Profile'}
+                </button>
                 </div>
               </div>
 
@@ -2403,7 +2452,7 @@ const AccountSettings = () => {
                           const listing = listings.find(l => l.id === booking.listingId);
                           
                           return (
-                            <div key={booking.id} className="card-listing hover-lift cursor-pointer border border-gray-200 rounded-lg overflow-hidden" onClick={() => navigate(`/bookings/${booking.id}`)}>
+                            <div key={booking.id} className="card-listing hover-lift cursor-pointer border border-gray-200 rounded-lg overflow-hidden" onClick={() => navigate(`/bookings/${booking.id}`, { state: { from: '/accountsettings?tab=bookings' } })}>
                               {/* Image */}
                               <div className="relative w-full overflow-hidden rounded-t-2xl aspect-[4/3]">
                                 {listing?.mainImage ? (
@@ -2484,7 +2533,25 @@ const AccountSettings = () => {
                                   </div>
                                 )}
                                 {booking.status === 'confirmed' && (
-                                  <span className="text-sm text-muted-foreground font-medium block text-center py-2">Awaiting guest to mark as completed</span>
+                                  <>
+                                    {/* PayPal Payment Warning - Show if confirmed booking has PayPal payment pending */}
+                                    {(booking.paymentProvider === 'paypal' || booking.paymentMethod === 'paypal') && booking.paymentStatus === 'pending' && (
+                                      <div className="mb-3 p-3 bg-primary/10 dark:bg-primary/20 border-2 border-primary/40 dark:border-primary/50 rounded-lg shadow-md">
+                                        <div className="flex items-start gap-2">
+                                          <AlertCircle className="w-5 h-5 text-primary dark:text-primary flex-shrink-0 mt-0.5" />
+                                          <div className="flex-1">
+                                            <p className="text-sm font-semibold text-primary dark:text-primary mb-1">
+                                              Payment Action Required
+                                            </p>
+                                            <p className="text-xs text-primary/90 dark:text-primary/80">
+                                              Guest has 24 hours to complete PayPal payment. Booking will be automatically cancelled if payment is not completed.
+                                            </p>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    )}
+                                    <span className="text-sm text-muted-foreground font-medium block text-center py-2">Awaiting guest to mark as completed</span>
+                                  </>
                                 )}
                                 {booking.status === 'completed' && (
                                   <span className="text-sm text-green-600 font-medium block text-center py-2">✓ Completed by guest</span>
@@ -2498,16 +2565,16 @@ const AccountSettings = () => {
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       (async () => {
-                                        try {
-                                          const conversationId = await startConversationFromHost(
-                                            booking.guestId,
-                                            booking.listingId,
-                                            booking.id
-                                          );
-                                          navigate(`/host/messages?conversation=${conversationId}`);
-                                        } catch (error) {
-                                          console.error('Error starting conversation:', error);
-                                        }
+                                      try {
+                                        const conversationId = await startConversationFromHost(
+                                          booking.guestId,
+                                          booking.listingId,
+                                          booking.id
+                                        );
+                                        navigate(`/host/messages?conversation=${conversationId}`);
+                                      } catch (error) {
+                                        console.error('Error starting conversation:', error);
+                                      }
                                       })();
                                     }}
                                     className="btn-outline w-full px-4 py-2 text-sm font-medium flex items-center justify-center gap-2 mt-2"
@@ -2527,7 +2594,7 @@ const AccountSettings = () => {
                           const listing = listings.find(l => l.id === booking.listingId);
                           
                           return (
-                            <div key={booking.id} className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow cursor-pointer" onClick={() => navigate(`/bookings/${booking.id}`)}>
+                            <div key={booking.id} className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow cursor-pointer" onClick={() => navigate(`/bookings/${booking.id}`, { state: { from: '/accountsettings?tab=bookings' } })}>
                               <div className="flex items-start justify-between mb-4">
                                 <div className="flex items-start gap-4 flex-1">
                                   <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center text-white font-semibold flex-shrink-0">
@@ -2581,16 +2648,16 @@ const AccountSettings = () => {
                                           onClick={(e) => {
                                             e.stopPropagation();
                                             (async () => {
-                                              try {
-                                                const conversationId = await startConversationFromHost(
-                                                  booking.guestId,
-                                                  booking.listingId,
-                                                  booking.id
-                                                );
-                                                navigate(`/host/messages?conversation=${conversationId}`);
-                                              } catch (error) {
-                                                console.error('Error starting conversation:', error);
-                                              }
+                                            try {
+                                              const conversationId = await startConversationFromHost(
+                                                booking.guestId,
+                                                booking.listingId,
+                                                booking.id
+                                              );
+                                              navigate(`/host/messages?conversation=${conversationId}`);
+                                            } catch (error) {
+                                              console.error('Error starting conversation:', error);
+                                            }
                                             })();
                                           }}
                                           className="btn-outline px-4 py-2 text-sm font-medium flex items-center gap-2 mt-2 w-full"
@@ -2669,7 +2736,7 @@ const AccountSettings = () => {
                   {upcomingGuestBookings.length > 0 ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                       {upcomingGuestBookings.map((booking) => (
-                        <div key={booking.id} className="card-listing hover-lift cursor-pointer" onClick={() => navigate(`/bookings/${booking.id}`)}>
+                        <div key={booking.id} className="card-listing hover-lift cursor-pointer" onClick={() => navigate(`/bookings/${booking.id}`, { state: { from: '/accountsettings?tab=bookings' } })}>
                           <div className="relative w-full overflow-hidden rounded-t-2xl aspect-[4/3]">
                             {booking.listingImage ? (
                               <img
@@ -2718,6 +2785,47 @@ const AccountSettings = () => {
                                 <span className="text-xs text-green-600">✓ Confirmed</span>
                               )}
                             </div>
+                            
+                            {/* PayPal Payment Warning for Guest - Show if confirmed booking has PayPal payment pending */}
+                            {booking.status === 'confirmed' && (booking.paymentProvider === 'paypal' || booking.paymentMethod === 'paypal') && booking.paymentStatus === 'pending' && (
+                              <div className="mb-3 p-3 bg-primary/10 dark:bg-primary/20 border-2 border-primary/40 dark:border-primary/50 rounded-lg shadow-md">
+                                <div className="flex items-start gap-2">
+                                  <AlertCircle className="w-4 h-4 text-primary dark:text-primary flex-shrink-0 mt-0.5" />
+                                  <div className="flex-1">
+                                    <p className="text-xs font-semibold text-primary dark:text-primary mb-1">
+                                      ⚠️ Action Required
+                                    </p>
+                                    <p className="text-xs text-primary/90 dark:text-primary/80">
+                                      Complete PayPal payment within 24 hours or booking will be automatically cancelled.
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                            
+                            {/* Mark as Completed button - Show when booking is confirmed and payment is paid */}
+                            {booking.status === 'confirmed' && booking.paymentStatus === 'paid' && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleMarkBookingCompleted(booking.id);
+                                }}
+                                disabled={markingCompleted === booking.id}
+                                className="w-full px-4 py-2 text-sm font-medium text-white bg-primary rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mb-2"
+                              >
+                                {markingCompleted === booking.id ? (
+                                  <>
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    Marking...
+                                  </>
+                                ) : (
+                                  <>
+                                    <CheckCircle className="w-4 h-4" />
+                                    Mark as Completed
+                                  </>
+                                )}
+                              </button>
+                            )}
                             
                             {/* Cancel button for pending and confirmed bookings */}
                             {(booking.status === 'pending' || booking.status === 'confirmed') && (
@@ -2757,7 +2865,7 @@ const AccountSettings = () => {
                   {pastGuestBookings.length > 0 ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                       {pastGuestBookings.map((booking) => (
-                        <div key={booking.id} className="card-listing hover-lift cursor-pointer" onClick={() => navigate(`/bookings/${booking.id}`)}>
+                        <div key={booking.id} className="card-listing hover-lift cursor-pointer" onClick={() => navigate(`/bookings/${booking.id}`, { state: { from: '/accountsettings?tab=bookings' } })}>
                           <div className="relative w-full overflow-hidden rounded-t-2xl aspect-[4/3]">
                             {booking.listingImage ? (
                               <img
@@ -2807,6 +2915,62 @@ const AccountSettings = () => {
                               )}
                             </div>
                             
+                            {/* PayPal Payment Warning for Guest - Show if confirmed booking has PayPal payment pending */}
+                            {booking.status === 'confirmed' && (booking.paymentProvider === 'paypal' || booking.paymentMethod === 'paypal') && booking.paymentStatus === 'pending' && (
+                              <div className="mb-3 p-3 bg-primary/10 dark:bg-primary/20 border-2 border-primary/40 dark:border-primary/50 rounded-lg shadow-md">
+                                <div className="flex items-start gap-2">
+                                  <AlertCircle className="w-4 h-4 text-primary dark:text-primary flex-shrink-0 mt-0.5" />
+                                  <div className="flex-1">
+                                    <p className="text-xs font-semibold text-primary dark:text-primary mb-1">
+                                      ⚠️ Action Required
+                                    </p>
+                                    <p className="text-xs text-primary/90 dark:text-primary/80">
+                                      Complete PayPal payment within 24 hours or booking will be automatically cancelled.
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                            
+                            {/* Mark as Completed button - Show when booking is confirmed and payment is paid */}
+                            {booking.status === 'confirmed' && booking.paymentStatus === 'paid' && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleMarkBookingCompleted(booking.id);
+                                }}
+                                disabled={markingCompleted === booking.id}
+                                className="w-full px-4 py-2 text-sm font-medium text-white bg-primary rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mb-2"
+                              >
+                                {markingCompleted === booking.id ? (
+                                  <>
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    Marking...
+                                  </>
+                                ) : (
+                                  <>
+                                    <CheckCircle className="w-4 h-4" />
+                                    Mark as Completed
+                                  </>
+                                )}
+                              </button>
+                            )}
+                            
+                            {/* Give Review button - Show for completed bookings that haven't been reviewed */}
+                            {booking.status === 'completed' && !booking.reviewed && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedBookingForReview(booking);
+                                  setShowReviewModal(true);
+                                }}
+                                className="w-full px-4 py-2 text-sm font-medium text-white bg-primary rounded-lg hover:bg-primary/90 transition-colors flex items-center justify-center gap-2 mb-2"
+                              >
+                                <Star className="w-4 h-4" />
+                                Give Review
+                              </button>
+                            )}
+                            
                             {/* Cancel button for pending and confirmed bookings */}
                             {(booking.status === 'pending' || booking.status === 'confirmed') && (
                               <button
@@ -2845,7 +3009,7 @@ const AccountSettings = () => {
                   {cancelledGuestBookings.length > 0 ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                       {cancelledGuestBookings.map((booking) => (
-                        <div key={booking.id} className="card-listing opacity-75 cursor-pointer hover-lift" onClick={() => navigate(`/bookings/${booking.id}`)}>
+                        <div key={booking.id} className="card-listing opacity-75 cursor-pointer hover-lift" onClick={() => navigate(`/bookings/${booking.id}`, { state: { from: '/accountsettings?tab=bookings' } })}>
                           <div className="relative w-full overflow-hidden rounded-t-2xl aspect-[4/3]">
                             {booking.listingImage ? (
                               <img

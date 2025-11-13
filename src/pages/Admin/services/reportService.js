@@ -203,7 +203,7 @@ export const generateServiceFeesReport = async () => {
           }
         });
 
-        const serviceFee = Math.round(totalEarnings * 0.033 * 100) / 100; // 3.3% service fee
+        const serviceFee = Math.round((totalEarnings * 0.10) * 100) / 100; // 10% commission
 
         hostsData.push({
           hostId: userDoc.id,
@@ -212,7 +212,7 @@ export const generateServiceFeesReport = async () => {
           totalBookings,
           totalEarnings,
           serviceFee,
-          serviceFeePercentage: '3.3%'
+          serviceFeePercentage: '10%'
         });
       }
     }
@@ -484,7 +484,7 @@ export const generateReport = async (reportType) => {
           { key: 'hostEmail', label: 'Host Email' },
           { key: 'totalBookings', label: 'Total Bookings' },
           { key: 'totalEarnings', label: 'Total Earnings' },
-          { key: 'serviceFee', label: 'Service Fee (3.3%)' },
+          { key: 'serviceFee', label: 'Commission (10%)' },
           { key: 'serviceFeePercentage', label: 'Service Fee %' }
         ];
         filename = 'service_fees_report';

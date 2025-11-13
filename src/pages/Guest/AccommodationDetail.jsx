@@ -15,7 +15,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faFacebookF, faInstagram, faFacebookMessenger, faXTwitter } from "@fortawesome/free-brands-svg-icons";
 import { Calendar } from '@/components/ui/calendar';
 import { format } from 'date-fns';
-import { createBooking, getUnavailableDates, calculateTotalPrice, checkDateConflict } from '@/pages/Guest/services/bookingService';
+import { createBooking, getUnavailableDates, calculateTotalPrice, calculateBookingPrice, checkDateConflict } from '@/pages/Guest/services/bookingService';
 import { validateCoupon } from '@/pages/Host/services/couponService';
 import { startConversation, getHostIdFromListing } from '@/pages/Guest/services/messagingService';
 import { getListingReviews } from '@/pages/Guest/services/reviewService';
@@ -170,15 +170,17 @@ const AccommodationDetail = () => {
   // Recalculate price without coupon
   const recalculatePrice = () => {
     if (checkInDate && checkOutDate && accommodation) {
-      // Get pricing from accommodation data - it might be nested or at top level
-      const pricing = {
-        weekdayPrice: accommodation.price || accommodation.pricing?.weekdayPrice || 0,
-        weekendPrice: accommodation.weekendPrice || accommodation.pricing?.weekendPrice || accommodation.price || 0,
-        basePrice: accommodation.price || accommodation.pricing?.basePrice || 0,
-        discounts: accommodation.pricing?.discounts || accommodation.discounts || {}
-      };
-      const calculatedPrice = calculateTotalPrice(pricing, checkInDate, checkOutDate, guests);
-      setTotalPrice(calculatedPrice);
+      // Use unified pricing calculation
+      const priceBreakdown = calculateBookingPrice({
+        listing: accommodation,
+        checkInDate: checkInDate,
+        checkOutDate: checkOutDate,
+        guests: guests,
+        couponDiscount: couponApplied?.discountAmount || 0,
+        category: 'accommodation'
+      });
+      // Set total price (includes guest fee)
+      setTotalPrice(priceBreakdown.totalPrice);
     } else {
       setTotalPrice(0);
     }
@@ -202,24 +204,32 @@ const AccommodationDetail = () => {
       setValidatingCoupon(true);
       setCouponError('');
       
-      // Calculate base price before coupon
-      const pricing = {
-        weekdayPrice: accommodation.price || accommodation.pricing?.weekdayPrice || 0,
-        weekendPrice: accommodation.weekendPrice || accommodation.pricing?.weekendPrice || accommodation.price || 0,
-        basePrice: accommodation.price || accommodation.pricing?.basePrice || 0,
-        discounts: accommodation.pricing?.discounts || accommodation.discounts || {}
-      };
-      const basePrice = calculateTotalPrice(pricing, checkInDate, checkOutDate, guests);
+      // Calculate base price before coupon using unified function
+      const priceBreakdown = calculateBookingPrice({
+        listing: accommodation,
+        checkInDate: checkInDate,
+        checkOutDate: checkOutDate,
+        guests: guests,
+        couponDiscount: 0,
+        category: 'accommodation'
+      });
+      const basePrice = priceBreakdown.basePrice;
       
       const result = await validateCoupon(couponCode.trim(), accommodation.id, basePrice);
       
       if (result.valid) {
         setCouponApplied({ ...result.coupon, couponId: result.couponId });
         setCouponError('');
-        // Recalculate price with coupon
-        const discountAmount = result.coupon.discountAmount;
-        const newTotal = Math.max(0, basePrice - discountAmount);
-        setTotalPrice(Math.round(newTotal));
+        // Recalculate price with coupon using unified function
+        const priceBreakdownWithCoupon = calculateBookingPrice({
+          listing: accommodation,
+          checkInDate: checkInDate,
+          checkOutDate: checkOutDate,
+          guests: guests,
+          couponDiscount: result.coupon.discountAmount,
+          category: 'accommodation'
+        });
+        setTotalPrice(priceBreakdownWithCoupon.totalPrice);
         toast.success(`Coupon "${result.coupon.code}" applied successfully!`);
       } else {
         setCouponApplied(null);
@@ -618,9 +628,15 @@ const AccommodationDetail = () => {
       return;
     }
 
-    // Calculate nightly price
-    const nights = Math.ceil((new Date(checkOutDate) - new Date(checkInDate)) / (1000 * 60 * 60 * 24));
-    const nightlyPrice = nights > 0 ? totalPrice / nights : 0;
+    // Calculate price breakdown for navigation
+    const priceBreakdown = calculateBookingPrice({
+      listing: accommodation,
+      checkInDate: checkInDate,
+      checkOutDate: checkOutDate,
+      guests: guests,
+      couponDiscount: couponApplied?.discountAmount || 0,
+      category: 'accommodation'
+    });
 
     // Navigate to booking request page
     navigate('/booking-request', {
@@ -630,8 +646,8 @@ const AccommodationDetail = () => {
         checkInDate: checkInDate,
         checkOutDate: checkOutDate,
         guests: guests,
-        totalPrice: totalPrice,
-        nightlyPrice: nightlyPrice,
+        totalPrice: priceBreakdown.totalPrice,
+        nightlyPrice: accommodation.price || accommodation.pricing?.weekdayPrice || 0,
         couponCode: couponApplied?.code || null,
         couponDiscount: couponApplied?.discountAmount || 0,
         couponId: couponApplied?.couponId || null
@@ -1419,21 +1435,33 @@ const AccommodationDetail = () => {
           <div className="lg:col-span-1">
             <div className="sticky top-24">
               <div className="card-listing p-6">
-                <div className="mb-6">
-                  {totalPrice > 0 ? (
-                    <div className="mb-2">
-                      <div className="flex items-baseline gap-2 mb-1">
-                        <span className="font-heading text-3xl font-bold text-foreground">
-                          ₱{totalPrice.toLocaleString()}
-                        </span>
-                        <span className="text-muted-foreground text-sm">
-                          for {Math.floor((new Date(checkOutDate) - new Date(checkInDate)) / (1000 * 60 * 60 * 24))} nights
-                        </span>
-                      </div>
-                      <div className="text-sm text-muted-foreground line-through">
-                        ₱{accommodation.price.toLocaleString()}/ night
-                      </div>
-                    </div>
+              <div className="mb-6">
+                {totalPrice > 0 && checkInDate && checkOutDate ? (
+                    (() => {
+                      const priceBreakdown = calculateBookingPrice({
+                        listing: accommodation,
+                        checkInDate: checkInDate,
+                        checkOutDate: checkOutDate,
+                        guests: guests,
+                        couponDiscount: couponApplied?.discountAmount || 0,
+                        category: 'accommodation'
+                      });
+                      return (
+                        <div className="mb-2">
+                          <div className="flex items-baseline gap-2 mb-1">
+                            <span className="font-heading text-3xl font-bold text-foreground">
+                              ₱{priceBreakdown.totalPrice.toLocaleString()}
+                            </span>
+                            <span className="text-muted-foreground text-sm">
+                              for {priceBreakdown.nights} {priceBreakdown.nights === 1 ? 'night' : 'nights'}
+                            </span>
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            Base: ₱{priceBreakdown.basePrice.toLocaleString()} + Service fee: ₱{priceBreakdown.guestFee.toLocaleString()}
+                          </div>
+                        </div>
+                      );
+                    })()
                   ) : (
                   <div className="flex items-baseline gap-2 mb-2">
                     <span className="font-heading text-3xl font-bold text-foreground">

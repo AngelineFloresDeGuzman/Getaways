@@ -10,7 +10,7 @@ import {
 import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, collection, query, where, onSnapshot } from 'firebase/firestore';
-import { getUnavailableDates } from '@/pages/Guest/services/bookingService';
+import { getUnavailableDates, calculateBookingPrice } from '@/pages/Guest/services/bookingService';
 import LogIn from '@/pages/Auth/LogIn';
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faFacebookF, faInstagram, faFacebookMessenger, faXTwitter } from "@fortawesome/free-brands-svg-icons";
@@ -28,10 +28,10 @@ const ServicesDetail = () => {
   const [activeShare, setActiveShare] = useState(null);
   const [copied, setCopied] = useState(false);
   const shareUrl = activeShare ? `${window.location.origin}/services/${activeShare}` : '';
-  const [checkInDate, setCheckInDate] = useState(null);
-  const [checkOutDate, setCheckOutDate] = useState(null);
-  const [selectedDateRange, setSelectedDateRange] = useState(null);
-  const [guests, setGuests] = useState(1);
+  const [selectedDate, setSelectedDate] = useState(null);
+  const [selectedTime, setSelectedTime] = useState('');
+  const [participants, setParticipants] = useState(1);
+  const [totalPrice, setTotalPrice] = useState(0);
   const [defaultMonth, setDefaultMonth] = useState(new Date());
   const [service, setService] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -183,6 +183,48 @@ const ServicesDetail = () => {
     };
   }, [id]);
 
+  // Update total price when date or participants change
+  useEffect(() => {
+    if (!selectedDate || !service) {
+      setTotalPrice(0);
+      return;
+    }
+
+    const bookingDate = new Date(selectedDate);
+    bookingDate.setHours(0, 0, 0, 0);
+    const checkOutDate = new Date(bookingDate);
+    checkOutDate.setDate(checkOutDate.getDate() + 1);
+    
+    try {
+      const priceBreakdown = calculateBookingPrice({
+        listing: service,
+        checkInDate: bookingDate,
+        checkOutDate: checkOutDate,
+        guests: participants,
+        couponDiscount: 0,
+        category: 'service'
+      });
+      
+      // Calculate discounts for services
+      const originalPrice = priceBreakdown.originalPrice;
+      const daysInAdvance = Math.floor((bookingDate - new Date()) / (1000 * 60 * 60 * 24));
+      let discountAmount = 0;
+      
+      if (service.earlyBirdDiscount && daysInAdvance >= 30) {
+        discountAmount = Math.round(originalPrice * (service.earlyBirdDiscount / 100));
+      } else if (service.lastMinuteDiscount && daysInAdvance <= 7 && daysInAdvance >= 0) {
+        discountAmount = Math.round(originalPrice * (service.lastMinuteDiscount / 100));
+      }
+      
+      // Total = original price - discount (no service fee)
+      const finalTotal = Math.max(0, originalPrice - discountAmount);
+      setTotalPrice(finalTotal);
+    } catch (error) {
+      console.error('Error calculating price:', error);
+      setTotalPrice(0);
+    }
+  }, [selectedDate, participants, service]);
+
   // Load reviews
   useEffect(() => {
     if (!id) return;
@@ -267,8 +309,8 @@ const ServicesDetail = () => {
       return;
     }
 
-    if (!checkInDate || !checkOutDate) {
-      toast.error('Please select check-in and check-out dates');
+    if (!selectedDate) {
+      toast.error('Please select a date');
       return;
     }
 
@@ -277,20 +319,38 @@ const ServicesDetail = () => {
       return;
     }
 
-    // Calculate total price (for services, it's usually per session, but we'll use the dates for booking)
-    const totalPrice = service.price || 0;
+    // For services, we use the same date for check-in and check-out
+    // The booking service expects both dates
+    const bookingDate = new Date(selectedDate);
+    bookingDate.setHours(0, 0, 0, 0);
+    
+    // Check-out is same day (services are single-day)
+    const checkOutDate = new Date(bookingDate);
+    checkOutDate.setDate(checkOutDate.getDate() + 1); // Next day for check-out
+
+    // Calculate price breakdown using unified function
+    const priceBreakdown = calculateBookingPrice({
+      listing: service,
+      checkInDate: bookingDate,
+      checkOutDate: checkOutDate,
+      guests: participants,
+      couponDiscount: 0,
+      category: 'service'
+    });
 
     // Navigate to booking request page
     navigate('/booking-request', {
       state: {
         listingId: service.id,
         listing: service,
-        checkInDate: checkInDate,
-        checkOutDate: checkOutDate,
-        guests: guests,
-        totalPrice: totalPrice,
-        nightlyPrice: service.price,
-        category: 'service'
+        checkInDate: bookingDate.toISOString().split('T')[0],
+        checkOutDate: checkOutDate.toISOString().split('T')[0],
+        guests: participants,
+        totalPrice: priceBreakdown.totalPrice,
+        nightlyPrice: service.price || 0,
+        category: 'service',
+        selectedTime: selectedTime,
+        serviceDate: bookingDate.toISOString().split('T')[0]
       }
     });
   };
@@ -377,7 +437,7 @@ const ServicesDetail = () => {
         {/* Image Gallery */}
         <div className="max-w-7xl mx-auto px-6 mb-8">
           {service.images && service.images.length > 0 ? (
-            <div className="grid grid-cols-3 gap-2 h-80 rounded-2xl overflow-hidden">
+          <div className="grid grid-cols-3 gap-2 h-80 rounded-2xl overflow-hidden">
               {service.images.slice(0, 5).map((img, i) => (
                 <img 
                   key={i} 
@@ -386,8 +446,8 @@ const ServicesDetail = () => {
                   className="w-full h-full object-cover hover:scale-105 transition-transform duration-300 cursor-pointer"
                   onClick={() => setSelectedImage(img)}
                 />
-              ))}
-            </div>
+            ))}
+          </div>
           ) : (
             <div className="h-80 rounded-2xl overflow-hidden bg-gray-200 flex items-center justify-center">
               <span className="text-muted-foreground">No images available</span>
@@ -419,30 +479,59 @@ const ServicesDetail = () => {
         {/* Main Content */}
         <div className="max-w-7xl mx-auto px-6 grid grid-cols-1 lg:grid-cols-3 gap-12 mb-12">
           <div className="lg:col-span-2 space-y-6">
-            <div className="space-y-3">
-              <h2 className="font-heading text-2xl font-bold text-foreground">About this service</h2>
-              <p className="text-muted-foreground leading-relaxed">{service.description}</p>
-            </div>
+            {/* Service Category */}
+            {service.serviceCategory && (
+              <div className="space-y-2">
+                <span className="inline-block px-3 py-1 bg-primary/10 text-primary rounded-full text-sm font-medium">
+                  {service.serviceCategory}
+                </span>
+              </div>
+            )}
 
-            <div className="flex items-center gap-6 text-muted-foreground">
-              {service.duration && (
+            {/* About this service */}
+            {service.description && (
+              <div className="space-y-3">
+                <h2 className="font-heading text-2xl font-bold text-foreground">About this service</h2>
+                <p className="text-muted-foreground leading-relaxed">{service.description}</p>
+              </div>
+            )}
+
+            {/* Duration */}
+            {service.duration && (
+              <div className="flex items-center gap-6 text-muted-foreground">
                 <div className="flex items-center gap-1"><Clock className="w-4 h-4" />{service.duration}</div>
-              )}
-            </div>
+              </div>
+            )}
 
+            {/* Service Location/Where Provide */}
+            {service.serviceWhereProvide && (
+              <div className="space-y-2 pt-6 border-t border-border">
+                <h3 className="font-semibold text-foreground">Where service is provided</h3>
+                <p className="text-muted-foreground">{service.serviceWhereProvide}</p>
+              </div>
+            )}
+
+            {/* Service Address */}
+            {service.serviceAddress && (
+              <div className="space-y-2 pt-6 border-t border-border">
+                <h3 className="font-semibold text-foreground">Service Address</h3>
+                <p className="text-muted-foreground">{service.serviceAddress}</p>
+              </div>
+            )}
+            
             {/* Service Offerings */}
             {service.serviceOfferings && service.serviceOfferings.length > 0 && (
-              <div className="space-y-4 pt-6 border-t border-border">
+            <div className="space-y-4 pt-6 border-t border-border">
                 <h2 className="font-heading text-2xl font-bold text-foreground">Service Offerings</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {service.serviceOfferings.map((offering, index) => (
-                    <div key={index} className="flex items-center gap-3">
+                  <div key={index} className="flex items-center gap-3">
                       <Check className="w-5 h-5 text-green-500" />
                       <span className="text-muted-foreground">{offering.title || offering.name || `Offering ${index + 1}`}</span>
-                    </div>
-                  ))}
-                </div>
+                  </div>
+                ))}
               </div>
+            </div>
             )}
 
             {/* Description Highlights */}
@@ -461,25 +550,15 @@ const ServicesDetail = () => {
             <div className="space-y-4 pt-8 border-t border-border">
               <div>
                 <h2 className="font-heading text-2xl font-bold text-foreground mb-2">Select dates</h2>
-                <p className="text-muted-foreground">Choose your preferred dates for this service</p>
+                <p className="text-muted-foreground">Choose your preferred date for this service</p>
               </div>
               
               <div className="flex justify-center w-full">
                 <div className="bg-white rounded-xl border border-gray-200 shadow-lg p-6 w-full max-w-4xl mx-auto relative">
                   <Calendar
-                    mode="range"
-                    selected={selectedDateRange}
-                    onSelect={(range) => {
-                      setSelectedDateRange(range);
-                      if (range?.from) {
-                        setCheckInDate(range.from);
-                      }
-                      if (range?.to) {
-                        setCheckOutDate(range.to);
-                      } else if (range?.from && !range?.to) {
-                        setCheckOutDate(null);
-                      }
-                    }}
+                    mode="single"
+                    selected={selectedDate}
+                    onSelect={setSelectedDate}
                     numberOfMonths={2}
                     showOutsideDays={true}
                     navLayout="around"
@@ -530,11 +609,6 @@ const ServicesDetail = () => {
                       const dateToCheck = new Date(date);
                       dateToCheck.setHours(0, 0, 0, 0);
                       
-                      const year = dateToCheck.getFullYear();
-                      const month = String(dateToCheck.getMonth() + 1).padStart(2, '0');
-                      const day = String(dateToCheck.getDate()).padStart(2, '0');
-                      const dateStr = `${year}-${month}-${day}`;
-                      
                       const today = new Date();
                       today.setHours(0, 0, 0, 0);
                       const isPast = dateToCheck < today;
@@ -553,12 +627,7 @@ const ServicesDetail = () => {
                             }
                             unavailableDateObj.setHours(0, 0, 0, 0);
                             
-                            const unavailableYear = unavailableDateObj.getFullYear();
-                            const unavailableMonth = String(unavailableDateObj.getMonth() + 1).padStart(2, '0');
-                            const unavailableDay = String(unavailableDateObj.getDate()).padStart(2, '0');
-                            const unavailableStr = `${unavailableYear}-${unavailableMonth}-${unavailableDay}`;
-                            
-                            return dateStr === unavailableStr;
+                            return dateToCheck.getTime() === unavailableDateObj.getTime();
                           } catch (error) {
                             console.warn('Error comparing unavailable date:', error);
                             return false;
@@ -574,17 +643,15 @@ const ServicesDetail = () => {
                       unavailable: "!bg-red-600 !text-white !line-through !opacity-100 !cursor-not-allowed hover:!bg-red-700 hover:!text-white !font-bold !border-2 !border-red-800 !shadow-lg !relative !z-10"
                     }}
                   />
-                  {(checkInDate || checkOutDate) && (
+                  {selectedDate && (
                     <div className="absolute bottom-4 right-6">
                       <button
                         onClick={() => {
-                          setCheckInDate(null);
-                          setCheckOutDate(null);
-                          setSelectedDateRange(null);
+                          setSelectedDate(null);
                         }}
                         className="text-primary hover:underline text-sm font-medium"
                       >
-                        Clear dates
+                        Clear date
                       </button>
                     </div>
                   )}
@@ -622,32 +689,72 @@ const ServicesDetail = () => {
             </div>
 
             {/* Provider Information */}
-            {service.provider && (
+            {(service.provider || service.serviceProfilePicture || service.serviceYearsOfExperience || service.serviceExperience || service.serviceDegree || service.serviceCareerHighlight || (service.serviceProfiles && service.serviceProfiles.length > 0)) && (
               <div className="space-y-4 pt-6 border-t border-border">
                 <h2 className="font-heading text-2xl font-bold text-foreground">Service Provider</h2>
-                <div className="flex items-center gap-3">
-                  {service.serviceProfilePicture && (
-                    <img 
-                      src={service.serviceProfilePicture} 
-                      alt={service.provider}
-                      className="w-16 h-16 rounded-full object-cover"
-                    />
-                  )}
-                  <div>
-                    <p className="font-medium text-foreground">{service.provider}</p>
-                    {service.serviceYearsOfExperience && (
-                      <p className="text-sm text-muted-foreground">{service.serviceYearsOfExperience} years of experience</p>
+                {(service.provider || service.serviceProfilePicture) && (
+                  <div className="flex items-center gap-3">
+                    {service.serviceProfilePicture && (
+                      <img 
+                        src={service.serviceProfilePicture} 
+                        alt={service.provider || 'Service Provider'}
+                        className="w-16 h-16 rounded-full object-cover"
+                      />
+                    )}
+                    {service.provider && (
+                      <div>
+                        <p className="font-medium text-foreground">{service.provider}</p>
+                        {service.serviceYearsOfExperience && (
+                          <p className="text-sm text-muted-foreground">{service.serviceYearsOfExperience} years of experience</p>
+                        )}
+                      </div>
                     )}
                   </div>
-                </div>
+                )}
                 {service.serviceExperience && (
-                  <p className="text-muted-foreground">{service.serviceExperience}</p>
+                  <div className="mt-3">
+                    <p className="text-muted-foreground">{service.serviceExperience}</p>
+                  </div>
                 )}
                 {service.serviceDegree && (
-                  <p className="text-sm text-muted-foreground">Education: {service.serviceDegree}</p>
+                  <div className="mt-2">
+                    <p className="text-sm text-muted-foreground"><span className="font-medium">Education:</span> {service.serviceDegree}</p>
+                  </div>
                 )}
                 {service.serviceCareerHighlight && (
-                  <p className="text-sm text-muted-foreground">Career Highlight: {service.serviceCareerHighlight}</p>
+                  <div className="mt-2">
+                    <p className="text-sm text-muted-foreground"><span className="font-medium">Career Highlight:</span> {service.serviceCareerHighlight}</p>
+                  </div>
+                )}
+                {service.serviceYearsOfExperience && !service.provider && (
+                  <div className="mt-2">
+                    <p className="text-sm text-muted-foreground">{service.serviceYearsOfExperience} years of experience</p>
+                  </div>
+                )}
+                {/* Online Profiles */}
+                {service.serviceProfiles && service.serviceProfiles.length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    <h3 className="font-semibold text-foreground text-sm">Online Profiles</h3>
+                    <div className="flex flex-wrap gap-2">
+                      {service.serviceProfiles.map((profile, index) => {
+                        const profileUrl = typeof profile === 'string' ? profile : (profile.url || profile.link || '');
+                        const profileName = typeof profile === 'string' ? profile : (profile.name || profile.platform || `Profile ${index + 1}`);
+                        return profileUrl ? (
+                          <a
+                            key={index}
+                            href={profileUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm text-primary hover:underline"
+                          >
+                            {profileName}
+                          </a>
+                        ) : (
+                          <span key={index} className="text-sm text-muted-foreground">{profileName}</span>
+                        );
+                      })}
+                    </div>
+                  </div>
                 )}
               </div>
             )}
@@ -667,7 +774,7 @@ const ServicesDetail = () => {
               <div className="mb-6">
                 <div className="flex items-baseline gap-2 mb-2">
                   <span className="font-heading text-3xl font-bold text-foreground">₱{service.price?.toLocaleString() || '0'}</span>
-                  <span className="text-muted-foreground">/ session</span>
+                  <span className="text-muted-foreground">/ person</span>
                 </div>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
@@ -678,41 +785,104 @@ const ServicesDetail = () => {
               {/* Date Selection */}
               <div className="space-y-4 mb-6">
                 <div className="p-3 border border-border rounded-xl">
-                  <label className="block text-xs font-medium text-foreground mb-2">Check-in</label>
-                  {checkInDate ? (
-                    <div className="text-sm text-foreground">{format(new Date(checkInDate), 'MMM d, yyyy')}</div>
-                  ) : (
-                    <div className="text-sm text-muted-foreground">Select dates above</div>
-                  )}
+                  <label className="block text-xs font-medium text-foreground mb-1">Date</label>
+                  <div className={`text-sm ${selectedDate ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
+                    {selectedDate ? format(selectedDate, 'MMM dd, yyyy') : 'Select a date'}
+                  </div>
                 </div>
                 <div className="p-3 border border-border rounded-xl">
-                  <label className="block text-xs font-medium text-foreground mb-2">Check-out</label>
-                  {checkOutDate ? (
-                    <div className="text-sm text-foreground">{format(new Date(checkOutDate), 'MMM d, yyyy')}</div>
-                  ) : (
-                    <div className="text-sm text-muted-foreground">Select dates above</div>
-                  )}
-                </div>
-                <div className="p-3 border border-border rounded-xl">
-                  <label className="block text-xs font-medium text-foreground mb-1">Guests</label>
+                  <label className="block text-xs font-medium text-foreground mb-1">Time</label>
                   <select 
-                    value={guests} 
-                    onChange={(e) => setGuests(Number(e.target.value))}
-                    className="w-full bg-transparent text-sm text-foreground"
+                    className="w-full bg-transparent text-sm text-muted-foreground"
+                    value={selectedTime}
+                    onChange={(e) => setSelectedTime(e.target.value)}
+                  >
+                    <option value="">Select time</option>
+                    <option value="morning">Morning</option>
+                    <option value="afternoon">Afternoon</option>
+                    <option value="evening">Evening</option>
+                  </select>
+                </div>
+                <div className="p-3 border border-border rounded-xl">
+                  <label className="block text-xs font-medium text-foreground mb-1">Participants</label>
+                  <select 
+                    className="w-full bg-transparent text-sm text-muted-foreground"
+                    value={participants}
+                    onChange={(e) => setParticipants(parseInt(e.target.value))}
                   >
                     {[...Array(10)].map((_, i) => (
-                      <option key={i} value={i + 1}>{i + 1} guest{i > 0 ? 's' : ''}</option>
+                      <option key={i} value={i + 1}>{i + 1} {i === 0 ? 'participant' : 'participants'}</option>
                     ))}
                   </select>
                 </div>
               </div>
+
+              {/* Price Summary */}
+              {totalPrice > 0 && selectedDate && (
+                <div className="mb-6 pb-6 border-b border-border">
+                  {(() => {
+                    const bookingDate = new Date(selectedDate);
+                    bookingDate.setHours(0, 0, 0, 0);
+                    const checkOutDate = new Date(bookingDate);
+                    checkOutDate.setDate(checkOutDate.getDate() + 1);
+                    
+                    const priceBreakdown = calculateBookingPrice({
+                      listing: service,
+                      checkInDate: bookingDate,
+                      checkOutDate: checkOutDate,
+                      guests: participants,
+                      couponDiscount: 0,
+                      category: 'service'
+                    });
+                    
+                    // Calculate discounts for services
+                    const originalPrice = priceBreakdown.originalPrice;
+                    const daysInAdvance = Math.floor((bookingDate - new Date()) / (1000 * 60 * 60 * 24));
+                    let discountAmount = 0;
+                    let discountLabel = '';
+                    
+                    if (service.earlyBirdDiscount && daysInAdvance >= 30) {
+                      discountAmount = Math.round(originalPrice * (service.earlyBirdDiscount / 100));
+                      discountLabel = 'Early bird discount';
+                    } else if (service.lastMinuteDiscount && daysInAdvance <= 7 && daysInAdvance >= 0) {
+                      discountAmount = Math.round(originalPrice * (service.lastMinuteDiscount / 100));
+                      discountLabel = 'Last minute discount';
+                    }
+                    
+                    return (
+                      <>
+                        <div className="flex items-center justify-between text-sm mb-2">
+                          <span className="text-muted-foreground">
+                            {participants} {participants === 1 ? 'person' : 'people'} × ₱{service.price?.toLocaleString() || '0'}
+                          </span>
+                          <span className="font-medium text-foreground">
+                            ₱{originalPrice.toLocaleString()}
+                          </span>
+                        </div>
+                        {discountAmount > 0 && (
+                          <div className="flex items-center justify-between text-sm mb-2 text-red-600">
+                            <span className="font-medium">{discountLabel}</span>
+                            <span className="font-medium">-₱{discountAmount.toLocaleString()}</span>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between pt-2 border-t border-border">
+                          <span className="font-semibold text-foreground">Total</span>
+                          <span className="font-semibold text-foreground text-lg">
+                            ₱{Math.max(0, originalPrice - discountAmount).toLocaleString()}
+                          </span>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
               
               <button 
                 className="btn-primary w-full"
                 onClick={handleReserve}
-                disabled={!checkInDate || !checkOutDate}
+                disabled={!selectedDate}
               >
-                Reserve
+                Book Service
               </button>
               <p className="text-center text-sm text-muted-foreground mt-4">You won't be charged yet</p>
             </div>
