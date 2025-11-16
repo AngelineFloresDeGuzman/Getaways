@@ -53,6 +53,55 @@ export const getAllCashOutRequests = async (status = null) => {
 };
 
 /**
+ * Get cash out requests for a specific user
+ * @param {string} userId - User ID
+ * @param {string} status - Optional status filter ('pending', 'approved', 'rejected')
+ * @returns {Promise<Array>} Array of cash out requests for the user
+ */
+export const getUserCashOutRequests = async (userId, status = null) => {
+  try {
+    let q;
+    // Only use where clause, sort in JavaScript to avoid index requirement
+    if (status) {
+      q = query(
+        collection(db, CASH_OUT_REQUESTS_COLLECTION),
+        where('userId', '==', userId),
+        where('status', '==', status)
+      );
+    } else {
+      q = query(
+        collection(db, CASH_OUT_REQUESTS_COLLECTION),
+        where('userId', '==', userId)
+      );
+    }
+
+    const snapshot = await getDocs(q);
+    const requests = snapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        ...data,
+        createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : (data.createdAt ? new Date(data.createdAt) : null),
+        updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() : (data.updatedAt ? new Date(data.updatedAt) : null),
+        reviewedAt: data.reviewedAt?.toDate ? data.reviewedAt.toDate() : (data.reviewedAt ? new Date(data.reviewedAt) : null)
+      };
+    });
+
+    // Sort by createdAt in descending order (newest first) in JavaScript
+    requests.sort((a, b) => {
+      const dateA = a.createdAt ? (a.createdAt instanceof Date ? a.createdAt.getTime() : new Date(a.createdAt).getTime()) : 0;
+      const dateB = b.createdAt ? (b.createdAt instanceof Date ? b.createdAt.getTime() : new Date(b.createdAt).getTime()) : 0;
+      return dateB - dateA; // Descending order
+    });
+
+    return requests;
+  } catch (error) {
+    console.error('Error getting user cash out requests:', error);
+    throw error;
+  }
+};
+
+/**
  * Approve a cash out request
  * This deducts the money from user's wallet and creates a transaction record
  * @param {string} requestId - Cash out request ID

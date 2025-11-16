@@ -6,7 +6,7 @@ import Loading from '@/components/Loading';
 import { auth, db } from '@/lib/firebase';
 import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
-import { Wallet, ArrowUpRight, ArrowDownLeft, RefreshCw, ExternalLink, Calendar, Filter, Search, Plus, X, CheckCircle, AlertCircle } from 'lucide-react';
+import { Wallet, ArrowUpRight, ArrowDownLeft, RefreshCw, ExternalLink, Calendar, Filter, Search, Plus, X, CheckCircle, AlertCircle, Clock } from 'lucide-react';
 import { toast } from '@/components/ui/sonner';
 import { PayPalScriptProvider, PayPalButtons, usePayPalScriptReducer } from '@paypal/react-paypal-js';
 import {
@@ -173,6 +173,8 @@ const EWallet = () => {
   const [isProcessingCashOut, setIsProcessingCashOut] = useState(false);
   const [merchantPayPalEmail, setMerchantPayPalEmail] = useState('');
   const [isMerchantAccount, setIsMerchantAccount] = useState(false);
+  const [cashOutRequests, setCashOutRequests] = useState([]);
+  const [showCashOutRequests, setShowCashOutRequests] = useState(true); // Expanded by default
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -315,6 +317,16 @@ const EWallet = () => {
       
       setTransactions(walletTransactions);
       setFilteredTransactions(walletTransactions);
+      
+      // Load cash out requests for this user
+      try {
+        const { getUserCashOutRequests } = await import('@/pages/Admin/services/cashOutService');
+        const requests = await getUserCashOutRequests(userId);
+        setCashOutRequests(requests);
+      } catch (error) {
+        console.error('Error loading cash out requests:', error);
+        // Don't show error toast for this, just log it
+      }
       
     } catch (error) {
       console.error('Error loading wallet data:', error);
@@ -725,6 +737,119 @@ const EWallet = () => {
             </div>
           </div>
         </div>
+
+        {/* Cash Out Requests Section */}
+        {cashOutRequests.length > 0 && (
+          <div className="bg-white rounded-lg shadow-sm overflow-hidden mb-6 border-2 border-primary/20">
+            <div className="p-4 border-b border-gray-200 bg-gradient-to-r from-primary/5 to-transparent">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
+                    <ArrowUpRight className="w-5 h-5 text-primary" />
+                    Cash Out Requests Status
+                  </h2>
+                  <p className="text-sm text-gray-600 mt-1">
+                    {cashOutRequests.length} request{cashOutRequests.length !== 1 ? 's' : ''} • 
+                    {' '}
+                    {cashOutRequests.filter(r => r.status === 'pending').length > 0 && (
+                      <span className="text-yellow-600 font-medium">
+                        {cashOutRequests.filter(r => r.status === 'pending').length} pending
+                      </span>
+                    )}
+                    {cashOutRequests.filter(r => r.status === 'pending').length > 0 && 
+                     (cashOutRequests.filter(r => r.status === 'approved').length > 0 || 
+                      cashOutRequests.filter(r => r.status === 'rejected').length > 0) && ', '}
+                    {cashOutRequests.filter(r => r.status === 'approved').length > 0 && (
+                      <span className="text-green-600 font-medium">
+                        {cashOutRequests.filter(r => r.status === 'approved').length} approved
+                      </span>
+                    )}
+                    {cashOutRequests.filter(r => r.status === 'approved').length > 0 && 
+                     cashOutRequests.filter(r => r.status === 'rejected').length > 0 && ', '}
+                    {cashOutRequests.filter(r => r.status === 'rejected').length > 0 && (
+                      <span className="text-red-600 font-medium">
+                        {cashOutRequests.filter(r => r.status === 'rejected').length} rejected
+                      </span>
+                    )}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowCashOutRequests(!showCashOutRequests)}
+                  className="text-sm text-primary hover:underline flex items-center gap-1 font-medium"
+                >
+                  {showCashOutRequests ? 'Hide' : 'Show'} Requests
+                </button>
+              </div>
+            </div>
+            
+            {showCashOutRequests && (
+              <div className="divide-y divide-gray-200">
+                {cashOutRequests.map((request) => (
+                  <div
+                    key={request.id}
+                    className={`p-4 hover:bg-gray-50 transition-colors ${
+                      request.status === 'rejected' ? 'bg-red-50/50' :
+                      request.status === 'approved' ? 'bg-green-50/50' :
+                      'bg-yellow-50/50'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-2">
+                          <span className={`text-xs px-3 py-1 rounded-full font-medium ${
+                            request.status === 'approved' ? 'bg-green-100 text-green-700 border border-green-300' :
+                            request.status === 'rejected' ? 'bg-red-100 text-red-700 border border-red-300' :
+                            'bg-yellow-100 text-yellow-700 border border-yellow-300'
+                          }`}>
+                            {request.status?.charAt(0).toUpperCase() + request.status?.slice(1)}
+                          </span>
+                          <span className="text-lg font-semibold text-gray-900">
+                            ₱{request.amount?.toLocaleString() || '0'}
+                          </span>
+                        </div>
+                        <p className="text-sm text-gray-600 mb-1">
+                          <strong>PayPal:</strong> {request.paypalEmail || 'N/A'}
+                        </p>
+                        <p className="text-xs text-gray-500 mb-2">
+                          Requested: {request.createdAt ? formatDate(request.createdAt) : 'N/A'}
+                          {request.reviewedAt && (
+                            <> • Reviewed: {formatDate(request.reviewedAt)}</>
+                          )}
+                        </p>
+                        {request.status === 'rejected' && request.adminNotes && (
+                          <div className="mt-3 p-3 bg-red-100 border border-red-300 rounded-lg">
+                            <p className="text-xs font-semibold text-red-900 mb-1 flex items-center gap-1">
+                              <AlertCircle className="w-3 h-3" />
+                              Rejection Reason:
+                            </p>
+                            <p className="text-sm text-red-800">{request.adminNotes}</p>
+                          </div>
+                        )}
+                        {request.status === 'approved' && request.adminNotes && (
+                          <div className="mt-3 p-3 bg-green-100 border border-green-300 rounded-lg">
+                            <p className="text-xs font-semibold text-green-900 mb-1 flex items-center gap-1">
+                              <CheckCircle className="w-3 h-3" />
+                              Admin Note:
+                            </p>
+                            <p className="text-sm text-green-800">{request.adminNotes}</p>
+                          </div>
+                        )}
+                        {request.status === 'pending' && (
+                          <div className="mt-3 p-3 bg-yellow-100 border border-yellow-300 rounded-lg">
+                            <p className="text-xs text-yellow-800 flex items-center gap-1">
+                              <Clock className="w-3 h-3" />
+                              Your request is pending admin approval. Your wallet balance will be deducted once approved.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Transactions List */}
         <div className="bg-white rounded-lg shadow-sm overflow-hidden">
