@@ -457,7 +457,7 @@ const EWallet = () => {
     try {
       const result = await cashOutToPayPal(user.uid, amount, emailToUse);
       
-      toast.success(result.message || `Cash-out request submitted! ₱${amount.toLocaleString()} has been deducted from your wallet and is pending admin processing.`);
+      toast.success(result.message || `Cash-out request submitted! ₱${amount.toLocaleString()} is pending admin approval. Your wallet balance will be deducted only after admin approves your request.`);
       setShowCashOutModal(false);
       setCashOutAmount('');
       setUseDifferentEmail(false);

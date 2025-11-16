@@ -54,12 +54,13 @@ Located in: `src/pages/Admin/services/policyService.js`
 - **Cancelled/Completed Bookings**: Cannot be cancelled
 
 **Refund Processing:**
-- Refunds are marked as `refundPending: true` when guest cancels
-- Admin must process refunds manually via `refundService.js`
+- Refunds are processed instantly when guest cancels a confirmed booking.
+- 50% refund for confirmed bookings is deducted directly from the host wallet and credited to the guest wallet.
+- Admin is no longer involved in refund processing for guest cancellations of confirmed bookings.
 - Refund amount stored in booking document:
-  - `refundAmount`: Amount to refund to guest
-  - `refundType`: `'full_refund'` or `'half_refund'` or `'no_refund'`
-  - `hostRefundAmount`: Amount host must return (if earnings were released)
+   - `refundAmount`: Amount refunded to guest
+   - `refundType`: `'full_refund'`, `'half_refund'`, or `'no_refund'`
+   - `hostRefundAmount`: Amount deducted from host (if earnings were released)
 
 **Default Policy Content** (from `policyService.js`):
 ```
@@ -130,22 +131,18 @@ Located in: `src/pages/Admin/services/policyService.js`
 2. **`processRefund(bookingId)`** - Processes refund for a cancelled booking
 
 **Refund Processing Logic:**
-1. **Check Booking Status**: Must be `cancelled` and `refundPending: true`
+1. **Check Booking Status**: Must be `cancelled`.
 2. **Calculate Refund Amount**:
    - Full refund: `refundAmount = totalPrice`
    - Half refund: `refundAmount = totalPrice / 2`
-3. **Handle Host Refund** (if earnings were released):
+3. **Process Host-to-Guest Refund** (for confirmed bookings):
    - If `earningsReleased === true` and `refundType === 'half_refund'`:
      - Deduct `hostRefundAmount` from host wallet
-     - Add `hostRefundAmount` to admin wallet
-4. **Process Guest Refund**:
-   - Deduct `refundAmount` from admin wallet
-   - Add `refundAmount` to guest wallet
-5. **Update Booking**:
-   - Set `refundPending: false`
+     - Add `hostRefundAmount` to guest wallet
+4. **Update Booking**:
    - Set `refundProcessed: true`
    - Set `refundProcessedAt: timestamp`
-   - Set `refundProcessedBy: 'admin'`
+   - Set `refundProcessedBy: 'system'`
 
 **Default Refund Policy Content**:
 ```

@@ -10,7 +10,9 @@ import {
   deleteDoc,
   query,
   orderBy,
-  serverTimestamp
+  serverTimestamp,
+  onSnapshot,
+  where
 } from 'firebase/firestore';
 
 const POLICIES_COLLECTION = 'policies';
@@ -39,16 +41,37 @@ export const POLICY_TYPES = {
 export const getAllPolicies = async () => {
   try {
     const policiesRef = collection(db, POLICIES_COLLECTION);
-    const q = query(policiesRef, orderBy('updatedAt', 'desc'));
-    const snapshot = await getDocs(q);
+    let snapshot;
     
-    return snapshot.docs.map(doc => ({
+    try {
+      // Try to get policies ordered by updatedAt
+      const q = query(policiesRef, orderBy('updatedAt', 'desc'));
+      snapshot = await getDocs(q);
+    } catch (orderError) {
+      // If orderBy fails (e.g., no documents or missing field), get all without ordering
+      console.warn('Could not order by updatedAt, fetching all policies:', orderError);
+      snapshot = await getDocs(policiesRef);
+    }
+    
+    const policies = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     }));
+    
+    // Sort manually if we couldn't use orderBy
+    if (policies.length > 0 && policies[0].updatedAt) {
+      policies.sort((a, b) => {
+        const aDate = a.updatedAt?.toDate ? a.updatedAt.toDate() : new Date(0);
+        const bDate = b.updatedAt?.toDate ? b.updatedAt.toDate() : new Date(0);
+        return bDate - aDate;
+      });
+    }
+    
+    return policies;
   } catch (error) {
     console.error('Error getting policies:', error);
-    throw error;
+    // Return empty array instead of throwing to prevent UI crashes
+    return [];
   }
 };
 
@@ -184,12 +207,38 @@ export const togglePolicyStatus = async (policyId, isActive) => {
  * Initialize default policies (for first-time setup)
  * @returns {Promise<void>}
  */
-export const initializeDefaultPolicies = async () => {
+export const initializeDefaultPolicies = async (force = false) => {
   try {
     const policies = await getAllPolicies();
-    if (policies.length > 0) {
-      console.log('Policies already exist, skipping initialization');
-      return;
+    
+    // Check if specific policy types already exist
+    const existingTypes = new Set(policies.map(p => p.type));
+    
+    // If all default policy types exist and force is false, skip
+    const defaultPolicyTypes = [
+      POLICY_TYPES.CANCELLATION_GUEST,
+      POLICY_TYPES.CANCELLATION_HOST,
+      POLICY_TYPES.TERMS_CONDITIONS,
+      POLICY_TYPES.PRIVACY_POLICY,
+      POLICY_TYPES.HOST_RULES,
+      POLICY_TYPES.GUEST_RULES,
+      POLICY_TYPES.REFUND_POLICY,
+      POLICY_TYPES.COMMUNITY_STANDARDS
+    ];
+    
+    const allExist = defaultPolicyTypes.every(type => existingTypes.has(type));
+    
+    if (allExist && !force) {
+      console.log('All default policies already exist, skipping initialization');
+      return {
+        created: 0,
+        skipped: policies.length,
+        createdPolicies: [],
+        skippedPolicies: defaultPolicyTypes.map(type => {
+          const policy = policies.find(p => p.type === type);
+          return policy ? policy.title : type;
+        })
+      };
     }
 
     const defaultPolicies = [
@@ -198,24 +247,30 @@ export const initializeDefaultPolicies = async () => {
         title: 'Guest Cancellation Policy',
         content: `## Guest Cancellation Policy
 
-### Cancellation Timeframes
+### Cancellation Rules
 
-**Full Refund:**
-- Cancellations made 48 hours or more before check-in: 100% refund
-- Cancellations made 7 days or more before check-in for long-term stays (28+ days): 100% refund
+**Full Refund (100%):**
+- Cancellations of pending bookings: Full refund of the booking amount
+- Refunds are processed instantly to your GetPay wallet
 
-**Partial Refund:**
-- Cancellations made between 24-48 hours before check-in: 50% refund
-- Cancellations made less than 24 hours before check-in: No refund
+**Partial Refund (50%):**
+- Cancellations of confirmed bookings: 50% refund of the booking amount
+- The refund is automatically deducted from the host's wallet and credited to your GetPay wallet
+- Refunds are processed instantly upon cancellation
+
+**No Refund:**
+- Completed bookings cannot be cancelled
+- Cancelled bookings cannot be refunded again
 
 **Special Circumstances:**
 - Extenuating circumstances (natural disasters, medical emergencies) may qualify for full refunds
 - Contact Getaways support for review of special circumstances
 
 ### Refund Processing
-- Refunds are processed within 5-10 business days
-- Refunds are returned to the original payment method
-- Service fees are non-refundable`,
+- Refunds are processed instantly to your GetPay wallet
+- For confirmed bookings, refunds are automatically transferred from the host's wallet
+- You can use your GetPay wallet balance for future bookings or withdraw funds
+- No service fees are charged to guests`,
         isActive: true,
         appliesTo: ['guest'],
         version: '1.0'
@@ -230,6 +285,7 @@ export const initializeDefaultPolicies = async () => {
 **Host-Initiated Cancellations:**
 - Hosts should avoid cancellations as they negatively impact guest experience
 - Cancellations may result in penalties and affect host ratings
+- Host cancellations are strongly discouraged
 
 **Penalties:**
 - First cancellation: Warning and potential calendar blocking
@@ -244,8 +300,13 @@ export const initializeDefaultPolicies = async () => {
 
 ### Compensation for Guests
 - Getaways will help guests find alternative accommodations
+- Full refunds are processed automatically for host cancellations
+- Refunds are instantly credited to guest's GetPay wallet
 - Hosts may be required to compensate guests for inconvenience
-- Full refunds are processed automatically for host cancellations`,
+
+### Impact on Earnings
+- If earnings were already released, host may be required to return funds
+- Commission (10%) may still be retained by platform`,
         isActive: true,
         appliesTo: ['host'],
         version: '1.0'
@@ -259,11 +320,22 @@ export const initializeDefaultPolicies = async () => {
 - Users must provide accurate and up-to-date information during registration
 - Each account is for personal use only and must not be shared
 - Users are responsible for maintaining account security
+- Users must be 18 years or older to use the platform
 
 ### Bookings & Payments
-- Guests are responsible for completing payments for bookings
+- **Payment System**: All payments are processed through GetPay wallet system
+- **Guest Payments**: Guests pay the full booking amount (no additional service fees)
+- **Payment Timing**: Full payment is required when booking is confirmed by host
+- **Payment Method**: Payments are processed through GetPay wallet or PayPal
 - Hosts must provide truthful information about listings, including rates, amenities, and availability
 - All prices are in Philippine Peso (₱) unless otherwise stated
+
+### Earnings & Commissions
+- **Host Earnings**: Hosts receive 90% of the booking amount
+- **Platform Commission**: Getaways retains 10% commission on each booking
+- **Earnings Release**: Earnings are released to host's GetPay wallet after booking completion
+- **Release Timing**: Earnings are available for release when guest marks booking as completed or 1 day after checkout
+- Commission is deducted when earnings are released to host
 
 ### User Conduct
 - Users must treat all members with respect
@@ -297,6 +369,7 @@ export const initializeDefaultPolicies = async () => {
 - Respond to booking requests within 24 hours
 - Provide accurate check-in instructions
 - Be available for guest communication during stay
+- Confirm or decline booking requests promptly
 
 ### Prohibited Activities
 - False or misleading listings
@@ -304,10 +377,16 @@ export const initializeDefaultPolicies = async () => {
 - Charging guests outside the platform
 - Canceling confirmed bookings without valid reason
 
-### Service Fees
-- Hosts pay a 10% commission on each booking
-- Commission is deducted from booking amount when earnings are released
-- Fees are non-refundable`,
+### Payment & Earnings
+- **Commission Structure**: Hosts pay a 10% commission on each booking
+- **Host Receives**: 90% of the booking amount
+- **Payment Flow**: 
+  - Guest pays full booking amount to admin wallet when booking is confirmed
+  - Earnings are released to host's GetPay wallet after booking completion
+  - Commission (10%) is automatically deducted when earnings are released
+- **Earnings Release**: Earnings become available when guest marks booking as completed or 1 day after checkout
+- **GetPay Wallet**: All earnings are deposited directly to your GetPay wallet
+- Commission fees are non-refundable`,
         isActive: true,
         appliesTo: ['host'],
         version: '1.0'
@@ -336,8 +415,12 @@ export const initializeDefaultPolicies = async () => {
 
 ### Payment & Refunds
 - Full payment is required at booking confirmation
-- Refunds follow the cancellation policy
-- Service fees are non-refundable`,
+- Payments are processed through GetPay wallet system
+- Refunds follow the cancellation policy:
+  - Pending bookings: Full refund (100%)
+  - Confirmed bookings: Partial refund (50%)
+- All refunds are processed instantly to your GetPay wallet
+- No service fees are charged to guests`,
         isActive: true,
         appliesTo: ['guest'],
         version: '1.0'
@@ -349,18 +432,24 @@ export const initializeDefaultPolicies = async () => {
 
 ### Refund Eligibility
 - Refunds are processed according to the cancellation policy
-- Service fees are non-refundable
-- Processing time: 5-10 business days
+- Pending bookings: Full refund (100%)
+- Confirmed bookings: Partial refund (50%)
+- Completed bookings: No refunds available
+
+### Refund Processing
+- **Instant Processing**: All refunds are processed instantly to your GetPay wallet
+- **No Processing Fees**: No additional fees are charged for refunds
+- **Automatic Transfer**: For confirmed bookings, refunds are automatically transferred from the host's wallet to your wallet
 
 ### Refund Methods
-- Refunds are returned to the original payment method
-- E-wallet refunds: Processed within 3-5 business days
-- Credit card refunds: May take 7-10 business days to appear
+- All refunds are credited to your GetPay wallet balance
+- You can use your wallet balance for future bookings
+- You can withdraw funds from your GetPay wallet at any time
+- No service fees are charged to guests
 
 ### Non-Refundable Items
-- Service fees
-- Processing fees
-- Completed bookings (unless canceled per policy)
+- Completed bookings cannot be refunded
+- Once a booking is completed, no refunds are available
 
 ### Dispute Resolution
 - Contact Getaways support for refund disputes
@@ -397,18 +486,166 @@ export const initializeDefaultPolicies = async () => {
         isActive: true,
         appliesTo: ['guest', 'host'],
         version: '1.0'
+      },
+      {
+        type: POLICY_TYPES.PRIVACY_POLICY,
+        title: 'Privacy Policy',
+        content: `## Privacy Policy
+
+### Information We Collect
+
+**Personal Data:**
+- Name, email address, password, contact information
+- Profile details and preferences
+- Payment information (processed securely through GetPay wallet and PayPal)
+
+**Booking Data:**
+- Listings viewed and searched
+- Bookings made and cancelled
+- Reviews and ratings posted
+- Communication with hosts/guests
+
+**Device & Usage Data:**
+- IP address, browser type, device information
+- Activity logs and platform usage patterns
+- Location data (when using location-based features)
+
+### How We Use Your Information
+
+- To provide and improve our services
+- To process bookings and payments through GetPay wallet system
+- To communicate booking confirmations, updates, and promotions
+- To detect and prevent fraud or unauthorized activity
+- To personalize your experience on the platform
+- To comply with legal obligations
+
+### Data Sharing
+
+- **We do not sell your personal data**
+- Data may be shared with hosts for booking purposes (name, contact info, booking details)
+- Data may be shared with payment processors (PayPal, GetPay) for transaction handling
+- Data may be shared with service providers who assist in platform operations
+- Data may be disclosed if required by law or to protect rights and safety
+
+### Your Rights
+
+- **Access**: View your personal information via account settings
+- **Correction**: Update or correct your personal information at any time
+- **Deletion**: Request deletion of your account and personal data
+- **Opt-out**: Unsubscribe from marketing communications at any time
+- **Data Portability**: Request a copy of your data
+
+### Security
+
+- Getaways implements industry-standard security measures to protect your data
+- Payment information is encrypted and processed securely
+- GetPay wallet transactions are secured through Firebase authentication
+- Regular security audits and updates are performed
+
+### Cookies & Tracking
+
+- We may use cookies and tracking technologies to enhance user experience
+- Cookies help analyze platform usage and improve services
+- You can manage cookie preferences through your browser settings
+
+### Data Retention
+
+- We retain your data for as long as your account is active
+- Booking and transaction data may be retained for legal and accounting purposes
+- You can request data deletion at any time through account settings
+
+### Contact Us
+
+- For privacy concerns or data requests, contact Getaways support
+- All privacy requests are reviewed within 48 hours`,
+        isActive: true,
+        appliesTo: ['guest', 'host'],
+        version: '1.0'
       }
     ];
 
-    // Create all default policies
+    // Create all default policies (only create if they don't exist)
+    const createdPolicies = [];
+    const skippedPolicies = [];
+    
     for (const policy of defaultPolicies) {
-      await savePolicy(policy);
+      // Only create if this policy type doesn't exist yet
+      if (!existingTypes.has(policy.type)) {
+        try {
+          const policyId = await savePolicy(policy);
+          createdPolicies.push({ title: policy.title, id: policyId });
+          console.log(`✅ Created default policy: ${policy.title} (ID: ${policyId})`);
+        } catch (saveError) {
+          console.error(`❌ Failed to create policy ${policy.title}:`, saveError);
+          throw new Error(`Failed to create policy "${policy.title}": ${saveError.message}`);
+        }
+      } else {
+        skippedPolicies.push(policy.title);
+        console.log(`⏭️ Policy type ${policy.type} (${policy.title}) already exists, skipping`);
+      }
     }
 
-    console.log('Default policies initialized');
+    console.log(`✅ Default policies initialization completed. Created: ${createdPolicies.length}, Skipped: ${skippedPolicies.length}`);
+    
+    if (createdPolicies.length === 0 && skippedPolicies.length > 0) {
+      console.log('ℹ️ All default policies already exist');
+    }
+    
+    return {
+      created: createdPolicies.length,
+      skipped: skippedPolicies.length,
+      createdPolicies,
+      skippedPolicies
+    };
   } catch (error) {
     console.error('Error initializing default policies:', error);
     throw error;
+  }
+};
+
+/**
+ * Subscribe to active policies by type with real-time updates
+ * @param {Array<string>} policyTypes - Array of policy types to listen to
+ * @param {Function} callback - Callback function that receives updated policies object
+ * @returns {Function} Unsubscribe function
+ */
+export const subscribeToActivePolicies = (policyTypes, callback) => {
+  try {
+    const policiesRef = collection(db, POLICIES_COLLECTION);
+    // Get all policies and filter client-side since Firestore doesn't support != false queries well
+    const q = query(
+      policiesRef,
+      orderBy('updatedAt', 'desc')
+    );
+
+    return onSnapshot(q, (snapshot) => {
+      const allPolicies = {};
+      
+      // Group policies by type, keeping only the most recent active one
+      snapshot.docs.forEach(docSnap => {
+        const data = docSnap.data();
+        // Filter for active policies and matching types
+        if (data.isActive !== false && policyTypes.includes(data.type)) {
+          // Only keep the most recent policy of each type
+          if (!allPolicies[data.type] || 
+              (!allPolicies[data.type].updatedAt || 
+               (data.updatedAt && data.updatedAt.toMillis() > allPolicies[data.type].updatedAt.toMillis()))) {
+            allPolicies[data.type] = {
+              id: docSnap.id,
+              ...data
+            };
+          }
+        }
+      });
+
+      callback(allPolicies);
+    }, (error) => {
+      console.error('Error subscribing to policies:', error);
+      callback({});
+    });
+  } catch (error) {
+    console.error('Error setting up policy subscription:', error);
+    return () => {}; // Return empty unsubscribe function
   }
 };
 
@@ -454,4 +691,5 @@ export const getActiveFAQs = async () => {
     return [];
   }
 };
+
 

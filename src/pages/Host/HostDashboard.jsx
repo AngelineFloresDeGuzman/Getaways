@@ -5,13 +5,15 @@ import Footer from '@/components/Footer';
 import { toast } from '@/components/ui/sonner';
 import { startConversationFromHost } from '@/pages/Guest/services/messagingService';
 import { getUserDrafts, deleteDraft, getDraftSummary } from '@/pages/Host/services/draftService';
+import { submitAppeal, getAppealByHostId } from '@/pages/Host/services/appealService';
+import AppealForm from '@/pages/Host/components/AppealForm';
 import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, setDoc, collection, addDoc, query, where, getDocs, orderBy, serverTimestamp, updateDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
 import {
   Home, Calendar as CalendarIcon, MessageSquare, DollarSign, Plus,
   TrendingUp, Eye, Star, Users, Clock, MapPin, Camera,
-  Bed, Bath, Edit, Check, X, EyeOff, Trash2, User, Award, Send, Wallet
+  Bed, Bath, Edit, Check, X, EyeOff, Trash2, User, Award, Send, Wallet, Shield, FileText, AlertTriangle, FileX
 } from 'lucide-react';
 
 import { Home as HomeIcon, Grid, List } from 'lucide-react';
@@ -66,6 +68,10 @@ const HostDashboard = () => {
   const [showEarningsHistoryModal, setShowEarningsHistoryModal] = useState(false); // Earnings history modal
   const [totalEarningsFromWallet, setTotalEarningsFromWallet] = useState(0); // Total earnings from wallet transactions
   const [isLoadingEarningsHistory, setIsLoadingEarningsHistory] = useState(false);
+  const [isTerminated, setIsTerminated] = useState(false); // Host termination status
+  const [showTerminationModal, setShowTerminationModal] = useState(false); // Termination notice modal
+  const [showAppealModal, setShowAppealModal] = useState(false); // Appeal form modal
+  const [existingAppeal, setExistingAppeal] = useState(null); // Existing appeal if any
 
   // Calculate stats (will update when bookings/listings change)
   const totalBookings = bookings.length;
@@ -170,14 +176,30 @@ const HostDashboard = () => {
         loadDrafts(); // This will also load listings
         loadBookings(); // Load bookings
         
-        // Set up real-time listener for points updates
+        // Set up real-time listener for points updates and termination status
         const userRef = doc(db, 'users', user.uid);
-        unsubscribePoints = onSnapshot(userRef, async (doc) => {
-          if (doc.exists()) {
-            const userData = doc.data();
+        unsubscribePoints = onSnapshot(userRef, async (docSnap) => {
+          if (docSnap.exists()) {
+            const userData = docSnap.data();
             setHostPoints(userData.points || 0);
             setUserProfile(userData);
             setPointsHistory(userData.pointsHistory || []);
+
+            // Check if host is terminated
+            if (userData.isTerminated) {
+              setIsTerminated(true);
+              setShowTerminationModal(true);
+              
+              // Check if there's an existing appeal
+              try {
+                const appeal = await getAppealByHostId(user.uid);
+                setExistingAppeal(appeal);
+              } catch (error) {
+                console.error('Error checking for existing appeal:', error);
+              }
+            } else {
+              setIsTerminated(false);
+            }
 
             // Check birthday once per day (only on first load, not on every snapshot update)
             // This prevents spam checking, we'll check it when profile loads
@@ -742,19 +764,56 @@ const HostDashboard = () => {
                 updatedAt: serverTimestamp()
               });
               
-              // Transfer payment to admin's GetPay wallet (same as GetPay flow)
+              // Calculate commission: 10% to admin, 90% to host
+              const { HOST_COMMISSION_PERCENTAGE } = await import('@/pages/Admin/services/earningsService');
+              const adminCommission = Math.round((bookingAmount * HOST_COMMISSION_PERCENTAGE) * 100) / 100;
+              const hostEarnings = Math.round((bookingAmount * (1 - HOST_COMMISSION_PERCENTAGE)) * 100) / 100;
+              
+              // Transfer 10% commission to admin's GetPay wallet
               const { 
                 addToWallet: addToAdminWallet,
                 initializeWallet: initAdminWallet,
                 getAdminUserId
               } = await import('@/pages/Common/services/getpayService');
-              
               const adminUserId = await getAdminUserId();
               if (adminUserId) {
                 await initAdminWallet(adminUserId);
                 await addToAdminWallet(
                   adminUserId,
-                  totalAmount,
+                  adminCommission,
+                  `Commission from Booking - ${listingTitle} (PayPal)`,
+                  {
+                    bookingId: bookingId,
+                    listingId: bookingData.listingId,
+                    listingTitle: listingTitle,
+                    category: bookingData.category || 'accommodation',
+                    guestId: guestId,
+                    guestEmail: bookingData.guestEmail,
+                    hostId: bookingData.ownerId,
+                    paymentType: 'commission',
+                    paymentMethod: 'paypal',
+                    paypalOrderId: paypalOrderId,
+                    paypalTransactionId: paypalTransactionId,
+                    bookingAmount: bookingAmount,
+                    commission: adminCommission,
+                    checkInDate: bookingData.checkInDate?.toDate ? bookingData.checkInDate.toDate().toISOString() : bookingData.checkInDate,
+                    checkOutDate: bookingData.checkOutDate?.toDate ? bookingData.checkOutDate.toDate().toISOString() : bookingData.checkOutDate
+                  }
+                );
+                console.log(`✅ PayPal commission of ₱${adminCommission.toFixed(2)} sent to admin GetPay wallet`);
+              }
+              
+              // Transfer 90% host earnings to host's GetPay wallet
+              const { 
+                addToWallet: addToHostWallet,
+                initializeWallet: initHostWallet
+              } = await import('@/pages/Common/services/getpayService');
+              const hostUserId = bookingData.ownerId;
+              if (hostUserId) {
+                await initHostWallet(hostUserId);
+                await addToHostWallet(
+                  hostUserId,
+                  hostEarnings,
                   `Payment Received - Guest Booking (PayPal)`,
                   {
                     bookingId: bookingId,
@@ -769,13 +828,27 @@ const HostDashboard = () => {
                     paypalOrderId: paypalOrderId,
                     paypalTransactionId: paypalTransactionId,
                     bookingAmount: bookingAmount,
+                    hostEarnings: hostEarnings,
+                    adminCommission: adminCommission,
                     guestFee: guestFee,
                     checkInDate: bookingData.checkInDate?.toDate ? bookingData.checkInDate.toDate().toISOString() : bookingData.checkInDate,
                     checkOutDate: bookingData.checkOutDate?.toDate ? bookingData.checkOutDate.toDate().toISOString() : bookingData.checkOutDate
                   }
                 );
-                console.log('✅ PayPal payment sent to admin GetPay wallet');
+                console.log(`✅ PayPal host earnings of ₱${hostEarnings.toFixed(2)} sent to host GetPay wallet (10% commission: ₱${adminCommission.toFixed(2)})`);
               }
+              
+              // Update booking with payment status and earnings breakdown
+              await updateDoc(bookingRef, {
+                status: newStatus,
+                paymentStatus: 'paid',
+                paymentMethod: 'paypal',
+                paymentProvider: 'paypal',
+                adminCommission: adminCommission, // Store 10% commission
+                hostEarnings: hostEarnings, // Store 90% host earnings
+                bookingAmount: bookingAmount, // Store original booking amount
+                updatedAt: serverTimestamp()
+              });
               
               toast.success('Booking confirmed. PayPal payment processed successfully.');
               console.log('✅ Booking confirmed with PayPal payment - payment already captured');
@@ -859,13 +932,48 @@ const HostDashboard = () => {
               console.log(`✅ Payment deducted from guest wallet: ₱${remainingAmount.toFixed(2)}`);
             }
             
-            // Transfer payment to admin's GetPay wallet
+            // Calculate commission: 10% to admin, 90% to host
+            const { HOST_COMMISSION_PERCENTAGE } = await import('@/pages/Admin/services/earningsService');
+            const adminCommission = Math.round((bookingAmount * HOST_COMMISSION_PERCENTAGE) * 100) / 100;
+            const hostEarnings = Math.round((bookingAmount * (1 - HOST_COMMISSION_PERCENTAGE)) * 100) / 100;
+            
+            // Transfer 10% commission to admin's GetPay wallet (reusing already imported functions)
             const adminUserId = await getAdminUserId();
             if (adminUserId) {
               await initAdminWallet(adminUserId);
               await addToAdminWallet(
                 adminUserId,
-                totalAmount,
+                adminCommission,
+                `Commission from Booking - ${listingTitle}`,
+                {
+                  bookingId: bookingId,
+                  listingId: bookingData.listingId,
+                  listingTitle: listingTitle,
+                  category: bookingData.category || 'accommodation',
+                  guestId: guestId,
+                  guestEmail: bookingData.guestEmail,
+                  hostId: bookingData.ownerId,
+                  paymentType: 'commission',
+                  bookingAmount: bookingAmount,
+                  commission: adminCommission,
+                  checkInDate: bookingData.checkInDate?.toDate ? bookingData.checkInDate.toDate().toISOString() : bookingData.checkInDate,
+                  checkOutDate: bookingData.checkOutDate?.toDate ? bookingData.checkOutDate.toDate().toISOString() : bookingData.checkOutDate
+                }
+              );
+              console.log(`✅ Commission of ₱${adminCommission.toFixed(2)} sent to admin GetPay wallet`);
+            }
+            
+            // Transfer 90% host earnings to host's GetPay wallet
+            const { 
+              addToWallet: addToHostWallet,
+              initializeWallet: initHostWallet
+            } = await import('@/pages/Common/services/getpayService');
+            const hostUserId = bookingData.ownerId;
+            if (hostUserId) {
+              await initHostWallet(hostUserId);
+              await addToHostWallet(
+                hostUserId,
+                hostEarnings,
                 `Payment Received - Guest Booking`,
                 {
                   bookingId: bookingId,
@@ -877,19 +985,24 @@ const HostDashboard = () => {
                   hostId: bookingData.ownerId,
                   paymentType: 'booking_payment',
                   bookingAmount: bookingAmount,
+                  hostEarnings: hostEarnings,
+                  adminCommission: adminCommission,
                   guestFee: guestFee,
                   checkInDate: bookingData.checkInDate?.toDate ? bookingData.checkInDate.toDate().toISOString() : bookingData.checkInDate,
                   checkOutDate: bookingData.checkOutDate?.toDate ? bookingData.checkOutDate.toDate().toISOString() : bookingData.checkOutDate
                 }
               );
-              console.log('✅ Payment sent to admin GetPay wallet');
+              console.log(`✅ Host earnings of ₱${hostEarnings.toFixed(2)} sent to host GetPay wallet (10% commission: ₱${adminCommission.toFixed(2)})`);
             }
             
-            // Update booking with payment status
+            // Update booking with payment status and earnings breakdown
             await updateDoc(bookingRef, {
               status: newStatus,
               paymentStatus: 'paid',
               paymentMethod: bookingData.paymentMethod || 'wallet',
+              adminCommission: adminCommission, // Store 10% commission
+              hostEarnings: hostEarnings, // Store 90% host earnings
+              bookingAmount: bookingAmount, // Store original booking amount
               updatedAt: serverTimestamp()
             });
           }
@@ -1402,7 +1515,7 @@ const HostDashboard = () => {
 
         {/* Stats Grid */}
         <div className="max-w-7xl mx-auto px-6 -mt-8 mb-12">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
             {stats.map((stat, index) => (
               <div
                 key={index}
@@ -1442,6 +1555,32 @@ const HostDashboard = () => {
                 )}
               </div>
             ))}
+          </div>
+          
+          {/* Policies & Guidelines Section */}
+          <div className="mt-6 card-listing p-6 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-blue-500 rounded-xl flex items-center justify-center">
+                  <Shield className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-heading text-lg font-bold text-foreground mb-1">
+                    Policies & Guidelines
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    Review host rules, cancellation policies, and platform guidelines
+                  </p>
+                </div>
+              </div>
+              <Link
+                to="/host/policies"
+                className="btn-primary flex items-center gap-2 whitespace-nowrap"
+              >
+                <FileText className="w-4 h-4" />
+                View Policies
+              </Link>
+            </div>
           </div>
         </div>
 
@@ -2082,6 +2221,109 @@ const HostDashboard = () => {
               </div>
             </div>
           </div>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Termination Notice Modal */}
+      <AlertDialog open={showTerminationModal} onOpenChange={setShowTerminationModal}>
+        <AlertDialogContent className="bg-white max-w-2xl">
+          <AlertDialogHeader>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
+                <AlertTriangle className="w-6 h-6 text-red-600" />
+              </div>
+              <AlertDialogTitle className="text-2xl font-bold text-red-600">
+                Account Terminated
+              </AlertDialogTitle>
+            </div>
+            <AlertDialogDescription className="text-gray-700 text-base">
+              Your host account has been terminated. Your listings have been removed and you no longer have access to host features.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          
+          <div className="my-6 space-y-4">
+            {existingAppeal ? (
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex items-start gap-3">
+                  <FileText className="w-5 h-5 text-blue-600 mt-0.5" />
+                  <div className="flex-1">
+                    <h4 className="font-semibold text-blue-900 mb-2">Appeal Status</h4>
+                    <p className="text-sm text-blue-800 mb-2">
+                      <strong>Status:</strong> <span className="capitalize">{existingAppeal.status}</span>
+                    </p>
+                    {existingAppeal.submittedAt && (
+                      <p className="text-sm text-blue-800 mb-2">
+                        <strong>Submitted:</strong> {existingAppeal.submittedAt.toLocaleDateString()}
+                      </p>
+                    )}
+                    {existingAppeal.adminNotes && (
+                      <div className="mt-2 p-2 bg-white rounded border border-blue-200">
+                        <p className="text-xs font-semibold text-blue-900 mb-1">Admin Response:</p>
+                        <p className="text-sm text-blue-800">{existingAppeal.adminNotes}</p>
+                      </div>
+                    )}
+                    {existingAppeal.status === 'pending' && (
+                      <p className="text-xs text-blue-700 mt-2 italic">
+                        Your appeal is under review. Please wait for admin response.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <p className="text-sm text-yellow-800">
+                  If you believe this termination was made in error, you can submit an appeal for review.
+                </p>
+              </div>
+            )}
+          </div>
+
+          <AlertDialogFooter className="gap-2">
+            <AlertDialogCancel onClick={() => setShowTerminationModal(false)}>
+              Close
+            </AlertDialogCancel>
+            {!existingAppeal && (
+              <AlertDialogAction
+                onClick={() => {
+                  setShowTerminationModal(false);
+                  setShowAppealModal(true);
+                }}
+                className="bg-primary hover:bg-primary/90"
+              >
+                Submit Appeal
+              </AlertDialogAction>
+            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Appeal Form Modal */}
+      <AlertDialog open={showAppealModal} onOpenChange={setShowAppealModal}>
+        <AlertDialogContent className="bg-white max-w-2xl max-h-[90vh] overflow-y-auto">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-2xl font-bold text-foreground">
+              Submit Appeal
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-gray-600">
+              Please provide a reason for your appeal. Our admin team will review your request.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          
+          <AppealForm
+            hostId={user?.uid}
+            hostEmail={user?.email}
+            hostName={userProfile ? `${userProfile.firstName || ''} ${userProfile.lastName || ''}`.trim() : user?.email}
+            onSuccess={() => {
+              setShowAppealModal(false);
+              toast.success('Appeal submitted successfully. We will review your request.');
+              // Reload appeal status
+              if (user?.uid) {
+                getAppealByHostId(user.uid).then(setExistingAppeal).catch(console.error);
+              }
+            }}
+            onCancel={() => setShowAppealModal(false)}
+          />
         </AlertDialogContent>
       </AlertDialog>
 

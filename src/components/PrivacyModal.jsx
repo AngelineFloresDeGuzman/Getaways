@@ -1,8 +1,11 @@
 import React, { useState, useRef, useEffect } from "react";
-import { X } from "lucide-react";
+import { X, Loader2 } from "lucide-react";
+import { getActivePolicyByType, POLICY_TYPES } from "@/pages/Admin/services/policyService";
 
 const PrivacyModal = ({ isOpen, onClose, onAgree }) => {
     const [hasScrolledToBottom, setHasScrolledToBottom] = useState(false);
+    const [policy, setPolicy] = useState(null);
+    const [loading, setLoading] = useState(true);
     const contentRef = useRef(null);
 
     const handleScroll = () => {
@@ -17,8 +20,94 @@ const PrivacyModal = ({ isOpen, onClose, onAgree }) => {
     };
 
     useEffect(() => {
-        if (!isOpen) setHasScrolledToBottom(false);
+        if (isOpen) {
+            loadPolicy();
+            setHasScrolledToBottom(false);
+        }
     }, [isOpen]);
+
+    const loadPolicy = async () => {
+        try {
+            setLoading(true);
+            const privacyPolicy = await getActivePolicyByType(POLICY_TYPES.PRIVACY_POLICY);
+            setPolicy(privacyPolicy);
+        } catch (error) {
+            console.error('Error loading privacy policy:', error);
+            setPolicy(null);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Simple markdown to HTML converter for basic formatting
+    const renderMarkdown = (text) => {
+        if (!text) return '';
+        
+        const lines = text.split('\n');
+        const elements = [];
+        let currentList = [];
+        let listKey = 0;
+        
+        lines.forEach((line, index) => {
+            // Headers
+            if (line.startsWith('## ')) {
+                if (currentList.length > 0) {
+                    elements.push(<ul key={`list-${listKey++}`} className="space-y-2 list-disc list-inside mb-3">{currentList}</ul>);
+                    currentList = [];
+                }
+                elements.push(<h2 key={index} className="font-semibold text-xl mb-3 mt-4">{line.replace('## ', '')}</h2>);
+            } else if (line.startsWith('### ')) {
+                if (currentList.length > 0) {
+                    elements.push(<ul key={`list-${listKey++}`} className="space-y-2 list-disc list-inside mb-3">{currentList}</ul>);
+                    currentList = [];
+                }
+                elements.push(<h3 key={index} className="font-semibold text-lg mb-2 mt-3">{line.replace('### ', '')}</h3>);
+            } else if (line.trim().startsWith('- ')) {
+                // List items
+                const content = line.replace('- ', '');
+                // Handle bold in list items
+                if (content.includes('**')) {
+                    const parts = content.split('**');
+                    currentList.push(
+                        <li key={index} className="mb-1">
+                            {parts.map((part, i) => i % 2 === 1 ? <strong key={i}>{part}</strong> : part)}
+                        </li>
+                    );
+                } else {
+                    currentList.push(<li key={index} className="mb-1">{content}</li>);
+                }
+            } else {
+                // Close any open list
+                if (currentList.length > 0) {
+                    elements.push(<ul key={`list-${listKey++}`} className="space-y-2 list-disc list-inside mb-3">{currentList}</ul>);
+                    currentList = [];
+                }
+                
+                // Empty lines
+                if (line.trim() === '') {
+                    elements.push(<br key={index} />);
+                } else if (line.includes('**')) {
+                    // Bold text
+                    const parts = line.split('**');
+                    elements.push(
+                        <p key={index} className="mb-2">
+                            {parts.map((part, i) => i % 2 === 1 ? <strong key={i}>{part}</strong> : part)}
+                        </p>
+                    );
+                } else {
+                    // Regular paragraphs
+                    elements.push(<p key={index} className="mb-2">{line}</p>);
+                }
+            }
+        });
+        
+        // Close any remaining list
+        if (currentList.length > 0) {
+            elements.push(<ul key={`list-${listKey++}`} className="space-y-2 list-disc list-inside mb-3">{currentList}</ul>);
+        }
+        
+        return elements;
+    };
 
     if (!isOpen) return null;
 
@@ -44,70 +133,48 @@ const PrivacyModal = ({ isOpen, onClose, onAgree }) => {
                     onScroll={handleScroll}
                     className="p-6 overflow-y-auto max-h-[60vh] space-y-4 text-sm text-foreground leading-relaxed"
                 >
-                    <div className="space-y-6">
-                        <div>
-                            <p className="text-muted-foreground">Effective Date: October 21, 2025</p>
-                            <p className="mt-4">
-                                Getaways values your privacy and commits to protecting your data.
-                            </p>
+                    {loading ? (
+                        <div className="flex items-center justify-center py-8">
+                            <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                            <span className="ml-2 text-muted-foreground">Loading Privacy Policy...</span>
                         </div>
-
-                        <div>
-                            <h3 className="font-semibold text-lg mb-3">Information We Collect</h3>
-                            <ul className="space-y-2 list-disc list-inside">
-                                <li><strong>Personal Data:</strong> Name, email, password, contact info, profile details.</li>
-                                <li><strong>Booking Data:</strong> Listings viewed, bookings made, reviews posted.</li>
-                                <li><strong>Device & Usage Data:</strong> IP address, browser type, device info, activity logs.</li>
-                            </ul>
+                    ) : policy ? (
+                        <div className="space-y-4">
+                            <div>
+                                <p className="text-muted-foreground">
+                                    {policy.updatedAt?.toDate 
+                                        ? `Last updated: ${policy.updatedAt.toDate().toLocaleDateString()}`
+                                        : 'Privacy Policy'}
+                                    {policy.version && ` • Version ${policy.version}`}
+                                </p>
+                            </div>
+                            <div className="prose prose-sm max-w-none">
+                                {renderMarkdown(policy.content)}
+                            </div>
                         </div>
-
-                        <div>
-                            <h3 className="font-semibold text-lg mb-3">How We Use Your Information</h3>
-                            <ul className="space-y-2 list-disc list-inside">
-                                <li>To provide and improve our services.</li>
-                                <li>To communicate booking confirmations, promotions, and updates.</li>
-                                <li>To detect and prevent fraud or unauthorized activity.</li>
-                            </ul>
+                    ) : (
+                        <div className="space-y-6">
+                            <div>
+                                <p className="text-muted-foreground">Effective Date: October 21, 2025</p>
+                                <p className="mt-4">
+                                    Getaways values your privacy and commits to protecting your data.
+                                </p>
+                            </div>
+                            <div>
+                                <p className="text-sm text-muted-foreground italic mb-4">
+                                    Note: Privacy Policy is managed in the Admin Dashboard under Policy & Compliance.
+                                </p>
+                            </div>
+                            <div>
+                                <h3 className="font-semibold text-lg mb-3">Information We Collect</h3>
+                                <ul className="space-y-2 list-disc list-inside">
+                                    <li><strong>Personal Data:</strong> Name, email, password, contact info, profile details.</li>
+                                    <li><strong>Booking Data:</strong> Listings viewed, bookings made, reviews posted.</li>
+                                    <li><strong>Device & Usage Data:</strong> IP address, browser type, device info, activity logs.</li>
+                                </ul>
+                            </div>
                         </div>
-
-                        <div>
-                            <h3 className="font-semibold text-lg mb-3">Data Sharing</h3>
-                            <ul className="space-y-2 list-disc list-inside">
-                                <li>We do not sell your personal data.</li>
-                                <li>Data may be shared with hosts for booking purposes and with payment processors for transaction handling.</li>
-                            </ul>
-                        </div>
-
-                        <div>
-                            <h3 className="font-semibold text-lg mb-3">Your Rights</h3>
-                            <ul className="space-y-2 list-disc list-inside">
-                                <li>Access, correct, or delete your personal information via your account settings.</li>
-                                <li>Opt-out of marketing communications at any time.</li>
-                            </ul>
-                        </div>
-
-                        <div>
-                            <h3 className="font-semibold text-lg mb-3">Security</h3>
-                            <ul className="space-y-2 list-disc list-inside">
-                                <li>Getaways implements industry-standard measures to protect your data.</li>
-                            </ul>
-                        </div>
-
-                        <div>
-                            <h3 className="font-semibold text-lg mb-3">Cookies & Tracking</h3>
-                            <ul className="space-y-2 list-disc list-inside">
-                                <li>We may use cookies and tracking technologies to enhance user experience and analyze platform usage.</li>
-                            </ul>
-                        </div>
-
-                        <div>
-                            <h3 className="font-semibold text-lg mb-3">Policy Updates</h3>
-                            <ul className="space-y-2 list-disc list-inside">
-                                <li>This Privacy Policy may be updated. Continued use of Getaways after updates means you accept the changes.</li>
-                            </ul>
-                        </div>
-
-                    </div>
+                    )}
                 </div>
 
                 {/* Agree Button */}

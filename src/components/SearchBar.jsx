@@ -231,20 +231,36 @@ const SearchBar = ({ category = 'accommodation', onSearch }) => {
           </>
         )}
 
-        {/* Experiences & Services: When */}
+        {/* Experiences & Services: Check-in */}
         {(category === 'experience' || category === 'service') && (
-          <div
-            className="flex items-center gap-2 p-2.5 rounded-xl hover:bg-muted/50 transition-colors cursor-pointer border-l border-border"
-            onClick={() => setActiveModal('when')}
-          >
-            <Calendar className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="font-medium text-xs text-foreground">When</p>
-              <p className="text-muted-foreground text-xs truncate">
-                {searchData.when ? format(new Date(searchData.when), 'MMM dd, yyyy') : 'Add date'}
-              </p>
+          <>
+            <div
+              className="flex items-center gap-2 p-2.5 rounded-xl hover:bg-muted/50 transition-colors cursor-pointer border-l border-border"
+              onClick={() => setActiveModal('dates')}
+            >
+              <Calendar className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-xs text-foreground">Check-in</p>
+                <p className="text-muted-foreground text-xs truncate">
+                  {searchData.checkIn ? format(new Date(searchData.checkIn), 'MMM dd') : 'Add dates'}
+                </p>
+              </div>
             </div>
-          </div>
+
+            {/* Check-out */}
+            <div
+              className="flex items-center gap-2 p-2.5 rounded-xl hover:bg-muted/50 transition-colors cursor-pointer border-l border-border"
+              onClick={() => setActiveModal('dates')}
+            >
+              <Calendar className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-xs text-foreground">Check-out</p>
+                <p className="text-muted-foreground text-xs truncate">
+                  {searchData.checkOut ? format(new Date(searchData.checkOut), 'MMM dd') : 'Add dates'}
+                </p>
+              </div>
+            </div>
+          </>
         )}
 
         {/* Experiences: Who */}
@@ -405,8 +421,8 @@ const SearchBar = ({ category = 'accommodation', onSearch }) => {
           </div>
       )}
 
-      {/* Dates Modal - Only for accommodations */}
-      {activeModal === 'dates' && category === 'accommodation' && (
+      {/* Dates Modal - For all categories */}
+      {activeModal === 'dates' && (
         <div
           className="absolute top-full left-0 right-0 mt-2 bg-white border border-border rounded-xl shadow-xl z-50 max-h-[80vh] overflow-y-auto"
         >
@@ -655,63 +671,6 @@ const SearchBar = ({ category = 'accommodation', onSearch }) => {
           </div>
       )}
 
-      {/* When Modal - For experiences and services */}
-      {activeModal === 'when' && (category === 'experience' || category === 'service') && (
-        <div
-          className="absolute top-full left-0 right-0 mt-2 bg-white border border-border rounded-xl shadow-xl z-50 max-h-[80vh] overflow-y-auto"
-        >
-          {/* Header */}
-          <div className="flex items-center justify-between p-4 border-b border-border">
-            <h2 className="text-lg font-heading font-semibold text-foreground flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-primary" />
-              When?
-            </h2>
-            <button
-              onClick={() => setActiveModal(null)}
-              className="p-1.5 hover:bg-muted rounded-lg transition-colors"
-            >
-              <X className="w-4 h-4 text-foreground" />
-            </button>
-          </div>
-
-          {/* Content */}
-          <div className="p-4">
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-2">Select date</label>
-              <input
-                type="date"
-                value={searchData.when}
-                onChange={(e) => {
-                  setSearchData({ ...searchData, when: e.target.value });
-                  // Auto-close modal and search when date is selected
-                  if (e.target.value) {
-                    setTimeout(() => {
-                      setActiveModal(null);
-                      handleSearch();
-                    }, 300);
-                  }
-                }}
-                min={new Date().toISOString().split('T')[0]}
-                className="w-full p-2.5 border border-border rounded-lg bg-background text-foreground focus:ring-2 focus:ring-primary focus:border-transparent"
-                autoFocus
-              />
-            </div>
-
-            {/* Actions */}
-            <div className="flex items-center justify-end gap-3 mt-4 pt-4 border-t border-border">
-              <button
-                type="button"
-                onClick={() => {
-                  setSearchData({ ...searchData, when: '' });
-                }}
-                className="px-4 py-2 text-sm border border-border rounded-lg text-foreground hover:bg-muted transition-colors"
-              >
-                Clear
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Service Type Modal - Only for services */}
       {activeModal === 'serviceType' && category === 'service' && (

@@ -895,31 +895,114 @@ export const cancelBooking = async (bookingId) => {
         // Pending booking: Full refund
         refundAmount = totalPrice;
         refundType = 'full_refund';
+        // Refunds come from host wallet (hosts received earnings when booking was confirmed)
+        const { addToWallet, deductFromWallet, initializeWallet, getWalletBalance } = await import('@/pages/Common/services/getpayService');
+        await initializeWallet(booking.ownerId);
+        await initializeWallet(booking.guestId);
+        const hostBalance = await getWalletBalance(booking.ownerId);
+        
+        if (hostBalance < refundAmount) {
+          throw new Error(`Unable to process refund. Host has insufficient balance (₱${hostBalance.toLocaleString()}). Please contact support.`);
+        }
+        
+        await deductFromWallet(
+          booking.ownerId,
+          refundAmount,
+          `Full refund for cancelled booking (pending)`,
+          {
+            bookingId,
+            listingId: booking.listingId,
+            guestId: booking.guestId,
+            paymentType: 'booking_cancellation_refund',
+            refundType: 'full_refund_direct_to_guest'
+          },
+          true
+        );
+        await addToWallet(
+          booking.guestId,
+          refundAmount,
+          `Full refund received from host for cancelled booking (pending)`,
+          {
+            bookingId,
+            listingId: booking.listingId,
+            hostId: booking.ownerId,
+            paymentType: 'booking_cancellation_refund',
+            refundType: 'full_refund_direct_from_host'
+          }
+        );
+        await updateDoc(bookingRef, {
+          status: 'cancelled',
+          cancelledAt: serverTimestamp(),
+          cancelledBy: user.uid,
+          refundPending: false,
+          refundProcessed: true,
+          refundAmount: refundAmount,
+          refundType: refundType,
+          hostRefundAmount: refundAmount,
+          earningsReleased: earningsReleased,
+          originalStatus: booking.status,
+          updatedAt: serverTimestamp()
+        });
       } else if (booking.status === 'confirmed') {
-        // Confirmed booking: Half refund
+        // Confirmed booking: Half refund (50% of totalPrice)
         refundAmount = Math.round((totalPrice / 2) * 100) / 100;
         refundType = 'half_refund';
+        // Always deduct 50% refund from host for confirmed bookings
+        hostRefundAmount = refundAmount; // 50% of totalPrice
         
-        // If earnings were released, calculate host refund amount (half of bookingAmount)
-        if (earningsReleased) {
-          hostRefundAmount = Math.round((bookingAmount / 2) * 100) / 100;
+        // Refunds come from host wallet (hosts received earnings when booking was confirmed)
+        const { addToWallet, deductFromWallet, initializeWallet, getWalletBalance } = await import('@/pages/Common/services/getpayService');
+        await initializeWallet(booking.ownerId);
+        await initializeWallet(booking.guestId);
+        const hostBalance = await getWalletBalance(booking.ownerId);
+        
+        if (hostBalance < hostRefundAmount) {
+          throw new Error(`Unable to process refund. Host has insufficient balance (₱${hostBalance.toLocaleString()}). Please contact support.`);
         }
+        
+        // Deduct from host wallet
+        await deductFromWallet(
+          booking.ownerId,
+          hostRefundAmount,
+          `Cancellation Refund - 50% returned to guest`,
+          {
+            bookingId,
+            listingId: booking.listingId,
+            guestId: booking.guestId,
+            paymentType: 'booking_cancellation_refund',
+            refundType: 'half_refund_direct_to_guest'
+          },
+          true
+        );
+        // Add to guest wallet
+        await addToWallet(
+          booking.guestId,
+          hostRefundAmount,
+          `Cancellation Refund - 50% received from host`,
+          {
+            bookingId,
+            listingId: booking.listingId,
+            hostId: booking.ownerId,
+            paymentType: 'booking_cancellation_refund',
+            refundType: 'half_refund_direct_from_host'
+          }
+        );
+        
+        // Update booking status
+        await updateDoc(bookingRef, {
+          status: 'cancelled',
+          cancelledAt: serverTimestamp(),
+          cancelledBy: user.uid,
+          refundPending: false,
+          refundProcessed: true,
+          refundAmount: refundAmount,
+          refundType: refundType,
+          hostRefundAmount: hostRefundAmount,
+          earningsReleased: earningsReleased,
+          originalStatus: booking.status,
+          updatedAt: serverTimestamp()
+        });
       }
-      
-      // Update booking status - mark refund as pending for admin to process
-      await updateDoc(bookingRef, {
-        status: 'cancelled',
-        cancelledAt: serverTimestamp(),
-        cancelledBy: user.uid,
-        refundPending: true,
-        refundRequestedAt: serverTimestamp(),
-        refundAmount: refundAmount,
-        refundType: refundType,
-        hostRefundAmount: hostRefundAmount,
-        earningsReleased: earningsReleased,
-        originalStatus: booking.status, // Store original status (pending or confirmed)
-        updatedAt: serverTimestamp()
-      });
     } else {
       // If not paid, just update status to cancelled (no refund needed)
       await updateDoc(bookingRef, {
@@ -934,11 +1017,14 @@ export const cancelBooking = async (bookingId) => {
     }
     
     // Return success message
-    const refundMessage = isPaid
-      ? (booking.status === 'pending'
-          ? `Booking cancelled. A full refund of ₱${refundAmount.toLocaleString()} has been requested and will be processed by admin.`
-          : `Booking cancelled. A half refund of ₱${refundAmount.toLocaleString()} has been requested and will be processed by admin.`)
-      : 'Booking cancelled successfully. No payment was processed, so no refund is needed.';
+    let refundMessage = '';
+    if (!isPaid) {
+      refundMessage = 'Booking cancelled successfully. No payment was processed, so no refund is needed.';
+    } else if (booking.status === 'pending') {
+      refundMessage = `Booking cancelled. A full refund of ₱${refundAmount.toLocaleString()} has been instantly credited from the host's wallet to your e-wallet.`;
+    } else if (booking.status === 'confirmed') {
+      refundMessage = `Booking cancelled. A half refund of ₱${refundAmount.toLocaleString()} has been instantly credited from the host's wallet to your e-wallet.`;
+    }
     
     // Send cancellation email to guest (ALWAYS send email, regardless of payment status)
     try {
@@ -997,8 +1083,8 @@ export const cancelBooking = async (bookingId) => {
           totalPrice: booking.totalPrice || 0,
           refundAmount: refundAmount,
           refundType: refundType,
-          refundPending: isPaid ? true : false, // Only pending if booking was paid
-          refundProcessed: false,
+          refundPending: false, // Always false for instant refund
+          refundProcessed: isPaid ? true : false, // True if refund processed instantly
           paymentMethod: booking.paymentMethod || 'GetPay Wallet',
           cancellationReason: 'Guest cancelled booking.'
         }

@@ -980,10 +980,51 @@ export const cashOutPoints = async (hostId, points) => {
     const currencyAmount = points * POINTS_TO_CURRENCY_RATE;
     const newPoints = currentPoints - points;
 
-    // Add to GetPay wallet
-    const { addToWallet, initializeWallet } = await import('@/pages/Common/services/getpayService');
+    // Deduct from admin wallet and add to host wallet
+    const { 
+      addToWallet, 
+      initializeWallet, 
+      deductFromWallet,
+      getAdminUserId 
+    } = await import('@/pages/Common/services/getpayService');
+    
+    // Get admin user ID
+    const adminUserId = await getAdminUserId();
+    if (!adminUserId) {
+      return { success: false, error: 'Admin user not found. Cannot process points cash out.' };
+    }
+    
+    // Initialize wallets if needed
+    await initializeWallet(adminUserId);
     await initializeWallet(hostId);
     
+    // Check admin balance before deducting
+    const { getWalletBalance } = await import('@/pages/Common/services/getpayService');
+    const adminBalance = await getWalletBalance(adminUserId);
+    
+    if (adminBalance < currencyAmount) {
+      return { 
+        success: false, 
+        error: `Insufficient admin balance. Admin has ₱${adminBalance.toFixed(2)} but needs ₱${currencyAmount.toFixed(2)}. Please contact support.` 
+      };
+    }
+    
+    // Deduct from admin wallet first
+    await deductFromWallet(
+      adminUserId,
+      currencyAmount,
+      `Points Cash Out - Host Payment (${points} points = ₱${currencyAmount.toFixed(2)})`,
+      {
+        hostId: hostId,
+        hostEmail: userData.email,
+        pointsCashedOut: points,
+        conversionRate: POINTS_TO_CURRENCY_RATE,
+        paymentType: 'points_cashout'
+      },
+      true // skipAuthCheck for system operations
+    );
+    
+    // Then add to host wallet
     await addToWallet(
       hostId,
       currencyAmount,

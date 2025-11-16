@@ -1,8 +1,11 @@
 import React, { useState, useRef, useEffect } from "react";
-import { X } from "lucide-react";
+import { X, Loader2 } from "lucide-react";
+import { getActivePolicyByType, POLICY_TYPES } from "@/pages/Admin/services/policyService";
 
 const TermsModal = ({ isOpen, onClose, onAgree }) => {
     const [hasScrolledToBottom, setHasScrolledToBottom] = useState(false);
+    const [policy, setPolicy] = useState(null);
+    const [loading, setLoading] = useState(true);
     const contentRef = useRef(null);
 
     const handleScroll = () => {
@@ -16,14 +19,95 @@ const TermsModal = ({ isOpen, onClose, onAgree }) => {
         }
     };
 
-    const [agreedTerms, setAgreedTerms] = useState(false);
-    const [agreedPrivacy, setAgreedPrivacy] = useState(false);
-
     useEffect(() => {
-        if (!isOpen) {
+        if (isOpen) {
+            loadPolicy();
             setHasScrolledToBottom(false);
         }
     }, [isOpen]);
+
+    const loadPolicy = async () => {
+        try {
+            setLoading(true);
+            const termsPolicy = await getActivePolicyByType(POLICY_TYPES.TERMS_CONDITIONS);
+            setPolicy(termsPolicy);
+        } catch (error) {
+            console.error('Error loading terms policy:', error);
+            setPolicy(null);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Simple markdown to HTML converter for basic formatting
+    const renderMarkdown = (text) => {
+        if (!text) return '';
+        
+        const lines = text.split('\n');
+        const elements = [];
+        let currentList = [];
+        let listKey = 0;
+        
+        lines.forEach((line, index) => {
+            // Headers
+            if (line.startsWith('## ')) {
+                if (currentList.length > 0) {
+                    elements.push(<ul key={`list-${listKey++}`} className="space-y-2 list-disc list-inside mb-3">{currentList}</ul>);
+                    currentList = [];
+                }
+                elements.push(<h2 key={index} className="font-semibold text-xl mb-3 mt-4">{line.replace('## ', '')}</h2>);
+            } else if (line.startsWith('### ')) {
+                if (currentList.length > 0) {
+                    elements.push(<ul key={`list-${listKey++}`} className="space-y-2 list-disc list-inside mb-3">{currentList}</ul>);
+                    currentList = [];
+                }
+                elements.push(<h3 key={index} className="font-semibold text-lg mb-2 mt-3">{line.replace('### ', '')}</h3>);
+            } else if (line.trim().startsWith('- ')) {
+                // List items
+                const content = line.replace('- ', '');
+                // Handle bold in list items
+                if (content.includes('**')) {
+                    const parts = content.split('**');
+                    currentList.push(
+                        <li key={index} className="mb-1">
+                            {parts.map((part, i) => i % 2 === 1 ? <strong key={i}>{part}</strong> : part)}
+                        </li>
+                    );
+                } else {
+                    currentList.push(<li key={index} className="mb-1">{content}</li>);
+                }
+            } else {
+                // Close any open list
+                if (currentList.length > 0) {
+                    elements.push(<ul key={`list-${listKey++}`} className="space-y-2 list-disc list-inside mb-3">{currentList}</ul>);
+                    currentList = [];
+                }
+                
+                // Empty lines
+                if (line.trim() === '') {
+                    elements.push(<br key={index} />);
+                } else if (line.includes('**')) {
+                    // Bold text
+                    const parts = line.split('**');
+                    elements.push(
+                        <p key={index} className="mb-2">
+                            {parts.map((part, i) => i % 2 === 1 ? <strong key={i}>{part}</strong> : part)}
+                        </p>
+                    );
+                } else {
+                    // Regular paragraphs
+                    elements.push(<p key={index} className="mb-2">{line}</p>);
+                }
+            }
+        });
+        
+        // Close any remaining list
+        if (currentList.length > 0) {
+            elements.push(<ul key={`list-${listKey++}`} className="space-y-2 list-disc list-inside mb-3">{currentList}</ul>);
+        }
+        
+        return elements;
+    };
 
     if (!isOpen) return null;
 
@@ -49,69 +133,54 @@ const TermsModal = ({ isOpen, onClose, onAgree }) => {
                     onScroll={handleScroll}
                     className="p-6 overflow-y-auto max-h-[60vh] space-y-4 text-sm text-foreground leading-relaxed"
                 >
-                    <div className="space-y-6">
-                        <div>
-                            <p className="text-muted-foreground">Effective Date: October 21, 2025</p>
-                            <p className="mt-4">
-                                Welcome to Getaways! By using our platform, you agree to the following terms:
-                            </p>
+                    {loading ? (
+                        <div className="flex items-center justify-center py-8">
+                            <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                            <span className="ml-2 text-muted-foreground">Loading Terms & Conditions...</span>
                         </div>
-
-                        <div>
-                            <h3 className="font-semibold text-lg mb-3">Account Responsibility</h3>
-                            <ul className="space-y-2 list-disc list-inside">
-                                <li>Users must provide accurate and up-to-date information during registration.</li>
-                                <li>Each account is for personal use only and must not be shared.</li>
-                            </ul>
+                    ) : policy ? (
+                        <div className="space-y-4">
+                            <div>
+                                <p className="text-muted-foreground">
+                                    {policy.updatedAt?.toDate 
+                                        ? `Last updated: ${policy.updatedAt.toDate().toLocaleDateString()}`
+                                        : 'Terms & Conditions'}
+                                    {policy.version && ` • Version ${policy.version}`}
+                                </p>
+                            </div>
+                            <div className="prose prose-sm max-w-none">
+                                {renderMarkdown(policy.content)}
+                            </div>
                         </div>
-
-                        <div>
-                            <h3 className="font-semibold text-lg mb-3">Bookings & Payments</h3>
-                            <ul className="space-y-2 list-disc list-inside">
-                                <li>Guests are responsible for completing payments for bookings.</li>
-                                <li>Hosts must provide truthful information about listings, including rates, amenities, and availability.</li>
-                            </ul>
+                    ) : (
+                        <div className="space-y-6">
+                            <div>
+                                <p className="text-muted-foreground">Effective Date: October 21, 2025</p>
+                                <p className="mt-4">
+                                    Welcome to Getaways! By using our platform, you agree to the following terms:
+                                </p>
+                            </div>
+                            <div>
+                                <p className="text-sm text-muted-foreground italic mb-4">
+                                    Note: Terms & Conditions are managed in the Admin Dashboard under Policy & Compliance.
+                                </p>
+                            </div>
+                            <div>
+                                <h3 className="font-semibold text-lg mb-3">Account Responsibility</h3>
+                                <ul className="space-y-2 list-disc list-inside">
+                                    <li>Users must provide accurate and up-to-date information during registration.</li>
+                                    <li>Each account is for personal use only and must not be shared.</li>
+                                </ul>
+                            </div>
+                            <div>
+                                <h3 className="font-semibold text-lg mb-3">Bookings & Payments</h3>
+                                <ul className="space-y-2 list-disc list-inside">
+                                    <li>Guests are responsible for completing payments for bookings.</li>
+                                    <li>Hosts must provide truthful information about listings, including rates, amenities, and availability.</li>
+                                </ul>
+                            </div>
                         </div>
-
-                        <div>
-                            <h3 className="font-semibold text-lg mb-3">Cancellations & Refunds</h3>
-                            <ul className="space-y-2 list-disc list-inside">
-                                <li>All cancellations are subject to Getaways' Cancellation Policy.</li>
-                                <li>Refunds will be processed according to the host's specified rules.</li>
-                            </ul>
-                        </div>
-
-                        <div>
-                            <h3 className="font-semibold text-lg mb-3">User Conduct</h3>
-                            <ul className="space-y-2 list-disc list-inside">
-                                <li>Users must treat all members with respect.</li>
-                                <li>Harassment, offensive content, or illegal activity is strictly prohibited.</li>
-                                <li>Violations may result in account suspension or termination.</li>
-                            </ul>
-                        </div>
-
-                        <div>
-                            <h3 className="font-semibold text-lg mb-3">Intellectual Property</h3>
-                            <ul className="space-y-2 list-disc list-inside">
-                                <li>All content on Getaways, including images, text, and designs, is owned by Getaways or its users.</li>
-                            </ul>
-                        </div>
-
-                        <div>
-                            <h3 className="font-semibold text-lg mb-3">Limitation of Liability</h3>
-                            <ul className="space-y-2 list-disc list-inside">
-                                <li>Getaways is not responsible for disputes between guests and hosts, property damages, or personal injury.</li>
-                            </ul>
-                        </div>
-
-                        <div>
-                            <h3 className="font-semibold text-lg mb-3">Policy Updates</h3>
-                            <ul className="space-y-2 list-disc list-inside">
-                                <li>Terms may be updated. Continued use constitutes acceptance of any updates.</li>
-                            </ul>
-                        </div>
-
-                    </div>
+                    )}
                 </div>
 
                 {/* Agree Button */}

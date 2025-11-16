@@ -1988,7 +1988,7 @@ const HostListings = () => {
       </OnboardingProvider>
 
       <AlertDialog open={unpublishModalOpen} onOpenChange={setUnpublishModalOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent className="bg-white">
           <AlertDialogHeader>
             <AlertDialogTitle>Unpublish Listing</AlertDialogTitle>
             <AlertDialogDescription>

@@ -31,9 +31,16 @@ const Services = () => {
   const [sortBy, setSortBy] = useState('recommended');
   const [filters, setFilters] = useState({
     location: searchParams.get('location') || '',
+    checkIn: searchParams.get('checkIn') || '',
+    checkOut: searchParams.get('checkOut') || '',
     when: searchParams.get('when') || '',
+    guests: searchParams.get('guests') || '',
+    adults: searchParams.get('adults') || '',
+    children: searchParams.get('children') || '',
+    infants: searchParams.get('infants') || '',
     serviceType: searchParams.get('serviceType') || ''
   });
+  const [unavailableListings, setUnavailableListings] = useState(new Set());
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -120,6 +127,7 @@ const Services = () => {
             category: data.serviceCategory || data.category || 'Service',
             provider: data.ownerName || data.ownerEmail?.split('@')[0] || 'Provider',
             duration: data.duration || data.serviceDuration || '1 hour',
+            maxGuests: data.maxGuests || data.propertyBasics?.guestCapacity || null,
             status: data.status,
             publishedAt: data.publishedAt,
             createdAt: data.createdAt
@@ -158,10 +166,104 @@ const Services = () => {
   useEffect(() => {
     setFilters({
       location: searchParams.get('location') || '',
+      checkIn: searchParams.get('checkIn') || '',
+      checkOut: searchParams.get('checkOut') || '',
       when: searchParams.get('when') || '',
+      guests: searchParams.get('guests') || '',
+      adults: searchParams.get('adults') || '',
+      children: searchParams.get('children') || '',
+      infants: searchParams.get('infants') || '',
       serviceType: searchParams.get('serviceType') || ''
     });
   }, [searchParams]);
+
+  // Load unavailable listings based on date filters
+  useEffect(() => {
+    const loadUnavailableListings = async () => {
+      if (!filters.checkIn || !filters.checkOut) {
+        setUnavailableListings(new Set());
+        return;
+      }
+
+      try {
+        const checkIn = new Date(filters.checkIn);
+        const checkOut = new Date(filters.checkOut);
+        checkIn.setHours(0, 0, 0, 0);
+        checkOut.setHours(0, 0, 0, 0);
+
+        // Generate all dates in the search range
+        // For same-day bookings (checkIn = checkOut), include the check-in date
+        const searchDates = new Set();
+        const currentDate = new Date(checkIn);
+        // If check-in and check-out are the same, include that single date
+        if (checkIn.getTime() === checkOut.getTime()) {
+          const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
+          searchDates.add(dateStr);
+        } else {
+          // For date ranges, include all dates from check-in (inclusive) to check-out (exclusive)
+          while (currentDate < checkOut) {
+            const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
+            searchDates.add(dateStr);
+            currentDate.setDate(currentDate.getDate() + 1);
+          }
+        }
+
+        // Get all confirmed bookings for services
+        const bookingsRef = collection(db, 'bookings');
+        const q = query(
+          bookingsRef,
+          where('category', '==', 'service'),
+          where('status', '==', 'confirmed')
+        );
+        const querySnapshot = await getDocs(q);
+
+        // Map listing IDs to their unavailable dates
+        const listingUnavailableDates = new Map();
+        
+        querySnapshot.forEach((doc) => {
+          const booking = doc.data();
+          const listingId = booking.listingId;
+          const existingCheckIn = booking.checkInDate?.toDate ? booking.checkInDate.toDate() : new Date(booking.checkInDate);
+          const existingCheckOut = booking.checkOutDate?.toDate ? booking.checkOutDate.toDate() : new Date(booking.checkOutDate);
+          
+          existingCheckIn.setHours(0, 0, 0, 0);
+          existingCheckOut.setHours(0, 0, 0, 0);
+
+          // Generate all unavailable dates for this booking
+          const bookingDate = new Date(existingCheckIn);
+          while (bookingDate < existingCheckOut) {
+            const dateStr = `${bookingDate.getFullYear()}-${String(bookingDate.getMonth() + 1).padStart(2, '0')}-${String(bookingDate.getDate()).padStart(2, '0')}`;
+            
+            if (!listingUnavailableDates.has(listingId)) {
+              listingUnavailableDates.set(listingId, new Set());
+            }
+            listingUnavailableDates.get(listingId).add(dateStr);
+            
+            bookingDate.setDate(bookingDate.getDate() + 1);
+          }
+        });
+
+        // Check if any search date is unavailable for each listing
+        const unavailable = new Set();
+        listingUnavailableDates.forEach((unavailableDates, listingId) => {
+          // Check if any date in search range is unavailable
+          for (const searchDate of searchDates) {
+            if (unavailableDates.has(searchDate)) {
+              unavailable.add(listingId);
+              break; // No need to check other dates for this listing
+            }
+          }
+        });
+
+        setUnavailableListings(unavailable);
+      } catch (error) {
+        console.error('Error loading unavailable listings:', error);
+        setUnavailableListings(new Set());
+      }
+    };
+
+    loadUnavailableListings();
+  }, [filters.checkIn, filters.checkOut]);
 
   // Extract unique categories from loaded services
   const categories = ["All Services", ...new Set(services.map(svc => svc.category).filter(Boolean))];
@@ -213,6 +315,34 @@ const Services = () => {
         );
       });
     }
+
+    // Filter by guest capacity (check total guests from adults, children, infants)
+    const totalGuests = (parseInt(filters.adults || '1', 10) || 1) + 
+                       (parseInt(filters.children || '0', 10) || 0) + 
+                       (parseInt(filters.infants || '0', 10) || 0);
+    
+    // Also check if guests param exists (for backward compatibility)
+    const guestParam = parseInt(filters.guests || '0', 10);
+    const finalGuestCount = guestParam > 0 ? guestParam : totalGuests;
+    
+    if (finalGuestCount > 0) {
+      filtered = filtered.filter(service => {
+        // If service has maxGuests, check if it can accommodate
+        if (service.maxGuests) {
+          return service.maxGuests >= finalGuestCount;
+        }
+        // If no maxGuests specified, allow all (services might not have guest limits)
+        return true;
+      });
+    }
+
+    // Filter by dates (check availability) - only filter if dates are provided
+    if (filters.checkIn && filters.checkOut) {
+      filtered = filtered.filter(service => {
+        // Exclude listings that are unavailable for the selected dates
+        return !unavailableListings.has(service.id);
+      });
+    }
     
     // Apply sorting
     let sorted = [...filtered];
@@ -238,7 +368,7 @@ const Services = () => {
     }
     
     setFilteredServices(sorted);
-  }, [services, selectedCategory, filters, sortBy]);
+  }, [services, selectedCategory, filters, sortBy, unavailableListings]);
 
   const handleFavoriteClick = (e) => {
     e.stopPropagation();

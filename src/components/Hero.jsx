@@ -349,9 +349,16 @@ const Hero = ({ darkMode }) => {
                                             type="date"
                                             className="input-field w-full text-gray-500 font-normal"
                                             value={searchData.checkIn}
-                                            onChange={(e) =>
-                                                setSearchData({ ...searchData, checkIn: e.target.value })
-                                            }
+                                            min={new Date().toISOString().split('T')[0]}
+                                            onChange={(e) => {
+                                                const newCheckIn = e.target.value;
+                                                // If check-out is before new check-in, reset check-out
+                                                const updatedData = { ...searchData, checkIn: newCheckIn };
+                                                if (searchData.checkOut && newCheckIn && searchData.checkOut < newCheckIn) {
+                                                    updatedData.checkOut = '';
+                                                }
+                                                setSearchData(updatedData);
+                                            }}
                                         />
                                     </div>
                                     <div>
@@ -366,6 +373,7 @@ const Hero = ({ darkMode }) => {
                                             type="date"
                                             className="input-field w-full text-gray-500 font-normal"
                                             value={searchData.checkOut}
+                                            min={searchData.checkIn || new Date().toISOString().split('T')[0]}
                                             onChange={(e) =>
                                                 setSearchData({
                                                     ...searchData,

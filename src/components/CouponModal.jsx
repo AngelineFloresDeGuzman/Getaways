@@ -3,6 +3,7 @@ import { X, Save, Loader2, Check } from 'lucide-react';
 import { createCoupon, updateCoupon } from '@/pages/Host/services/couponService';
 import { toast } from '@/components/ui/sonner';
 import { format } from 'date-fns';
+import { Calendar } from '@/components/ui/calendar';
 import { auth, db } from '@/lib/firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 
@@ -305,35 +306,67 @@ const CouponModal = ({ isOpen, onClose, coupon, onSave }) => {
           </div>
         </div>
 
-        {/* Valid From and Valid Until */}
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">
-              Valid From
-            </label>
-            <input
-              type="date"
-              value={formData.validFrom}
-              onChange={(e) => setFormData({ ...formData, validFrom: e.target.value })}
-              className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-              min={format(new Date(), 'yyyy-MM-dd')}
-            />
+        {/* Valid From & Valid Until (Normal Calendar) */}
+        <div className="mb-6">
+          <label className="block text-sm font-medium text-foreground mb-2">Valid Period</label>
+          <div className="flex justify-center w-full">
+            <div className="bg-white rounded-xl border border-gray-200 shadow-lg p-6 w-full max-w-4xl mx-auto relative">
+              <Calendar
+                mode="range"
+                selected={formData.validFrom && formData.validUntil ? { from: new Date(formData.validFrom), to: new Date(formData.validUntil) } : formData.validFrom ? { from: new Date(formData.validFrom) } : undefined}
+                onSelect={(range) => {
+                  if (range && range.from && range.to) {
+                    setFormData({
+                      ...formData,
+                      validFrom: format(range.from, 'yyyy-MM-dd'),
+                      validUntil: format(range.to, 'yyyy-MM-dd'),
+                    });
+                  } else if (range && range.from) {
+                    setFormData({
+                      ...formData,
+                      validFrom: format(range.from, 'yyyy-MM-dd'),
+                      validUntil: '',
+                    });
+                  }
+                }}
+                numberOfMonths={1}
+                showOutsideDays={true}
+                navLayout="around"
+                fromDate={new Date()}
+                className="w-full"
+                classNames={{
+                  months: "flex flex-col sm:flex-row space-y-4 sm:space-x-8 sm:space-y-0 justify-center",
+                  month: "space-y-4",
+                  caption: "flex justify-between items-center pt-2 relative mb-4",
+                  caption_label: "text-lg font-semibold text-gray-900 flex-1 text-center",
+                  nav: "flex items-center",
+                  nav_button: "h-8 w-8 bg-transparent border-0 p-0 opacity-70 hover:opacity-100 hover:bg-gray-100 rounded-md transition-all flex items-center justify-center text-gray-700 hover:text-gray-900",
+                  nav_button_previous: "",
+                  nav_button_next: "",
+                  table: "w-full border-collapse space-y-2",
+                  head_row: "flex mb-2",
+                  head_cell: "text-gray-600 rounded-md w-10 h-10 font-medium text-xs flex items-center justify-center",
+                  row: "flex w-full mt-1",
+                  cell: "h-10 w-10 text-center text-sm p-0 relative [&:has([aria-selected].day-range-end)]:rounded-r-md [&:has([aria-selected].day-outside)]:bg-accent/50 [&:has([aria-selected])]:bg-accent first:[&:has([aria-selected])]:rounded-l-md last:[&:has([aria-selected])]:rounded-r-md focus-within:relative focus-within:z-20",
+                  day: "h-10 w-10 p-0 font-normal rounded-md hover:bg-gray-100 transition-colors aria-selected:opacity-100",
+                  day_range_end: "day-range-end rounded-r-md",
+                  day_selected: "!bg-blue-500 !text-white hover:!bg-blue-600 hover:!text-white focus:!bg-blue-500 focus:!text-white font-semibold",
+                  day_today: "bg-blue-50 text-blue-700 font-semibold border-2 border-blue-500",
+                  day_outside: "day-outside text-gray-400 opacity-50 aria-selected:bg-accent/50 aria-selected:text-muted-foreground aria-selected:opacity-30",
+                  day_disabled: "!bg-amber-200 !text-amber-800 !opacity-75 !cursor-not-allowed hover:!bg-amber-200 !font-medium !border !border-amber-400 !line-through",
+                  day_unavailable: "!bg-red-600 !text-white !line-through !opacity-100 !cursor-not-allowed hover:!bg-red-700 hover:!text-white !font-bold !border-2 !border-red-800 !shadow-lg !relative !z-10",
+                  day_range_middle: "aria-selected:!bg-blue-200 aria-selected:!text-blue-900 rounded-none",
+                  day_hidden: "invisible"
+                }}
+                components={{
+                  IconLeft: () => <ChevronLeft className="h-5 w-5 text-gray-700" />,
+                  IconRight: () => <ChevronRight className="h-5 w-5 text-gray-700" />
+                }}
+                disabled={{ before: new Date() }}
+              />
+            </div>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">
-              Valid Until
-            </label>
-            <input
-              type="date"
-              value={formData.validUntil}
-              onChange={(e) => setFormData({ ...formData, validUntil: e.target.value })}
-              className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-              min={formData.validFrom || format(new Date(), 'yyyy-MM-dd')}
-            />
-            <p className="text-xs text-muted-foreground mt-1">
-              Leave empty for no expiration
-            </p>
-          </div>
+          <p className="text-xs text-muted-foreground mt-2 text-center">Select start and end dates for coupon validity. Leave end date empty for no expiration.</p>
         </div>
 
         {/* Max Uses and Min Booking Amount */}

@@ -328,8 +328,8 @@ const BookingDetail = () => {
         ? (booking.totalPrice || 0)
         : Math.round(((booking.totalPrice || 0) / 2) * 100) / 100;
       confirmMessage = booking.status === 'pending'
-        ? `Cancel this booking? A full refund of ₱${refundAmount.toLocaleString()} will be requested and processed by admin.`
-        : `Cancel this booking? A half refund of ₱${refundAmount.toLocaleString()} will be requested and processed by admin.`;
+        ? `Cancel this booking? A full refund of ₱${refundAmount.toLocaleString()} will be instantly credited from the host's wallet to your e-wallet.`
+        : `Cancel this booking? A half refund of ₱${refundAmount.toLocaleString()} will be instantly credited from the host's wallet to your e-wallet.`;
     }
 
     if (!window.confirm(confirmMessage)) {

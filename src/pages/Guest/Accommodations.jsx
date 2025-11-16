@@ -27,6 +27,7 @@ const Accommodations = () => {
     const [filteredAccommodations, setFilteredAccommodations] = useState([]);
     const [loading, setLoading] = useState(true);
     const [sortBy, setSortBy] = useState('recommended');
+    const [unavailableListings, setUnavailableListings] = useState(new Set()); // Set of listing IDs that are unavailable for the selected dates
     
     // Search filters from URL
     const [filters, setFilters] = useState({
@@ -257,6 +258,94 @@ const Accommodations = () => {
         setFilters(newFilters);
     }, [searchParams]);
 
+    // Load unavailable listings based on date filters
+    useEffect(() => {
+        const loadUnavailableListings = async () => {
+            if (!filters.checkIn || !filters.checkOut) {
+                setUnavailableListings(new Set());
+                return;
+            }
+
+            try {
+                const checkIn = new Date(filters.checkIn);
+                const checkOut = new Date(filters.checkOut);
+                checkIn.setHours(0, 0, 0, 0);
+                checkOut.setHours(0, 0, 0, 0);
+
+                // Generate all dates in the search range
+                // For same-day bookings (checkIn = checkOut), include the check-in date
+                const searchDates = new Set();
+                const currentDate = new Date(checkIn);
+                // If check-in and check-out are the same, include that single date
+                if (checkIn.getTime() === checkOut.getTime()) {
+                    const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
+                    searchDates.add(dateStr);
+                } else {
+                    // For date ranges, include all dates from check-in (inclusive) to check-out (exclusive)
+                    while (currentDate < checkOut) {
+                        const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
+                        searchDates.add(dateStr);
+                        currentDate.setDate(currentDate.getDate() + 1);
+                    }
+                }
+
+                // Get all confirmed bookings for accommodations
+                const bookingsRef = collection(db, 'bookings');
+                const q = query(
+                    bookingsRef,
+                    where('category', '==', 'accommodation'),
+                    where('status', '==', 'confirmed')
+                );
+                const querySnapshot = await getDocs(q);
+
+                // Map listing IDs to their unavailable dates
+                const listingUnavailableDates = new Map();
+                
+                querySnapshot.forEach((doc) => {
+                    const booking = doc.data();
+                    const listingId = booking.listingId;
+                    const existingCheckIn = booking.checkInDate?.toDate ? booking.checkInDate.toDate() : new Date(booking.checkInDate);
+                    const existingCheckOut = booking.checkOutDate?.toDate ? booking.checkOutDate.toDate() : new Date(booking.checkOutDate);
+                    
+                    existingCheckIn.setHours(0, 0, 0, 0);
+                    existingCheckOut.setHours(0, 0, 0, 0);
+
+                    // Generate all unavailable dates for this booking
+                    const bookingDate = new Date(existingCheckIn);
+                    while (bookingDate < existingCheckOut) {
+                        const dateStr = `${bookingDate.getFullYear()}-${String(bookingDate.getMonth() + 1).padStart(2, '0')}-${String(bookingDate.getDate()).padStart(2, '0')}`;
+                        
+                        if (!listingUnavailableDates.has(listingId)) {
+                            listingUnavailableDates.set(listingId, new Set());
+                        }
+                        listingUnavailableDates.get(listingId).add(dateStr);
+                        
+                        bookingDate.setDate(bookingDate.getDate() + 1);
+                    }
+                });
+
+                // Check if any search date is unavailable for each listing
+                const unavailable = new Set();
+                listingUnavailableDates.forEach((unavailableDates, listingId) => {
+                    // Check if any date in search range is unavailable
+                    for (const searchDate of searchDates) {
+                        if (unavailableDates.has(searchDate)) {
+                            unavailable.add(listingId);
+                            break; // No need to check other dates for this listing
+                        }
+                    }
+                });
+
+                setUnavailableListings(unavailable);
+            } catch (error) {
+                console.error('Error loading unavailable listings:', error);
+                setUnavailableListings(new Set());
+            }
+        };
+
+        loadUnavailableListings();
+    }, [filters.checkIn, filters.checkOut]);
+
     // Filter accommodations based on search params
     useEffect(() => {
         let filtered = [...accommodations];
@@ -313,12 +402,12 @@ const Accommodations = () => {
             });
         }
 
-        // Filter by dates (check availability)
+        // Filter by dates (check availability) - only filter if dates are provided
         if (filters.checkIn && filters.checkOut) {
-            const checkIn = new Date(filters.checkIn);
-            const checkOut = new Date(filters.checkOut);
-            // This would require checking against booking dates - simplified for now
-            // In a real implementation, you'd query unavailable dates from bookings
+            filtered = filtered.filter(acc => {
+                // Exclude listings that are unavailable for the selected dates
+                return !unavailableListings.has(acc.id);
+            });
         }
 
         // Apply sorting
@@ -345,7 +434,7 @@ const Accommodations = () => {
         }
 
         setFilteredAccommodations(sorted);
-    }, [accommodations, filters, sortBy]);
+    }, [accommodations, filters, sortBy, unavailableListings]);
 
     const handleRequireLogin = () => setShowLoginModal(true);
 

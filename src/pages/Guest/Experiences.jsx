@@ -28,9 +28,15 @@ const Experiences = () => {
   const [sortBy, setSortBy] = useState('recommended');
   const [filters, setFilters] = useState({
     location: searchParams.get('location') || '',
+    checkIn: searchParams.get('checkIn') || '',
+    checkOut: searchParams.get('checkOut') || '',
     when: searchParams.get('when') || '',
-    guests: searchParams.get('guests') || ''
+    guests: searchParams.get('guests') || '',
+    adults: searchParams.get('adults') || '',
+    children: searchParams.get('children') || '',
+    infants: searchParams.get('infants') || ''
   });
+  const [unavailableListings, setUnavailableListings] = useState(new Set());
   const navigate = useNavigate();
   const handleRequireLogin = () => setShowLoginModal(true);
   useEffect(() => {
@@ -199,10 +205,103 @@ const Experiences = () => {
   useEffect(() => {
     setFilters({
       location: searchParams.get('location') || '',
+      checkIn: searchParams.get('checkIn') || '',
+      checkOut: searchParams.get('checkOut') || '',
       when: searchParams.get('when') || '',
-      guests: searchParams.get('guests') || ''
+      guests: searchParams.get('guests') || '',
+      adults: searchParams.get('adults') || '',
+      children: searchParams.get('children') || '',
+      infants: searchParams.get('infants') || ''
     });
   }, [searchParams]);
+
+  // Load unavailable listings based on date filters
+  useEffect(() => {
+    const loadUnavailableListings = async () => {
+      if (!filters.checkIn || !filters.checkOut) {
+        setUnavailableListings(new Set());
+        return;
+      }
+
+      try {
+        const checkIn = new Date(filters.checkIn);
+        const checkOut = new Date(filters.checkOut);
+        checkIn.setHours(0, 0, 0, 0);
+        checkOut.setHours(0, 0, 0, 0);
+
+        // Generate all dates in the search range
+        // For same-day bookings (checkIn = checkOut), include the check-in date
+        const searchDates = new Set();
+        const currentDate = new Date(checkIn);
+        // If check-in and check-out are the same, include that single date
+        if (checkIn.getTime() === checkOut.getTime()) {
+          const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
+          searchDates.add(dateStr);
+        } else {
+          // For date ranges, include all dates from check-in (inclusive) to check-out (exclusive)
+          while (currentDate < checkOut) {
+            const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
+            searchDates.add(dateStr);
+            currentDate.setDate(currentDate.getDate() + 1);
+          }
+        }
+
+        // Get all confirmed bookings for experiences
+        const bookingsRef = collection(db, 'bookings');
+        const q = query(
+          bookingsRef,
+          where('category', '==', 'experience'),
+          where('status', '==', 'confirmed')
+        );
+        const querySnapshot = await getDocs(q);
+
+        // Map listing IDs to their unavailable dates
+        const listingUnavailableDates = new Map();
+        
+        querySnapshot.forEach((doc) => {
+          const booking = doc.data();
+          const listingId = booking.listingId;
+          const existingCheckIn = booking.checkInDate?.toDate ? booking.checkInDate.toDate() : new Date(booking.checkInDate);
+          const existingCheckOut = booking.checkOutDate?.toDate ? booking.checkOutDate.toDate() : new Date(booking.checkOutDate);
+          
+          existingCheckIn.setHours(0, 0, 0, 0);
+          existingCheckOut.setHours(0, 0, 0, 0);
+
+          // Generate all unavailable dates for this booking
+          const bookingDate = new Date(existingCheckIn);
+          while (bookingDate < existingCheckOut) {
+            const dateStr = `${bookingDate.getFullYear()}-${String(bookingDate.getMonth() + 1).padStart(2, '0')}-${String(bookingDate.getDate()).padStart(2, '0')}`;
+            
+            if (!listingUnavailableDates.has(listingId)) {
+              listingUnavailableDates.set(listingId, new Set());
+            }
+            listingUnavailableDates.get(listingId).add(dateStr);
+            
+            bookingDate.setDate(bookingDate.getDate() + 1);
+          }
+        });
+
+        // Check if any search date is unavailable for each listing
+        const unavailable = new Set();
+        listingUnavailableDates.forEach((unavailableDates, listingId) => {
+          // Check if any date in search range is unavailable
+          for (const searchDate of searchDates) {
+            if (unavailableDates.has(searchDate)) {
+              unavailable.add(listingId);
+              break; // No need to check other dates for this listing
+            }
+          }
+        });
+
+        setUnavailableListings(unavailable);
+      } catch (error) {
+        console.error('Error loading unavailable listings:', error);
+        setUnavailableListings(new Set());
+      }
+    };
+
+    loadUnavailableListings();
+  }, [filters.checkIn, filters.checkOut]);
 
   // Extract unique categories from loaded experiences
   const categories = ["All Experiences", ...new Set(experiences.map(exp => exp.category).filter(Boolean))];
@@ -249,14 +348,29 @@ const Experiences = () => {
       });
     }
     
-    // Filter by guests (if experience has maxParticipants)
-    if (filters.guests) {
-      const guestCount = parseInt(filters.guests, 10);
+    // Filter by guest capacity (check total guests from adults, children, infants)
+    const totalGuests = (parseInt(filters.adults || '1', 10) || 1) + 
+                       (parseInt(filters.children || '0', 10) || 0) + 
+                       (parseInt(filters.infants || '0', 10) || 0);
+    
+    // Also check if guests param exists (for backward compatibility)
+    const guestParam = parseInt(filters.guests || '0', 10);
+    const finalGuestCount = guestParam > 0 ? guestParam : totalGuests;
+    
+    if (finalGuestCount > 0) {
       filtered = filtered.filter(exp => {
         if (exp.maxParticipants) {
-          return exp.maxParticipants >= guestCount;
+          return exp.maxParticipants >= finalGuestCount;
         }
         return true;
+      });
+    }
+
+    // Filter by dates (check availability) - only filter if dates are provided
+    if (filters.checkIn && filters.checkOut) {
+      filtered = filtered.filter(exp => {
+        // Exclude listings that are unavailable for the selected dates
+        return !unavailableListings.has(exp.id);
       });
     }
     
@@ -284,7 +398,7 @@ const Experiences = () => {
     }
     
     setFilteredExperiences(sorted);
-  }, [experiences, selectedCategory, filters, sortBy]);
+  }, [experiences, selectedCategory, filters, sortBy, unavailableListings]);
 
   return (
     <div className="min-h-screen bg-background">

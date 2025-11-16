@@ -72,7 +72,6 @@ export const autoCompleteBookings = async () => {
         status: 'completed',
         autoCompleted: true,
         autoCompletedAt: serverTimestamp(),
-        earningsReleasePending: true, // Mark as pending for admin to release earnings
         updatedAt: serverTimestamp()
       });
     }

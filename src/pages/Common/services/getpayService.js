@@ -4,7 +4,8 @@ import {
   getDoc, 
   updateDoc, 
   collection, 
-  addDoc, 
+  addDoc,
+  setDoc,
   query, 
   where, 
   getDocs, 
@@ -579,55 +580,50 @@ export const cashOutToPayPal = async (userId, amount, paypalEmail) => {
       throw new Error(`Insufficient wallet balance. You have ₱${currentBalance.toLocaleString()} but need ₱${amount.toLocaleString()}`);
     }
 
-    // Manual cash-out flow: Deduct from wallet and create pending transaction
-    // Admin will process the payout manually via PayPal and mark as completed
-    const transactionsRef = collection(db, 'walletTransactions');
-    const transactionRef = doc(transactionsRef);
+    // Create cash-out request WITHOUT deducting money
+    // Admin must approve before money is deducted and transferred
+    const cashOutRequestsRef = collection(db, 'cashOutRequests');
+    const requestRef = doc(cashOutRequestsRef);
     const cashOutTransactionId = `CO_${Date.now()}_${userId.substring(0, 8)}`;
     
-    const transactionData = {
+    // Get user info for the request
+    const userData = userSnap.data();
+    const userName = `${userData.firstName || ''} ${userData.lastName || ''}`.trim() || userData.email || 'Unknown';
+    
+    const requestData = {
       userId,
-      type: 'cash_out',
+      userName,
+      userEmail: userData.email || '',
       amount,
       balanceBefore: currentBalance,
-      balanceAfter: currentBalance - amount, // Deduct immediately
-      status: 'pending', // Waiting for admin to process manually
+      balanceAfter: currentBalance, // Balance stays the same until approved
+      status: 'pending', // Waiting for admin approval
       method: 'paypal',
       paypalEmail,
       paypalTransactionId: cashOutTransactionId,
-      description: `Cash out to PayPal (${paypalEmail}) - Pending admin processing`,
+      description: `Cash out to PayPal (${paypalEmail}) - Pending admin approval`,
       metadata: {
         cashOutRequest: true,
-        manualProcessing: true,
-        adminActionRequired: true,
+        requiresAdminApproval: true,
         requestedAt: new Date().toISOString()
       },
       createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
+      updatedAt: serverTimestamp(),
+      reviewedBy: null,
+      reviewedAt: null,
+      adminNotes: null
     };
 
-    // Use batch to ensure atomicity
-    const batch = writeBatch(db);
+    // Create request record (NO deduction yet)
+    await setDoc(requestRef, requestData);
 
-    // Deduct from wallet balance
-    batch.update(userRef, {
-      'getpay.balance': increment(-amount),
-      'getpay.updatedAt': serverTimestamp(),
-      'getpay.lastCashOut': serverTimestamp()
-    });
-
-    // Create transaction record
-    batch.set(transactionRef, transactionData);
-
-    await batch.commit();
-
-    console.log('Cash-out request created. Waiting for admin processing.');
+    console.log('Cash-out request created. Waiting for admin approval.');
 
     return {
-      transactionId: transactionRef.id,
+      requestId: requestRef.id,
       cashOutTransactionId,
       status: 'pending',
-      message: `Cash-out request submitted! ₱${amount.toLocaleString()} has been deducted from your wallet and is pending admin processing. You will receive the money in your PayPal account (${paypalEmail}) within 1-3 business days after admin processes your request.`
+      message: `Cash-out request submitted! ₱${amount.toLocaleString()} is pending admin approval. Your wallet balance will be deducted only after admin approves your request. You will receive the money in your PayPal account (${paypalEmail}) within 1-3 business days after approval.`
     };
   } catch (error) {
     console.error('Error cashing out to PayPal:', error);

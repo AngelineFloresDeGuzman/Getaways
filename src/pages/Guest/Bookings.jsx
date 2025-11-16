@@ -79,8 +79,8 @@ const Bookings = () => {
         ? (booking.totalPrice || 0)
         : Math.round(((booking.totalPrice || 0) / 2) * 100) / 100;
       confirmMessage = booking.status === 'pending'
-        ? `Cancel this booking? A full refund of ₱${refundAmount.toLocaleString()} will be requested and processed by admin.`
-        : `Cancel this booking? A half refund of ₱${refundAmount.toLocaleString()} will be requested and processed by admin.`;
+        ? `Cancel this booking? A full refund of ₱${refundAmount.toLocaleString()} will be instantly credited from the host's wallet to your e-wallet.`
+        : `Cancel this booking? A half refund of ₱${refundAmount.toLocaleString()} will be instantly credited from the host's wallet to your e-wallet.`;
     }
     
     if (!window.confirm(confirmMessage)) {
@@ -92,7 +92,57 @@ const Bookings = () => {
       const result = await cancelBooking(booking.id);
       if (result.success) {
         toast.success(result.message);
-        // Booking status will be updated via real-time listener
+        // Force reload bookings for instant UI update
+        if (user) {
+          setLoading(true);
+          const guestBookings = await getGuestBookings(user.uid);
+          const bookingsWithDetails = await Promise.all(
+            guestBookings.map(async (booking) => {
+              try {
+                const listingRef = doc(db, 'listings', booking.listingId);
+                const listingSnap = await getDoc(listingRef);
+                const existingReview = await getReviewByBookingId(booking.id);
+                if (listingSnap.exists()) {
+                  const listingData = listingSnap.data();
+                  const photos = listingData.photos || [];
+                  const locationData = listingData.locationData || {};
+                  return {
+                    ...booking,
+                    listingTitle: listingData.title || 'Unknown Listing',
+                    listingLocation: listingData.location || 
+                      (locationData.city && locationData.province 
+                        ? `${locationData.city}, ${locationData.province}`
+                        : locationData.city || locationData.country || 'Unknown Location'),
+                    listingImage: photos[0]?.base64 || photos[0]?.url || null,
+                    category: listingData.category || booking.category || 'accommodation',
+                    reviewed: !!existingReview || booking.reviewed || false
+                  };
+                } else {
+                  return {
+                    ...booking,
+                    listingTitle: 'Listing not found',
+                    listingLocation: 'Unknown',
+                    listingImage: null,
+                    category: booking.category || 'accommodation',
+                    reviewed: !!existingReview || booking.reviewed || false
+                  };
+                }
+              } catch (error) {
+                console.error('Error loading listing for booking:', error);
+                return {
+                  ...booking,
+                  listingTitle: 'Error loading listing',
+                  listingLocation: 'Unknown',
+                  listingImage: null,
+                  category: booking.category || 'accommodation',
+                  reviewed: booking.reviewed || false
+                };
+              }
+            })
+          );
+          setBookings(bookingsWithDetails);
+          setLoading(false);
+        }
       } else {
         toast.error(result.message || 'Failed to cancel booking');
       }

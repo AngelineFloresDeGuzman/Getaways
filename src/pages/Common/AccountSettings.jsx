@@ -960,7 +960,12 @@ const AccountSettings = () => {
                 updatedAt: serverTimestamp()
               });
               
-              // Transfer payment to admin's GetPay wallet (same as GetPay flow)
+              // Calculate commission: 10% to admin, 90% to host
+              const { HOST_COMMISSION_PERCENTAGE } = await import('@/pages/Admin/services/earningsService');
+              const adminCommission = Math.round((bookingAmount * HOST_COMMISSION_PERCENTAGE) * 100) / 100;
+              const hostEarnings = Math.round((bookingAmount * (1 - HOST_COMMISSION_PERCENTAGE)) * 100) / 100;
+              
+              // Transfer 10% commission to admin's GetPay wallet
               const { 
                 addToWallet: addToAdminWallet,
                 initializeWallet: initAdminWallet,
@@ -972,7 +977,40 @@ const AccountSettings = () => {
                 await initAdminWallet(adminUserId);
                 await addToAdminWallet(
                   adminUserId,
-                  totalAmount,
+                  adminCommission,
+                  `Commission from Booking - ${listingTitle} (PayPal)`,
+                  {
+                    bookingId: bookingId,
+                    listingId: bookingData.listingId,
+                    listingTitle: listingTitle,
+                    category: bookingData.category || 'accommodation',
+                    guestId: guestId,
+                    guestEmail: bookingData.guestEmail,
+                    hostId: bookingData.ownerId,
+                    paymentType: 'commission',
+                    paymentMethod: 'paypal',
+                    paypalOrderId: paypalOrderId,
+                    paypalTransactionId: paypalTransactionId,
+                    bookingAmount: bookingAmount,
+                    commission: adminCommission,
+                    checkInDate: bookingData.checkInDate?.toDate ? bookingData.checkInDate.toDate().toISOString() : bookingData.checkInDate,
+                    checkOutDate: bookingData.checkOutDate?.toDate ? bookingData.checkOutDate.toDate().toISOString() : bookingData.checkOutDate
+                  }
+                );
+                console.log(`✅ PayPal commission of ₱${adminCommission.toFixed(2)} sent to admin GetPay wallet`);
+              }
+              
+              // Transfer 90% host earnings to host's GetPay wallet
+              const { 
+                addToWallet: addToHostWallet,
+                initializeWallet: initHostWallet
+              } = await import('@/pages/Common/services/getpayService');
+              const hostUserId = bookingData.ownerId;
+              if (hostUserId) {
+                await initHostWallet(hostUserId);
+                await addToHostWallet(
+                  hostUserId,
+                  hostEarnings,
                   `Payment Received - Guest Booking (PayPal)`,
                   {
                     bookingId: bookingId,
@@ -987,13 +1025,27 @@ const AccountSettings = () => {
                     paypalOrderId: paypalOrderId,
                     paypalTransactionId: paypalTransactionId,
                     bookingAmount: bookingAmount,
+                    hostEarnings: hostEarnings,
+                    adminCommission: adminCommission,
                     guestFee: guestFee,
                     checkInDate: bookingData.checkInDate?.toDate ? bookingData.checkInDate.toDate().toISOString() : bookingData.checkInDate,
                     checkOutDate: bookingData.checkOutDate?.toDate ? bookingData.checkOutDate.toDate().toISOString() : bookingData.checkOutDate
                   }
                 );
-                console.log('✅ PayPal payment sent to admin GetPay wallet');
+                console.log(`✅ PayPal host earnings of ₱${hostEarnings.toFixed(2)} sent to host GetPay wallet (10% commission: ₱${adminCommission.toFixed(2)})`);
               }
+              
+              // Update booking with payment status and earnings breakdown
+              await updateDoc(bookingRef, {
+                status: newStatus,
+                paymentStatus: 'paid',
+                paymentMethod: 'paypal',
+                paymentProvider: 'paypal',
+                adminCommission: adminCommission, // Store 10% commission
+                hostEarnings: hostEarnings, // Store 90% host earnings
+                bookingAmount: bookingAmount, // Store original booking amount
+                updatedAt: serverTimestamp()
+              });
               
               toast.success('Booking confirmed. PayPal payment processed successfully.');
               console.log('✅ Booking confirmed with PayPal payment - payment already captured');
@@ -1071,13 +1123,48 @@ const AccountSettings = () => {
               console.log(`✅ Payment deducted from guest wallet: ₱${actualRemainingAmount.toFixed(2)}`);
             }
             
-            // Transfer payment to admin's GetPay wallet
+            // Calculate commission: 10% to admin, 90% to host
+            const { HOST_COMMISSION_PERCENTAGE } = await import('@/pages/Admin/services/earningsService');
+            const adminCommission = Math.round((bookingAmount * HOST_COMMISSION_PERCENTAGE) * 100) / 100;
+            const hostEarnings = Math.round((bookingAmount * (1 - HOST_COMMISSION_PERCENTAGE)) * 100) / 100;
+            
+            // Transfer 10% commission to admin's GetPay wallet
             const adminUserId = await getAdminUserId();
             if (adminUserId) {
               await initAdminWallet(adminUserId);
               await addToAdminWallet(
                 adminUserId,
-                totalAmount,
+                adminCommission,
+                `Commission from Booking - ${listingTitle}`,
+                {
+                  bookingId: bookingId,
+                  listingId: bookingData.listingId,
+                  listingTitle: listingTitle,
+                  category: bookingData.category || 'accommodation',
+                  guestId: guestId,
+                  guestEmail: bookingData.guestEmail,
+                  hostId: bookingData.ownerId,
+                  paymentType: 'commission',
+                  bookingAmount: bookingAmount,
+                  commission: adminCommission,
+                  checkInDate: bookingData.checkInDate?.toDate ? bookingData.checkInDate.toDate().toISOString() : bookingData.checkInDate,
+                  checkOutDate: bookingData.checkOutDate?.toDate ? bookingData.checkOutDate.toDate().toISOString() : bookingData.checkOutDate
+                }
+              );
+              console.log(`✅ Commission of ₱${adminCommission.toFixed(2)} sent to admin GetPay wallet`);
+            }
+            
+            // Transfer 90% host earnings to host's GetPay wallet
+            const { 
+              addToWallet: addToHostWallet,
+              initializeWallet: initHostWallet
+            } = await import('@/pages/Common/services/getpayService');
+            const hostUserId = bookingData.ownerId;
+            if (hostUserId) {
+              await initHostWallet(hostUserId);
+              await addToHostWallet(
+                hostUserId,
+                hostEarnings,
                 `Payment Received - Guest Booking`,
                 {
                   bookingId: bookingId,
@@ -1089,20 +1176,25 @@ const AccountSettings = () => {
                   hostId: bookingData.ownerId,
                   paymentType: 'booking_payment',
                   bookingAmount: bookingAmount,
+                  hostEarnings: hostEarnings,
+                  adminCommission: adminCommission,
                   guestFee: guestFee,
                   checkInDate: bookingData.checkInDate?.toDate ? bookingData.checkInDate.toDate().toISOString() : bookingData.checkInDate,
                   checkOutDate: bookingData.checkOutDate?.toDate ? bookingData.checkOutDate.toDate().toISOString() : bookingData.checkOutDate
                 }
               );
-              console.log('✅ Payment sent to admin GetPay wallet');
+              console.log(`✅ Host earnings of ₱${hostEarnings.toFixed(2)} sent to host GetPay wallet (10% commission: ₱${adminCommission.toFixed(2)})`);
             }
             
-            // Update booking with payment status
+            // Update booking with payment status and earnings breakdown
             await updateDoc(bookingRef, {
               status: newStatus,
               paymentStatus: 'paid',
               paymentMethod: bookingData.paymentMethod || 'wallet',
               paymentProvider: paymentProvider, // Ensure paymentProvider is preserved
+              adminCommission: adminCommission, // Store 10% commission
+              hostEarnings: hostEarnings, // Store 90% host earnings
+              bookingAmount: bookingAmount, // Store original booking amount
               updatedAt: serverTimestamp()
             });
           }
@@ -1261,7 +1353,7 @@ const AccountSettings = () => {
     } else if (booking.status === 'confirmed') {
       // Confirmed booking: Half refund
       const refundAmount = Math.round(((booking.totalPrice || 0) / 2) * 100) / 100;
-      confirmMessage = `Cancel this confirmed booking? A half refund of ₱${refundAmount.toLocaleString()} will be requested and processed by admin.`;
+      confirmMessage = `Cancel this confirmed booking? A half refund of ₱${refundAmount.toLocaleString()} will be instantly credited from the host's wallet to your e-wallet.`;
     } else {
       toast.error('This booking cannot be cancelled');
       return;

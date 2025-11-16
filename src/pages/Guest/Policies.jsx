@@ -4,7 +4,7 @@ import Navigation from '@/components/Navigation';
 import Footer from '@/components/Footer';
 import Loading from '@/components/Loading';
 import { Shield, FileText, AlertCircle, CheckCircle, XCircle, BookOpen, RefreshCw } from 'lucide-react';
-import { getActivePolicyByType, POLICY_TYPES } from '@/pages/Admin/services/policyService';
+import { subscribeToActivePolicies, POLICY_TYPES } from '@/pages/Admin/services/policyService';
 import { auth } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { renderMarkdown } from '@/utils/markdownRenderer';
@@ -16,49 +16,36 @@ const Policies = () => {
   const [policies, setPolicies] = useState({});
   const [activeSection, setActiveSection] = useState('cancellation');
 
+  const policyTypes = [
+    POLICY_TYPES.CANCELLATION_GUEST,
+    POLICY_TYPES.TERMS_CONDITIONS,
+    POLICY_TYPES.PRIVACY_POLICY,
+    POLICY_TYPES.GUEST_RULES,
+    POLICY_TYPES.REFUND_POLICY,
+    POLICY_TYPES.COMMUNITY_STANDARDS
+  ];
+
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    let unsubscribeAuth = null;
+    let unsubscribePolicies = null;
+
+    unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
-      if (!currentUser) {
-        // Allow viewing policies even when not logged in
-      }
-      loadPolicies();
+      // Allow viewing policies even when not logged in
     });
 
-    return () => unsubscribe();
-  }, []);
-
-  const loadPolicies = async () => {
-    try {
-      setLoading(true);
-      const policyTypes = [
-        POLICY_TYPES.CANCELLATION_GUEST,
-        POLICY_TYPES.TERMS_CONDITIONS,
-        POLICY_TYPES.PRIVACY_POLICY,
-        POLICY_TYPES.GUEST_RULES,
-        POLICY_TYPES.REFUND_POLICY,
-        POLICY_TYPES.COMMUNITY_STANDARDS
-      ];
-
-      const loadedPolicies = {};
-      for (const type of policyTypes) {
-        try {
-          const policy = await getActivePolicyByType(type);
-          if (policy) {
-            loadedPolicies[type] = policy;
-          }
-        } catch (error) {
-          console.error(`Error loading policy ${type}:`, error);
-        }
-      }
-
-      setPolicies(loadedPolicies);
-    } catch (error) {
-      console.error('Error loading policies:', error);
-    } finally {
+    // Set up real-time listener for policies
+    setLoading(true);
+    unsubscribePolicies = subscribeToActivePolicies(policyTypes, (updatedPolicies) => {
+      setPolicies(updatedPolicies);
       setLoading(false);
-    }
-  };
+    });
+
+    return () => {
+      if (unsubscribeAuth) unsubscribeAuth();
+      if (unsubscribePolicies) unsubscribePolicies();
+    };
+  }, []);
 
   const policySections = [
     {

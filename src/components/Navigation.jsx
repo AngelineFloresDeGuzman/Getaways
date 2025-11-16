@@ -504,6 +504,25 @@ const Navigation = () => {
               )}
             </button>
 
+            {/* Admin Logout Button */}
+            {shouldShowAdminNav && currentUser && (
+              <button
+                onClick={async () => {
+                  await signOut(auth);
+                  navigate('/login');
+                }}
+                className={`flex items-center gap-2 px-4 py-2 rounded-full border transition-colors ${
+                  darkMode
+                    ? "border-red-600/50 text-red-400 hover:bg-red-600/20 hover:border-red-600"
+                    : "border-red-300 text-red-600 hover:bg-red-50 hover:border-red-400"
+                }`}
+                title="Log out"
+              >
+                <LogOut className="w-5 h-5" />
+                <span className="font-medium">Logout</span>
+              </button>
+            )}
+
             {/* User Menu - Only show for non-admin users */}
             {!shouldShowAdminNav && (
               // Guest/Host: Show menu button with dropdown
@@ -548,6 +567,10 @@ const Navigation = () => {
                           <Link to="/ewallet" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
                             <Wallet className="w-5 h-5" />
                             GetPay
+                          </Link>
+                          <Link to="/host/policies" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
+                            <Shield className="w-5 h-5" />
+                            Policies & Guidelines
                           </Link>
                           <Link to="/accountsettings" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
                             <Settings className="w-5 h-5" />
@@ -594,6 +617,10 @@ const Navigation = () => {
                           <Link to="/ewallet" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
                             <Wallet className="w-5 h-5" />
                             GetPay
+                          </Link>
+                          <Link to="/guest/policies" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
+                            <Shield className="w-5 h-5" />
+                            Policies & Guidelines
                           </Link>
                           <Link to="/accountsettings" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-muted">
                             <Settings className="w-5 h-5" />

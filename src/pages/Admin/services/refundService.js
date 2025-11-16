@@ -108,17 +108,11 @@ export const processRefund = async (bookingId) => {
       addToWallet, 
       deductFromWallet, 
       initializeWallet, 
-      getAdminUserId,
       getWalletBalance
     } = await import('@/pages/Common/services/getpayService');
     
-    const adminUserId = await getAdminUserId();
-    if (!adminUserId) {
-      return { success: false, message: 'Admin user not found' };
-    }
-    
     // Initialize wallets
-    await initializeWallet(adminUserId);
+    await initializeWallet(booking.ownerId);
     await initializeWallet(booking.guestId);
     
     // Get listing info for transaction description
@@ -126,71 +120,21 @@ export const processRefund = async (bookingId) => {
     const listingDoc = await getDoc(listingRef);
     const listingTitle = listingDoc.exists() ? listingDoc.data().title || 'Accommodation' : 'Accommodation';
     
-    // If earnings were released and this is a half refund, handle host refund first
-    if (earningsReleased && refundType === 'half_refund' && hostRefundAmount && hostRefundAmount > 0) {
-      // Initialize host wallet
-      await initializeWallet(booking.ownerId);
-      
-      // Check host balance
-      const hostBalance = await getWalletBalance(booking.ownerId);
-      
-      if (hostBalance >= hostRefundAmount) {
-        // Deduct from host wallet
-        await deductFromWallet(
-          booking.ownerId,
-          hostRefundAmount,
-          `Cancellation Refund - Half Payment Return to Admin`,
-          {
-            bookingId: bookingId,
-            listingId: booking.listingId,
-            listingTitle: listingTitle,
-            guestId: booking.guestId,
-            guestEmail: booking.guestEmail,
-            paymentType: 'booking_cancellation_refund',
-            refundType: 'half_refund_to_admin'
-          },
-          true // skipAuthCheck for admin system operations
-        );
-        
-        // Add to admin wallet
-        await addToWallet(
-          adminUserId,
-          hostRefundAmount,
-          `Cancellation Refund - Received from Host`,
-          {
-            bookingId: bookingId,
-            listingId: booking.listingId,
-            listingTitle: listingTitle,
-            hostId: booking.ownerId,
-            hostEmail: booking.ownerEmail,
-            guestId: booking.guestId,
-            guestEmail: booking.guestEmail,
-            paymentType: 'booking_cancellation_refund',
-            refundType: 'half_refund_from_host'
-          }
-        );
-        
-        console.log(`✅ Host refunded ₱${hostRefundAmount.toLocaleString()} to admin`);
-      } else {
-        console.warn(`⚠️ Host has insufficient balance (₱${hostBalance.toLocaleString()}) to refund ₱${hostRefundAmount.toLocaleString()}. Admin will cover the refund.`);
-        // Admin will cover the refund even if host has insufficient balance
-      }
-    }
+    // Refunds now come from host wallet (hosts received earnings when booking was confirmed)
+    // Check host balance before refunding to guest
+    const hostBalance = await getWalletBalance(booking.ownerId);
     
-    // Check admin balance before refunding to guest
-    const adminBalance = await getWalletBalance(adminUserId);
-    
-    if (adminBalance < refundAmount) {
-      console.error(`❌ Admin has insufficient balance (₱${adminBalance.toLocaleString()}) to refund ₱${refundAmount.toLocaleString()}`);
+    if (hostBalance < refundAmount) {
+      console.error(`❌ Host has insufficient balance (₱${hostBalance.toLocaleString()}) to refund ₱${refundAmount.toLocaleString()}`);
       return { 
         success: false, 
-        message: `Unable to process refund. Admin has insufficient balance (₱${adminBalance.toLocaleString()}). Please add funds to admin wallet.` 
+        message: `Unable to process refund. Host has insufficient balance (₱${hostBalance.toLocaleString()}). Please ask host to add funds to their wallet.` 
       };
     }
     
-    // Deduct from admin wallet
+    // Deduct from host wallet (host received earnings when booking was confirmed)
     await deductFromWallet(
-      adminUserId,
+      booking.ownerId,
       refundAmount,
       `Refund - Cancelled Booking (${refundType === 'full_refund' ? 'Full' : 'Half'})`,
       {
@@ -199,7 +143,7 @@ export const processRefund = async (bookingId) => {
         listingTitle: listingTitle,
         guestId: booking.guestId,
         guestEmail: booking.guestEmail,
-        paymentType: 'booking_refund',
+        paymentType: 'booking_cancellation_refund',
         refundType: refundType,
         earningsReleased: earningsReleased
       },
@@ -215,7 +159,9 @@ export const processRefund = async (bookingId) => {
         bookingId: bookingId,
         listingId: booking.listingId,
         listingTitle: listingTitle,
-        paymentType: 'booking_refund',
+        hostId: booking.ownerId,
+        hostEmail: booking.ownerEmail,
+        paymentType: 'booking_cancellation_refund',
         refundType: refundType,
         originalStatus: booking.originalStatus || 'pending'
       }
@@ -231,8 +177,8 @@ export const processRefund = async (bookingId) => {
     });
     
     const refundMessage = refundType === 'full_refund'
-      ? `Full refund of ₱${refundAmount.toLocaleString()} has been processed and added to guest's wallet.`
-      : `Half refund of ₱${refundAmount.toLocaleString()} has been processed and added to guest's wallet.${earningsReleased && hostRefundAmount ? (hostBalance >= hostRefundAmount ? ' Host has returned their portion.' : ' Note: Host had insufficient balance - admin covered the refund.') : ''}`;
+      ? `Full refund of ₱${refundAmount.toLocaleString()} has been processed and added to guest's wallet (deducted from host wallet).`
+      : `Half refund of ₱${refundAmount.toLocaleString()} has been processed and added to guest's wallet (deducted from host wallet).`;
     
     return { 
       success: true, 
