@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>FEATURE_DOCUMENTATION</title>
+  <style>
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/water.css@2/out/water.css" />
+</head>
+<body>
+<h1 id="getaways-platform---feature-documentation">GETAWAYS PLATFORM -
+FEATURE DOCUMENTATION</h1>
+<h2 id="table-of-contents">Table of Contents</h2>
+<ol type="1">
+<li><a href="#core-features">Core Features</a></li>
+<li><a href="#guest-features">Guest Features</a></li>
+<li><a href="#host-features">Host Features</a></li>
+<li><a href="#admin-features">Admin Features</a></li>
+<li><a href="#payment-features">Payment Features</a></li>
+<li><a href="#communication-features">Communication Features</a></li>
+<li><a href="#review--rating-system">Review &amp; Rating System</a></li>
+<li><a href="#search--discovery">Search &amp; Discovery</a></li>
+<li><a href="#points--rewards">Points &amp; Rewards</a></li>
+<li><a href="#coupon-system">Coupon System</a></li>
+</ol>
+<hr />
+<h2 id="core-features">1. Core Features</h2>
+<h3 id="user-authentication">1.1 User Authentication</h3>
+<h4 id="emailpassword-authentication">Email/Password Authentication</h4>
+<ul>
+<li><strong>Registration</strong>: Users can create accounts with email
+and password</li>
+<li><strong>Login</strong>: Secure login with email verification</li>
+<li><strong>Password Reset</strong>: Token-based password reset via
+email</li>
+<li><strong>Email Verification</strong>: Required for account
+activation</li>
+<li><strong>Session Management</strong>: Persistent and session-based
+login options</li>
+</ul>
+<h4 id="google-sign-in">Google Sign-In</h4>
+<ul>
+<li><strong>OAuth Integration</strong>: One-click Google
+authentication</li>
+<li><strong>Account Linking</strong>: Links Google account to platform
+account</li>
+<li><strong>Auto-Verification</strong>: Google accounts are
+automatically verified</li>
+</ul>
+<h4 id="account-types">Account Types</h4>
+<ul>
+<li><strong>Guest Account</strong>: For booking and browsing</li>
+<li><strong>Host Account</strong>: For listing and earning</li>
+<li><strong>Admin Account</strong>: For platform management</li>
+<li><strong>Multi-Role Support</strong>: Users can have multiple
+roles</li>
+</ul>
+<h3 id="user-profiles">1.2 User Profiles</h3>
+<h4 id="profile-management">Profile Management</h4>
+<ul>
+<li><strong>Personal Information</strong>: First name, last name,
+email</li>
+<li><strong>Profile Picture</strong>: Upload and manage profile
+images</li>
+<li><strong>Account Settings</strong>: Comprehensive settings
+management</li>
+<li><strong>Privacy Controls</strong>: Control profile visibility</li>
+</ul>
+<h4 id="role-management">Role Management</h4>
+<ul>
+<li><strong>Role Assignment</strong>: Automatic role assignment on
+signup</li>
+<li><strong>Role Upgrades</strong>: Guests can upgrade to hosts</li>
+<li><strong>Role Permissions</strong>: Role-based feature access</li>
+</ul>
+<hr />
+<h2 id="guest-features">2. Guest Features</h2>
+<h3 id="search-browse">2.1 Search &amp; Browse</h3>
+<h4 id="advanced-search">Advanced Search</h4>
+<ul>
+<li><strong>Location Search</strong>: Search by city, province, or
+region</li>
+<li><strong>Date Selection</strong>: Flexible date picker with multiple
+modes:
+<ul>
+<li>Specific dates</li>
+<li>Month selection</li>
+<li>Flexible dates (weekend, week, month)</li>
+</ul></li>
+<li><strong>Guest Count</strong>: Select adults, children, infants,
+pets</li>
+<li><strong>Category Filter</strong>: Filter by Accommodations,
+Experiences, Services</li>
+<li><strong>Real-time Suggestions</strong>: Location autocomplete</li>
+</ul>
+<h4 id="listing-display">Listing Display</h4>
+<ul>
+<li><strong>Grid/List View</strong>: Toggle between view modes</li>
+<li><strong>Sorting Options</strong>: Sort by price, rating, newest</li>
+<li><strong>Filtering</strong>: Multiple filter options</li>
+<li><strong>Pagination</strong>: Efficient listing pagination</li>
+<li><strong>Featured Listings</strong>: Highlighted premium
+listings</li>
+</ul>
+<h3 id="listing-details">2.2 Listing Details</h3>
+<h4 id="comprehensive-information">Comprehensive Information</h4>
+<ul>
+<li><strong>Photo Gallery</strong>: Multiple high-quality images</li>
+<li><strong>Detailed Description</strong>: Rich text descriptions</li>
+<li><strong>Amenities List</strong>: Complete amenities listing</li>
+<li><strong>Location Map</strong>: Interactive map with precise
+location</li>
+<li><strong>Host Information</strong>: Host profile and contact</li>
+<li><strong>Reviews &amp; Ratings</strong>: Guest reviews and average
+ratings</li>
+<li><strong>Similar Listings</strong>: Recommendations based on current
+listing</li>
+</ul>
+<h4 id="booking-information">Booking Information</h4>
+<ul>
+<li><strong>Pricing Breakdown</strong>: Transparent pricing display</li>
+<li><strong>Availability Calendar</strong>: Visual availability
+display</li>
+<li><strong>Guest Capacity</strong>: Maximum guests information</li>
+<li><strong>House Rules</strong>: Listing rules and policies</li>
+<li><strong>Cancellation Policy</strong>: Clear cancellation terms</li>
+</ul>
+<h3 id="booking-system">2.3 Booking System</h3>
+<h4 id="booking-process">Booking Process</h4>
+<ol type="1">
+<li><strong>Select Dates</strong>: Choose check-in and check-out</li>
+<li><strong>Select Guests</strong>: Specify number of guests</li>
+<li><strong>Review Pricing</strong>: See total cost breakdown</li>
+<li><strong>Apply Coupon</strong>: Optional coupon code application</li>
+<li><strong>Choose Payment</strong>: Select payment method</li>
+<li><strong>Add Message</strong>: Optional message to host</li>
+<li><strong>Submit Request</strong>: Create booking request</li>
+</ol>
+<h4 id="booking-status">Booking Status</h4>
+<ul>
+<li><strong>Pending</strong>: Awaiting host confirmation</li>
+<li><strong>Confirmed</strong>: Host accepted, payment processed</li>
+<li><strong>Completed</strong>: Stay/service completed</li>
+<li><strong>Cancelled</strong>: Booking cancelled</li>
+</ul>
+<h4 id="payment-options">Payment Options</h4>
+<ul>
+<li><strong>GetPay Wallet</strong>: Instant payment from wallet</li>
+<li><strong>PayPal</strong>: PayPal payment integration</li>
+<li><strong>Pay Later</strong>: Reserve now, pay on confirmation</li>
+</ul>
+<h3 id="booking-management">2.4 Booking Management</h3>
+<h4 id="view-bookings">View Bookings</h4>
+<ul>
+<li><strong>All Bookings</strong>: View all booking history</li>
+<li><strong>Filter by Status</strong>: Filter pending, confirmed,
+completed, cancelled</li>
+<li><strong>Search Bookings</strong>: Search by listing name or ID</li>
+<li><strong>Booking Details</strong>: Comprehensive booking
+information</li>
+</ul>
+<h4 id="booking-actions">Booking Actions</h4>
+<ul>
+<li><strong>View Details</strong>: Full booking information</li>
+<li><strong>Cancel Booking</strong>: Cancel with refund calculation</li>
+<li><strong>Complete Payment</strong>: Pay for confirmed bookings</li>
+<li><strong>Contact Host</strong>: Message host about booking</li>
+<li><strong>Leave Review</strong>: Review after completion</li>
+</ul>
+<h3 id="favoriteswishlist">2.5 Favorites/Wishlist</h3>
+<h4 id="save-listings">Save Listings</h4>
+<ul>
+<li><strong>Add to Favorites</strong>: One-click save</li>
+<li><strong>View Favorites</strong>: Access saved listings</li>
+<li><strong>Remove from Favorites</strong>: Easy removal</li>
+<li><strong>Compare Listings</strong>: Compare saved options</li>
+</ul>
+<h3 id="recommendations">2.6 Recommendations</h3>
+<h4 id="personalized-recommendations">Personalized Recommendations</h4>
+<ul>
+<li><strong>Based on Search History</strong>: Recommendations from past
+searches</li>
+<li><strong>Based on Bookings</strong>: Similar to previous
+bookings</li>
+<li><strong>Based on Preferences</strong>: User preference-based</li>
+<li><strong>Dynamic Updates</strong>: Regularly updated
+recommendations</li>
+</ul>
+<hr />
+<h2 id="host-features">3. Host Features</h2>
+<h3 id="listing-creation">3.1 Listing Creation</h3>
+<h4 id="accommodation-onboarding">Accommodation Onboarding</h4>
+<p><strong>Step 1: Property Details</strong> - Property type selection -
+Property structure - Privacy type</p>
+<p><strong>Step 2: Location</strong> - Complete address entry - Map
+confirmation - Location visibility settings</p>
+<p><strong>Step 3: Property Basics</strong> - Guest capacity - Bedrooms,
+beds, bathrooms - Property features</p>
+<p><strong>Step 4: Stand Out</strong> - Highlights selection - Amenities
+selection - Photo upload (minimum 5) - Title and description</p>
+<p><strong>Step 5: Pricing</strong> - Weekday pricing - Weekend pricing
+(optional) - Discount configuration</p>
+<p><strong>Step 6: Booking Settings</strong> - Advance notice -
+Preparation time - Availability window - Guest requirements - Instant
+booking toggle</p>
+<p><strong>Step 7: Final Details</strong> - House rules - Cancellation
+policy - Safety amenities</p>
+<p><strong>Step 8: Payment &amp; Publish</strong> - PayPal connection -
+Subscription payment - Publish listing</p>
+<h4 id="experience-onboarding">Experience Onboarding</h4>
+<ul>
+<li>Category and subcategory selection</li>
+<li>Location and meeting point</li>
+<li>Experience details and qualifications</li>
+<li>Photos and itinerary</li>
+<li>Pricing per guest</li>
+<li>Availability configuration</li>
+<li>Title and description</li>
+<li>Payment and publish</li>
+</ul>
+<h4 id="service-onboarding">Service Onboarding</h4>
+<ul>
+<li>Service category selection</li>
+<li>Service details and qualifications</li>
+<li>Location and service area</li>
+<li>Photos and description</li>
+<li>Offerings creation (optional)</li>
+<li>Pricing configuration</li>
+<li>Payment and publish</li>
+</ul>
+<h3 id="listing-management">3.2 Listing Management</h3>
+<h4 id="dashboard-overview">Dashboard Overview</h4>
+<ul>
+<li><strong>Total Listings</strong>: Count of all listings</li>
+<li><strong>Active Bookings</strong>: Current bookings</li>
+<li><strong>Earnings Summary</strong>: Total and pending earnings</li>
+<li><strong>Points Balance</strong>: Current points</li>
+<li><strong>Recent Activity</strong>: Latest updates</li>
+</ul>
+<h4 id="listing-actions">Listing Actions</h4>
+<ul>
+<li><strong>View Listings</strong>: See all listings</li>
+<li><strong>Edit Listing</strong>: Update listing information</li>
+<li><strong>Unpublish</strong>: Hide from search</li>
+<li><strong>Publish</strong>: Make visible to guests</li>
+<li><strong>Delete</strong>: Remove listing</li>
+<li><strong>View Analytics</strong>: Listing performance</li>
+</ul>
+<h4 id="draft-management">Draft Management</h4>
+<ul>
+<li><strong>Save Drafts</strong>: Auto-save during onboarding</li>
+<li><strong>Resume Editing</strong>: Continue from saved point</li>
+<li><strong>Delete Drafts</strong>: Remove unwanted drafts</li>
+<li><strong>Multiple Drafts</strong>: Work on multiple listings</li>
+</ul>
+<h3 id="booking-management-1">3.3 Booking Management</h3>
+<h4 id="booking-requests">Booking Requests</h4>
+<ul>
+<li><strong>View Requests</strong>: See all pending requests</li>
+<li><strong>Booking Details</strong>: Complete booking information</li>
+<li><strong>Guest Information</strong>: Guest profile and contact</li>
+<li><strong>Accept/Decline</strong>: Respond to requests</li>
+<li><strong>Message Guest</strong>: Communicate with guests</li>
+</ul>
+<h4 id="booking-calendar">Booking Calendar</h4>
+<ul>
+<li><strong>Calendar View</strong>: Visual booking calendar</li>
+<li><strong>Availability Display</strong>: See available dates</li>
+<li><strong>Conflict Detection</strong>: Identify booking conflicts</li>
+<li><strong>Planning Tool</strong>: Plan ahead for bookings</li>
+</ul>
+<h3 id="earnings-management">3.4 Earnings Management</h3>
+<h4 id="earnings-overview">Earnings Overview</h4>
+<ul>
+<li><strong>Total Earnings</strong>: Lifetime earnings</li>
+<li><strong>Pending Earnings</strong>: Not yet released</li>
+<li><strong>Released Earnings</strong>: Available for cash out</li>
+<li><strong>Earnings by Listing</strong>: Breakdown by listing</li>
+<li><strong>Monthly Earnings</strong>: Monthly breakdown</li>
+</ul>
+<h4 id="payment-release">Payment Release</h4>
+<ul>
+<li><strong>Automatic Release</strong>: After booking completion</li>
+<li><strong>Admin Processing</strong>: Admin releases earnings</li>
+<li><strong>PayPal Transfer</strong>: Earnings to PayPal</li>
+<li><strong>Payment History</strong>: Complete payment history</li>
+</ul>
+<h3 id="points-system">3.5 Points System</h3>
+<h4 id="earning-points">Earning Points</h4>
+<ul>
+<li><strong>First Listing</strong>: 50 points for first published
+listing</li>
+<li><strong>Confirmed Bookings</strong>: 1 point per ₱100 booking
+amount</li>
+<li><strong>Positive Reviews</strong>:
+<ul>
+<li>5 stars: 25 points</li>
+<li>4 stars: 15 points</li>
+<li>3 stars: 5 points</li>
+</ul></li>
+</ul>
+<h4 id="points-management">Points Management</h4>
+<ul>
+<li><strong>View Balance</strong>: Current points display</li>
+<li><strong>Points History</strong>: Transaction history</li>
+<li><strong>Cash Out</strong>: Convert points to cash</li>
+<li><strong>Points Breakdown</strong>: Detailed points source</li>
+</ul>
+<h3 id="coupon-management">3.6 Coupon Management</h3>
+<h4 id="create-coupons">Create Coupons</h4>
+<ul>
+<li><strong>Coupon Code</strong>: Unique uppercase code</li>
+<li><strong>Discount Type</strong>: Percentage or fixed amount</li>
+<li><strong>Discount Value</strong>: Discount amount</li>
+<li><strong>Validity Period</strong>: Start and end dates</li>
+<li><strong>Usage Limits</strong>: Maximum uses</li>
+<li><strong>Listing Scope</strong>: All listings or specific ones</li>
+<li><strong>Minimum Amount</strong>: Minimum booking amount</li>
+</ul>
+<h4 id="manage-coupons">Manage Coupons</h4>
+<ul>
+<li><strong>View All Coupons</strong>: List of all coupons</li>
+<li><strong>Usage Statistics</strong>: Track coupon usage</li>
+<li><strong>Edit Coupons</strong>: Update coupon details</li>
+<li><strong>Activate/Deactivate</strong>: Toggle coupon status</li>
+<li><strong>Delete Coupons</strong>: Remove coupons</li>
+</ul>
+<hr />
+<h2 id="admin-features">4. Admin Features</h2>
+<h3 id="dashboard-overview-1">4.1 Dashboard Overview</h3>
+<h4 id="key-metrics">Key Metrics</h4>
+<ul>
+<li><strong>Total Users</strong>: Guests, hosts, admins count</li>
+<li><strong>Active Listings</strong>: Published listings count</li>
+<li><strong>Total Bookings</strong>: All-time bookings</li>
+<li><strong>Total Revenue</strong>: Platform revenue</li>
+<li><strong>Service Fees</strong>: Collected service fees</li>
+<li><strong>Subscription Revenue</strong>: Host subscription
+revenue</li>
+<li><strong>Pending Payments</strong>: Awaiting processing</li>
+</ul>
+<h4 id="analytics">Analytics</h4>
+<ul>
+<li><strong>Revenue Trends</strong>: Monthly revenue charts</li>
+<li><strong>Booking Trends</strong>: Booking volume over time</li>
+<li><strong>User Growth</strong>: New user registrations</li>
+<li><strong>Category Breakdown</strong>: Revenue by category</li>
+<li><strong>Top Hosts</strong>: Best performing hosts</li>
+<li><strong>Status Distribution</strong>: Booking status breakdown</li>
+</ul>
+<h3 id="user-management">4.2 User Management</h3>
+<h4 id="user-operations">User Operations</h4>
+<ul>
+<li><strong>View All Users</strong>: Complete user list</li>
+<li><strong>Filter by Role</strong>: Guest, host, admin</li>
+<li><strong>Search Users</strong>: By name or email</li>
+<li><strong>View Profile</strong>: User details</li>
+<li><strong>View Bookings</strong>: User booking history</li>
+<li><strong>View Listings</strong>: Host listings</li>
+<li><strong>Terminate Accounts</strong>: Remove host accounts</li>
+</ul>
+<h3 id="booking-management-2">4.3 Booking Management</h3>
+<h4 id="booking-operations">Booking Operations</h4>
+<ul>
+<li><strong>View All Bookings</strong>: Complete booking list</li>
+<li><strong>Filter by Status</strong>: Pending, confirmed, completed,
+cancelled</li>
+<li><strong>Filter by Date</strong>: Date range filtering</li>
+<li><strong>Search Bookings</strong>: By ID or guest name</li>
+<li><strong>View Details</strong>: Complete booking information</li>
+<li><strong>Update Status</strong>: Change booking status</li>
+<li><strong>Process Refunds</strong>: Handle cancellations</li>
+</ul>
+<h3 id="refund-processing">4.4 Refund Processing</h3>
+<h4 id="refund-workflow">Refund Workflow</h4>
+<ol type="1">
+<li><strong>Review Cancellation</strong>: Check cancellation
+request</li>
+<li><strong>Calculate Refund</strong>: Based on cancellation policy</li>
+<li><strong>Process Refund</strong>: Issue refund to guest</li>
+<li><strong>Update Status</strong>: Mark refund as processed</li>
+<li><strong>Notify Guest</strong>: Send refund confirmation email</li>
+</ol>
+<h4 id="refund-policies">Refund Policies</h4>
+<ul>
+<li><strong>Flexible</strong>: Full refund 24+ hours before</li>
+<li><strong>Moderate</strong>: Full refund 5+ days before</li>
+<li><strong>Strict</strong>: 50% refund 7+ days before</li>
+</ul>
+<h3 id="earnings-management-1">4.5 Earnings Management</h3>
+<h4 id="host-earnings">Host Earnings</h4>
+<ul>
+<li><strong>View All Earnings</strong>: All host earnings</li>
+<li><strong>Pending Earnings</strong>: Not yet released</li>
+<li><strong>Release Earnings</strong>: After booking completion</li>
+<li><strong>Earnings History</strong>: Complete history</li>
+<li><strong>Earnings by Host</strong>: Breakdown by host</li>
+</ul>
+<h4 id="service-fees">Service Fees</h4>
+<ul>
+<li><strong>Fee Overview</strong>: Total fees collected</li>
+<li><strong>Fees by Host</strong>: Per-host breakdown</li>
+<li><strong>Fees by Transaction</strong>: Transaction-level view</li>
+<li><strong>Monthly Breakdown</strong>: Monthly fee collection</li>
+</ul>
+<h3 id="points-management-1">4.6 Points Management</h3>
+<h4 id="points-operations">Points Operations</h4>
+<ul>
+<li><strong>View Host Points</strong>: All hosts with points</li>
+<li><strong>Points History</strong>: Transaction history</li>
+<li><strong>Award Points</strong>: Manually award points</li>
+<li><strong>Deduct Points</strong>: Remove points with reason</li>
+<li><strong>Points Breakdown</strong>: Detailed points source</li>
+</ul>
+<h3 id="cash-out-requests">4.7 Cash Out Requests</h3>
+<h4 id="request-processing">Request Processing</h4>
+<ul>
+<li><strong>View Requests</strong>: All cash out requests</li>
+<li><strong>Filter by Status</strong>: Pending, approved, rejected</li>
+<li><strong>Review Requests</strong>: Verify points balance</li>
+<li><strong>Add Notes</strong>: Admin notes on requests</li>
+<li><strong>Approve/Reject</strong>: Process requests</li>
+<li><strong>PayPal Transfer</strong>: Transfer to host PayPal</li>
+</ul>
+<h3 id="policy-management">4.8 Policy Management</h3>
+<h4 id="policy-operations">Policy Operations</h4>
+<ul>
+<li><strong>Create Policies</strong>: New platform policies</li>
+<li><strong>Edit Policies</strong>: Update existing policies</li>
+<li><strong>Publish Policies</strong>: Make policies visible</li>
+<li><strong>Policy Categories</strong>: Organize by category</li>
+<li><strong>Policy Types</strong>:
+<ul>
+<li>Cancellation policies</li>
+<li>Refund policies</li>
+<li>Host policies</li>
+<li>Guest policies</li>
+<li>Platform terms</li>
+</ul></li>
+</ul>
+<h3 id="reports">4.9 Reports</h3>
+<h4 id="report-generation">Report Generation</h4>
+<ul>
+<li><strong>Select Report Type</strong>: Choose report category</li>
+<li><strong>Date Range</strong>: Select time period</li>
+<li><strong>Generate Report</strong>: Create report</li>
+<li><strong>Download</strong>: PDF or Excel format</li>
+</ul>
+<h4 id="available-reports">Available Reports</h4>
+<ul>
+<li><strong>Revenue Reports</strong>: Financial reports</li>
+<li><strong>Booking Reports</strong>: Booking analytics</li>
+<li><strong>User Reports</strong>: User statistics</li>
+<li><strong>Transaction Reports</strong>: Payment transactions</li>
+<li><strong>Service Fees Reports</strong>: Fee collection</li>
+</ul>
+<h3 id="platform-settings">4.10 Platform Settings</h3>
+<h4 id="configuration">Configuration</h4>
+<ul>
+<li><strong>PayPal Settings</strong>: Admin PayPal configuration</li>
+<li><strong>Email Settings</strong>: Email template management</li>
+<li><strong>Platform Features</strong>: Feature toggles</li>
+<li><strong>System Settings</strong>: General configuration</li>
+</ul>
+<hr />
+<h2 id="payment-features">5. Payment Features</h2>
+<h3 id="getpay-wallet">5.1 GetPay Wallet</h3>
+<h4 id="wallet-operations">Wallet Operations</h4>
+<ul>
+<li><strong>View Balance</strong>: Current wallet balance</li>
+<li><strong>Cash In</strong>: Add funds via PayPal</li>
+<li><strong>Cash Out</strong>: Transfer to PayPal</li>
+<li><strong>Transaction History</strong>: Complete history</li>
+<li><strong>Filter Transactions</strong>: By type and date</li>
+</ul>
+<h4 id="transaction-types">Transaction Types</h4>
+<ul>
+<li><strong>Credit</strong>: Money added to wallet</li>
+<li><strong>Debit</strong>: Money deducted from wallet</li>
+<li><strong>Subscription</strong>: Subscription payments</li>
+<li><strong>Earnings</strong>: Host earnings</li>
+<li><strong>Refund</strong>: Refunds received</li>
+</ul>
+<h3 id="paypal-integration">5.2 PayPal Integration</h3>
+<h4 id="payment-processing">Payment Processing</h4>
+<ul>
+<li><strong>Order Creation</strong>: Create PayPal order</li>
+<li><strong>Payment Approval</strong>: User approves payment</li>
+<li><strong>Order Capture</strong>: Capture payment</li>
+<li><strong>Transaction Recording</strong>: Store transaction
+details</li>
+<li><strong>Refund Processing</strong>: Handle refunds</li>
+</ul>
+<h4 id="subscription-payments">Subscription Payments</h4>
+<ul>
+<li><strong>Monthly Subscription</strong>: ₱999/month</li>
+<li><strong>Yearly Subscription</strong>: ₱9,999/year</li>
+<li><strong>Payment Methods</strong>: PayPal or GetPay wallet</li>
+<li><strong>Auto-Renewal</strong>: Automatic renewal (if
+configured)</li>
+</ul>
+<h3 id="booking-payments">5.3 Booking Payments</h3>
+<h4 id="payment-flow">Payment Flow</h4>
+<ol type="1">
+<li><strong>Booking Creation</strong>: Guest creates booking</li>
+<li><strong>Host Confirmation</strong>: Host accepts booking</li>
+<li><strong>Payment Processing</strong>:
+<ul>
+<li>GetPay: Deduct from wallet</li>
+<li>PayPal: Guest completes payment</li>
+</ul></li>
+<li><strong>Payment Confirmation</strong>: Status updated</li>
+<li><strong>Earnings Hold</strong>: Earnings held until completion</li>
+<li><strong>Earnings Release</strong>: Admin releases after
+completion</li>
+</ol>
+<h3 id="refund-system">5.4 Refund System</h3>
+<h4 id="refund-processing-1">Refund Processing</h4>
+<ul>
+<li><strong>Cancellation Request</strong>: Guest cancels booking</li>
+<li><strong>Refund Calculation</strong>: Based on policy</li>
+<li><strong>Refund Method</strong>: Original payment method</li>
+<li><strong>Refund Processing</strong>: Issue refund</li>
+<li><strong>Refund Confirmation</strong>: Email notification</li>
+</ul>
+<hr />
+<h2 id="communication-features">6. Communication Features</h2>
+<h3 id="messaging-system">6.1 Messaging System</h3>
+<h4 id="conversation-management">Conversation Management</h4>
+<ul>
+<li><strong>Start Conversation</strong>: Initiate with host/guest</li>
+<li><strong>View Conversations</strong>: List of all conversations</li>
+<li><strong>Unread Counts</strong>: Track unread messages</li>
+<li><strong>Message History</strong>: Complete conversation history</li>
+</ul>
+<h4 id="message-features">Message Features</h4>
+<ul>
+<li><strong>Send Messages</strong>: Text messaging</li>
+<li><strong>Real-time Updates</strong>: Live message updates</li>
+<li><strong>Read Receipts</strong>: Message read status</li>
+<li><strong>Booking Context</strong>: Messages linked to bookings</li>
+</ul>
+<h3 id="email-notifications">6.2 Email Notifications</h3>
+<h4 id="email-types">Email Types</h4>
+<ul>
+<li><strong>Verification Email</strong>: Account verification</li>
+<li><strong>Password Reset</strong>: Password reset link</li>
+<li><strong>Booking Confirmation</strong>: Booking details</li>
+<li><strong>Cancellation Email</strong>: Cancellation and refund
+info</li>
+<li><strong>Subscription Confirmation</strong>: Subscription
+details</li>
+</ul>
+<h4 id="email-features">Email Features</h4>
+<ul>
+<li><strong>Template System</strong>: Customizable templates</li>
+<li><strong>Variable Substitution</strong>: Dynamic content</li>
+<li><strong>Branding</strong>: Platform branding</li>
+<li><strong>Multi-language Support</strong>: (if configured)</li>
+</ul>
+<hr />
+<h2 id="review-rating-system">7. Review &amp; Rating System</h2>
+<h3 id="review-submission">7.1 Review Submission</h3>
+<h4 id="review-process">Review Process</h4>
+<ol type="1">
+<li><strong>Booking Completion</strong>: After stay/service</li>
+<li><strong>Review Prompt</strong>: Automatic review request</li>
+<li><strong>Rating Selection</strong>: 1-5 star rating</li>
+<li><strong>Comment Writing</strong>: Review text</li>
+<li><strong>Submission</strong>: Submit review</li>
+</ol>
+<h4 id="review-guidelines">Review Guidelines</h4>
+<ul>
+<li><strong>Honest Reviews</strong>: Accurate experiences</li>
+<li><strong>Constructive Feedback</strong>: Helpful comments</li>
+<li><strong>No Personal Info</strong>: Privacy protection</li>
+<li><strong>One Review Per Booking</strong>: Single review limit</li>
+</ul>
+<h3 id="rating-system">7.2 Rating System</h3>
+<h4 id="rating-calculation">Rating Calculation</h4>
+<ul>
+<li><strong>Average Rating</strong>: Calculated from all reviews</li>
+<li><strong>Review Count</strong>: Total number of reviews</li>
+<li><strong>Rating Display</strong>: Shown on listings</li>
+<li><strong>Rating Updates</strong>: Real-time updates</li>
+</ul>
+<h4 id="rating-impact">Rating Impact</h4>
+<ul>
+<li><strong>Listing Visibility</strong>: Higher ratings = more
+visibility</li>
+<li><strong>Host Points</strong>: Points for positive reviews</li>
+<li><strong>Guest Trust</strong>: Builds trust in listings</li>
+</ul>
+<hr />
+<h2 id="search-discovery">8. Search &amp; Discovery</h2>
+<h3 id="search-features">8.1 Search Features</h3>
+<h4 id="advanced-search-1">Advanced Search</h4>
+<ul>
+<li><strong>Location Autocomplete</strong>: Real-time suggestions</li>
+<li><strong>Date Flexibility</strong>: Multiple date modes</li>
+<li><strong>Guest Selection</strong>: Detailed guest count</li>
+<li><strong>Category Filters</strong>: Accommodations, experiences,
+services</li>
+<li><strong>Price Range</strong>: Filter by price</li>
+<li><strong>Amenities Filter</strong>: Filter by amenities</li>
+</ul>
+<h4 id="search-results">Search Results</h4>
+<ul>
+<li><strong>Relevance Sorting</strong>: Best matches first</li>
+<li><strong>Price Sorting</strong>: Low to high, high to low</li>
+<li><strong>Rating Sorting</strong>: Highest rated first</li>
+<li><strong>Newest First</strong>: Latest listings</li>
+<li><strong>Map View</strong>: Visual location display</li>
+</ul>
+<h3 id="recommendations-1">8.2 Recommendations</h3>
+<h4 id="recommendation-engine">Recommendation Engine</h4>
+<ul>
+<li><strong>Search-Based</strong>: Based on search history</li>
+<li><strong>Booking-Based</strong>: Similar to previous bookings</li>
+<li><strong>Preference-Based</strong>: User preferences</li>
+<li><strong>Location-Based</strong>: Nearby listings</li>
+<li><strong>Category-Based</strong>: Similar categories</li>
+</ul>
+<h4 id="recommendation-display">Recommendation Display</h4>
+<ul>
+<li><strong>Homepage Section</strong>: “Recommended for You”</li>
+<li><strong>Listing Pages</strong>: “Similar Listings”</li>
+<li><strong>Account Settings</strong>: Personalized recommendations</li>
+</ul>
+<hr />
+<h2 id="points-rewards">9. Points &amp; Rewards</h2>
+<h3 id="points-earning">9.1 Points Earning</h3>
+<h4 id="earning-opportunities">Earning Opportunities</h4>
+<ul>
+<li><strong>First Listing</strong>: 50 points bonus</li>
+<li><strong>Confirmed Bookings</strong>: 1 point per ₱100</li>
+<li><strong>Positive Reviews</strong>: 5-25 points based on rating</li>
+<li><strong>Admin Awards</strong>: Manual point awards</li>
+</ul>
+<h3 id="points-management-2">9.2 Points Management</h3>
+<h4 id="points-features">Points Features</h4>
+<ul>
+<li><strong>Balance Display</strong>: Current points</li>
+<li><strong>History Tracking</strong>: Complete transaction history</li>
+<li><strong>Points Breakdown</strong>: Source of points</li>
+<li><strong>Cash Out</strong>: Convert to money</li>
+</ul>
+<h3 id="rewards-system">9.3 Rewards System</h3>
+<h4 id="reward-tiers">Reward Tiers</h4>
+<ul>
+<li><strong>Points Accumulation</strong>: Build points over time</li>
+<li><strong>Cash Out Options</strong>: Convert points to cash</li>
+<li><strong>Recognition</strong>: Top hosts recognition</li>
+</ul>
+<hr />
+<h2 id="coupon-system">10. Coupon System</h2>
+<h3 id="coupon-creation">10.1 Coupon Creation</h3>
+<h4 id="coupon-configuration">Coupon Configuration</h4>
+<ul>
+<li><strong>Unique Code</strong>: Uppercase alphanumeric</li>
+<li><strong>Discount Type</strong>: Percentage or fixed</li>
+<li><strong>Discount Value</strong>: Amount or percentage</li>
+<li><strong>Validity Period</strong>: Start and end dates</li>
+<li><strong>Usage Limits</strong>: Maximum uses</li>
+<li><strong>Listing Scope</strong>: All or specific listings</li>
+<li><strong>Minimum Amount</strong>: Minimum booking requirement</li>
+</ul>
+<h3 id="coupon-application">10.2 Coupon Application</h3>
+<h4 id="guest-usage">Guest Usage</h4>
+<ul>
+<li><strong>Enter Code</strong>: Apply coupon code</li>
+<li><strong>Validation</strong>: Real-time validation</li>
+<li><strong>Discount Display</strong>: Show discount amount</li>
+<li><strong>Price Update</strong>: Update total price</li>
+</ul>
+<h4 id="coupon-validation">Coupon Validation</h4>
+<ul>
+<li><strong>Code Check</strong>: Verify code exists</li>
+<li><strong>Validity Check</strong>: Check dates</li>
+<li><strong>Usage Check</strong>: Verify usage limits</li>
+<li><strong>Listing Check</strong>: Verify listing eligibility</li>
+<li><strong>Amount Check</strong>: Verify minimum amount</li>
+</ul>
+<h3 id="coupon-management-1">10.3 Coupon Management</h3>
+<h4 id="host-management">Host Management</h4>
+<ul>
+<li><strong>Create Coupons</strong>: New coupon creation</li>
+<li><strong>Edit Coupons</strong>: Update existing coupons</li>
+<li><strong>View Statistics</strong>: Usage statistics</li>
+<li><strong>Activate/Deactivate</strong>: Toggle status</li>
+<li><strong>Delete Coupons</strong>: Remove coupons</li>
+</ul>
+<hr />
+<p><strong>Document Version</strong>: 1.0<br />
+<strong>Last Updated</strong>: 2024<br />
+<strong>Platform Version</strong>: Getaways v1.0</p>
+</body>
+</html>

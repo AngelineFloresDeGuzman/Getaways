@@ -1,0 +1,30 @@
+# Test results
+test-results/
+*.log
+
+# Screenshots
+screenshots/
+*.png
+
+# Node modules
+node_modules/
+
+# Environment variables
+.env
+.env.local
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Reports
+reports/*.html
+reports/*.json
+reports/*.xml
+

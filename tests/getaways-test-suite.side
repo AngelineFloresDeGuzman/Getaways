@@ -1,0 +1,334 @@
+{
+  "id": "getaways-platform-test-suite",
+  "version": "2.0",
+  "name": "Getaways Platform Test Suite",
+  "url": "https://getaways-official.firebaseapp.com",
+  "tests": [
+    {
+      "id": "auth-001",
+      "name": "TC-AUTH-001: Load Homepage",
+      "commands": [
+        {
+          "id": "cmd-1",
+          "comment": "",
+          "command": "open",
+          "target": "https://getaways-official.firebaseapp.com/",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "cmd-2",
+          "comment": "",
+          "command": "waitForPageLoad",
+          "target": "",
+          "targets": [],
+          "value": "30000"
+        },
+        {
+          "id": "cmd-3",
+          "comment": "",
+          "command": "assertTitle",
+          "target": "",
+          "targets": [],
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": "auth-002",
+      "name": "TC-AUTH-002: Navigate to Login Page",
+      "commands": [
+        {
+          "id": "cmd-1",
+          "comment": "",
+          "command": "open",
+          "target": "https://getaways-official.firebaseapp.com/login",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "cmd-2",
+          "comment": "",
+          "command": "waitForPageLoad",
+          "target": "",
+          "targets": [],
+          "value": "30000"
+        },
+        {
+          "id": "cmd-3",
+          "comment": "",
+          "command": "assertElementPresent",
+          "target": "input[type='email']",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "cmd-4",
+          "comment": "",
+          "command": "assertElementPresent",
+          "target": "input[type='password']",
+          "targets": [],
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": "auth-003",
+      "name": "TC-AUTH-003: Display Login Form Elements",
+      "commands": [
+        {
+          "id": "cmd-1",
+          "comment": "",
+          "command": "open",
+          "target": "https://getaways-official.firebaseapp.com/login",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "cmd-2",
+          "comment": "",
+          "command": "waitForElementPresent",
+          "target": "input[type='email']",
+          "targets": [],
+          "value": "10000"
+        },
+        {
+          "id": "cmd-3",
+          "comment": "",
+          "command": "waitForElementPresent",
+          "target": "input[type='password']",
+          "targets": [],
+          "value": "10000"
+        }
+      ]
+    },
+    {
+      "id": "auth-004",
+      "name": "TC-AUTH-004: Navigate to Signup Page",
+      "commands": [
+        {
+          "id": "cmd-1",
+          "comment": "",
+          "command": "open",
+          "target": "https://getaways-official.firebaseapp.com/signup",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "cmd-2",
+          "comment": "",
+          "command": "waitForPageLoad",
+          "target": "",
+          "targets": [],
+          "value": "30000"
+        },
+        {
+          "id": "cmd-3",
+          "comment": "",
+          "command": "assertUrl",
+          "target": "https://getaways-official.firebaseapp.com/signup",
+          "targets": [],
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": "guest-001",
+      "name": "TC-GUEST-001: Load Accommodations Page",
+      "commands": [
+        {
+          "id": "cmd-1",
+          "comment": "",
+          "command": "open",
+          "target": "https://getaways-official.firebaseapp.com/accommodations",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "cmd-2",
+          "comment": "",
+          "command": "waitForPageLoad",
+          "target": "",
+          "targets": [],
+          "value": "30000"
+        },
+        {
+          "id": "cmd-3",
+          "comment": "",
+          "command": "assertUrl",
+          "target": "https://getaways-official.firebaseapp.com/accommodations",
+          "targets": [],
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": "guest-002",
+      "name": "TC-GUEST-002: Load Experiences Page",
+      "commands": [
+        {
+          "id": "cmd-1",
+          "comment": "",
+          "command": "open",
+          "target": "https://getaways-official.firebaseapp.com/experiences",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "cmd-2",
+          "comment": "",
+          "command": "waitForPageLoad",
+          "target": "",
+          "targets": [],
+          "value": "30000"
+        },
+        {
+          "id": "cmd-3",
+          "comment": "",
+          "command": "assertUrl",
+          "target": "https://getaways-official.firebaseapp.com/experiences",
+          "targets": [],
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": "guest-003",
+      "name": "TC-GUEST-003: Load Services Page",
+      "commands": [
+        {
+          "id": "cmd-1",
+          "comment": "",
+          "command": "open",
+          "target": "https://getaways-official.firebaseapp.com/services",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "cmd-2",
+          "comment": "",
+          "command": "waitForPageLoad",
+          "target": "",
+          "targets": [],
+          "value": "30000"
+        },
+        {
+          "id": "cmd-3",
+          "comment": "",
+          "command": "assertUrl",
+          "target": "https://getaways-official.firebaseapp.com/services",
+          "targets": [],
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": "host-001",
+      "name": "TC-HOST-001: Navigate to Host Dashboard",
+      "commands": [
+        {
+          "id": "cmd-1",
+          "comment": "",
+          "command": "open",
+          "target": "https://getaways-official.firebaseapp.com/host/hostdashboard",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "cmd-2",
+          "comment": "",
+          "command": "waitForPageLoad",
+          "target": "",
+          "targets": [],
+          "value": "30000"
+        }
+      ]
+    },
+    {
+      "id": "host-002",
+      "name": "TC-HOST-002: Navigate to Host Listings",
+      "commands": [
+        {
+          "id": "cmd-1",
+          "comment": "",
+          "command": "open",
+          "target": "https://getaways-official.firebaseapp.com/host/listings",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "cmd-2",
+          "comment": "",
+          "command": "waitForPageLoad",
+          "target": "",
+          "targets": [],
+          "value": "30000"
+        }
+      ]
+    },
+    {
+      "id": "admin-001",
+      "name": "TC-ADMIN-001: Navigate to Admin Dashboard",
+      "commands": [
+        {
+          "id": "cmd-1",
+          "comment": "",
+          "command": "open",
+          "target": "https://getaways-official.firebaseapp.com/admin/admindashboard",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "cmd-2",
+          "comment": "",
+          "command": "waitForPageLoad",
+          "target": "",
+          "targets": [],
+          "value": "30000"
+        }
+      ]
+    }
+  ],
+  "suites": [
+    {
+      "id": "suite-1",
+      "name": "Authentication Tests",
+      "persistSession": false,
+      "parallel": false,
+      "timeout": 300,
+      "tests": ["auth-001", "auth-002", "auth-003", "auth-004"]
+    },
+    {
+      "id": "suite-2",
+      "name": "Guest Features Tests",
+      "persistSession": false,
+      "parallel": false,
+      "timeout": 300,
+      "tests": ["guest-001", "guest-002", "guest-003"]
+    },
+    {
+      "id": "suite-3",
+      "name": "Host Features Tests",
+      "persistSession": false,
+      "parallel": false,
+      "timeout": 300,
+      "tests": ["host-001", "host-002"]
+    },
+    {
+      "id": "suite-4",
+      "name": "Admin Features Tests",
+      "persistSession": false,
+      "parallel": false,
+      "timeout": 300,
+      "tests": ["admin-001"]
+    }
+  ],
+  "urls": [
+    "https://getaways-official.firebaseapp.com/"
+  ],
+  "plugins": [],
+  "variables": {
+    "baseUrl": "https://getaways-official.firebaseapp.com"
+  }
+}
+

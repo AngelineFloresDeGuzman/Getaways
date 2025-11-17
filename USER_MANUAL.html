@@ -1,0 +1,979 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>USER_MANUAL</title>
+  <style>
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/water.css@2/out/water.css" />
+</head>
+<body>
+<h1 id="getaways-platform---user-manual">GETAWAYS PLATFORM - USER
+MANUAL</h1>
+<h2 id="table-of-contents">Table of Contents</h2>
+<ol type="1">
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#getting-started">Getting Started</a></li>
+<li><a href="#guest-user-guide">Guest User Guide</a></li>
+<li><a href="#host-user-guide">Host User Guide</a></li>
+<li><a href="#admin-user-guide">Admin User Guide</a></li>
+<li><a href="#common-features">Common Features</a></li>
+<li><a href="#troubleshooting">Troubleshooting</a></li>
+</ol>
+<hr />
+<h2 id="introduction">1. Introduction</h2>
+<h3 id="about-getaways">1.1 About Getaways</h3>
+<p>Getaways is a comprehensive online marketplace platform that connects
+travelers with hosts offering accommodations, experiences, and services.
+The platform facilitates bookings, payments, communications, and reviews
+in a seamless, user-friendly environment.</p>
+<h3 id="platform-overview">1.2 Platform Overview</h3>
+<ul>
+<li><strong>Accommodations</strong>: Book unique places to stay</li>
+<li><strong>Experiences</strong>: Discover and book local
+experiences</li>
+<li><strong>Services</strong>: Find and book various services</li>
+<li><strong>GetPay Wallet</strong>: Integrated e-wallet system for
+payments</li>
+<li><strong>Messaging System</strong>: Direct communication between
+guests and hosts</li>
+<li><strong>Review System</strong>: Rate and review bookings</li>
+</ul>
+<h3 id="user-roles">1.3 User Roles</h3>
+<ul>
+<li><strong>Guest</strong>: Browse, search, book, and review
+listings</li>
+<li><strong>Host</strong>: Create and manage listings, handle bookings,
+earn income</li>
+<li><strong>Admin</strong>: Manage platform operations, users, bookings,
+and policies</li>
+</ul>
+<hr />
+<h2 id="getting-started">2. Getting Started</h2>
+<h3 id="account-creation">2.1 Account Creation</h3>
+<h4 id="for-guests">For Guests:</h4>
+<ol type="1">
+<li>Click “Sign Up” on the homepage</li>
+<li>Choose “I’m a Guest” account type</li>
+<li>Enter your email address and password</li>
+<li>Provide your first name and last name</li>
+<li>Accept terms and conditions</li>
+<li>Click “Create Account”</li>
+<li>Verify your email address (check your inbox)</li>
+<li>Click the verification link in the email</li>
+</ol>
+<h4 id="for-hosts">For Hosts:</h4>
+<ol type="1">
+<li>Click “Sign Up” on the homepage</li>
+<li>Choose “I’m a Host” account type</li>
+<li>Complete the registration form</li>
+<li>Verify your email address</li>
+<li>After verification, you’ll be prompted to select your hosting type:
+<ul>
+<li>Accommodation</li>
+<li>Experience</li>
+<li>Service</li>
+</ul></li>
+<li>Begin the onboarding process</li>
+</ol>
+<h4 id="alternative-google-sign-in">Alternative: Google Sign-In</h4>
+<ul>
+<li>Click “Continue with Google”</li>
+<li>Select your Google account</li>
+<li>Choose your account type (Guest or Host)</li>
+<li>Complete profile setup</li>
+</ul>
+<h3 id="email-verification">2.2 Email Verification</h3>
+<ul>
+<li><strong>Why it’s required</strong>: Email verification ensures
+account security and enables full platform access</li>
+<li><strong>How to verify</strong>:
+<ol type="1">
+<li>Check your email inbox after registration</li>
+<li>Click the verification link in the email</li>
+<li>You’ll be redirected to the platform</li>
+<li>If you didn’t receive the email, check spam folder or request a new
+verification email</li>
+</ol></li>
+</ul>
+<h3 id="password-reset">2.3 Password Reset</h3>
+<ol type="1">
+<li>Click “Forgot Password” on the login page</li>
+<li>Enter your registered email address</li>
+<li>Check your email for reset instructions</li>
+<li>Click the reset link (valid for 1 hour)</li>
+<li>Enter your new password</li>
+<li>Confirm your new password</li>
+<li>Log in with your new password</li>
+</ol>
+<h3 id="login">2.4 Login</h3>
+<ol type="1">
+<li>Navigate to the login page</li>
+<li>Enter your email and password</li>
+<li>Optionally check “Remember Me” for persistent login</li>
+<li>Click “Log In”</li>
+<li>You’ll be redirected based on your role:
+<ul>
+<li>Guests → Guest Dashboard</li>
+<li>Hosts → Host Dashboard</li>
+<li>Admins → Admin Dashboard</li>
+</ul></li>
+</ol>
+<hr />
+<h2 id="guest-user-guide">3. Guest User Guide</h2>
+<h3 id="browsing-listings">3.1 Browsing Listings</h3>
+<h4 id="search-functionality">Search Functionality</h4>
+<ul>
+<li><strong>Location Search</strong>: Enter city, province, or
+region</li>
+<li><strong>Date Selection</strong>: Choose check-in and check-out
+dates</li>
+<li><strong>Guest Count</strong>: Select number of adults, children,
+infants, and pets</li>
+<li><strong>Category Filter</strong>: Filter by Accommodations,
+Experiences, or Services</li>
+<li><strong>Flexible Dates</strong>: Use “I’m flexible” option for date
+ranges</li>
+</ul>
+<h4 id="viewing-listings">Viewing Listings</h4>
+<ul>
+<li>Browse featured listings on the homepage</li>
+<li>Use category filters to narrow results</li>
+<li>View listing cards with:
+<ul>
+<li>Photos</li>
+<li>Title and location</li>
+<li>Price per night</li>
+<li>Average rating</li>
+<li>Number of reviews</li>
+</ul></li>
+</ul>
+<h4 id="listing-details-page">Listing Details Page</h4>
+<ul>
+<li><strong>Overview</strong>: Photos, title, location, host
+information</li>
+<li><strong>Amenities</strong>: List of available amenities</li>
+<li><strong>Description</strong>: Detailed listing description</li>
+<li><strong>Reviews</strong>: Guest reviews and ratings</li>
+<li><strong>Location Map</strong>: Interactive map showing listing
+location</li>
+<li><strong>Similar Listings</strong>: Recommendations based on your
+search</li>
+<li><strong>Host Profile</strong>: Information about the host</li>
+</ul>
+<h3 id="making-a-booking">3.2 Making a Booking</h3>
+<h4 id="step-1-select-dates-and-guests">Step 1: Select Dates and
+Guests</h4>
+<ol type="1">
+<li>Choose check-in and check-out dates</li>
+<li>Select number of guests</li>
+<li>Review pricing breakdown</li>
+</ol>
+<h4 id="step-2-review-booking-details">Step 2: Review Booking
+Details</h4>
+<ul>
+<li>Total nights (for accommodations)</li>
+<li>Base price</li>
+<li>Service fees (if applicable)</li>
+<li>Discounts (if coupon applied)</li>
+<li>Total amount</li>
+</ul>
+<h4 id="step-3-apply-coupon-optional">Step 3: Apply Coupon
+(Optional)</h4>
+<ol type="1">
+<li>Enter coupon code in the booking form</li>
+<li>Click “Apply”</li>
+<li>Discount will be applied if valid</li>
+<li>Review updated pricing</li>
+</ol>
+<h4 id="step-4-choose-payment-method">Step 4: Choose Payment Method</h4>
+<ul>
+<li><strong>GetPay Wallet</strong>: Pay immediately from wallet
+balance</li>
+<li><strong>PayPal</strong>: Pay via PayPal (payment processed when host
+confirms)</li>
+<li><strong>Pay Later</strong>: Reserve now, pay when host confirms</li>
+</ul>
+<h4 id="step-5-add-message-to-host-optional">Step 5: Add Message to Host
+(Optional)</h4>
+<ul>
+<li>Include special requests or questions</li>
+<li>This message will be sent via the messaging system</li>
+</ul>
+<h4 id="step-6-submit-booking-request">Step 6: Submit Booking
+Request</h4>
+<ol type="1">
+<li>Review all details</li>
+<li>Click “Request to Book”</li>
+<li>Booking status will be “Pending” until host responds</li>
+<li>You’ll receive email confirmation</li>
+</ol>
+<h3 id="booking-management">3.3 Booking Management</h3>
+<h4 id="viewing-your-bookings">Viewing Your Bookings</h4>
+<ol type="1">
+<li>Navigate to “Account Settings” → “Bookings” tab</li>
+<li>View all bookings with status:
+<ul>
+<li><strong>Pending</strong>: Awaiting host confirmation</li>
+<li><strong>Confirmed</strong>: Host has accepted</li>
+<li><strong>Completed</strong>: Stay/service completed</li>
+<li><strong>Cancelled</strong>: Booking cancelled</li>
+</ul></li>
+</ol>
+<h4 id="booking-details">Booking Details</h4>
+<ul>
+<li>Booking ID</li>
+<li>Listing information</li>
+<li>Dates and guests</li>
+<li>Payment status</li>
+<li>Host contact information</li>
+<li>Cancellation policy</li>
+</ul>
+<h4 id="payment-for-confirmed-bookings">Payment for Confirmed
+Bookings</h4>
+<ul>
+<li>If you selected “Pay Later” or PayPal:
+<ol type="1">
+<li>Go to booking details</li>
+<li>Click “Complete Payment”</li>
+<li>Choose payment method</li>
+<li>Complete payment within 24 hours of host confirmation</li>
+</ol></li>
+</ul>
+<h4 id="cancelling-a-booking">Cancelling a Booking</h4>
+<ol type="1">
+<li>Open booking details</li>
+<li>Click “Cancel Booking”</li>
+<li>Review cancellation policy and refund amount</li>
+<li>Confirm cancellation</li>
+<li>Refund will be processed according to policy:
+<ul>
+<li><strong>Flexible</strong>: Full refund if cancelled 24+ hours before
+check-in</li>
+<li><strong>Moderate</strong>: Full refund if cancelled 5+ days before
+check-in</li>
+<li><strong>Strict</strong>: 50% refund if cancelled 7+ days before
+check-in</li>
+</ul></li>
+</ol>
+<h3 id="reviews-and-ratings">3.4 Reviews and Ratings</h3>
+<h4 id="leaving-a-review">Leaving a Review</h4>
+<ol type="1">
+<li>After booking completion, navigate to booking details</li>
+<li>Click “Write a Review”</li>
+<li>Rate from 1-5 stars</li>
+<li>Write your review comment</li>
+<li>Submit review</li>
+<li>Review will appear on the listing page</li>
+</ol>
+<h4 id="review-guidelines">Review Guidelines</h4>
+<ul>
+<li>Be honest and constructive</li>
+<li>Focus on your experience</li>
+<li>Avoid personal information</li>
+<li>Reviews cannot be edited after submission</li>
+</ul>
+<h3 id="favoriteswishlist">3.5 Favorites/Wishlist</h3>
+<h4 id="adding-to-favorites">Adding to Favorites</h4>
+<ol type="1">
+<li>Click the heart icon on any listing</li>
+<li>Listing is saved to your favorites</li>
+<li>Access favorites from “Account Settings” → “Wishlist” tab</li>
+</ol>
+<h4 id="managing-favorites">Managing Favorites</h4>
+<ul>
+<li>View all saved listings</li>
+<li>Remove items by clicking the heart icon again</li>
+<li>Use favorites to compare options</li>
+</ul>
+<h3 id="messaging">3.6 Messaging</h3>
+<h4 id="starting-a-conversation">Starting a Conversation</h4>
+<ol type="1">
+<li>Click “Contact Host” on a listing page</li>
+<li>Or start conversation from booking details</li>
+<li>Type your message</li>
+<li>Send message</li>
+<li>Host will receive notification</li>
+</ol>
+<h4 id="managing-conversations">Managing Conversations</h4>
+<ul>
+<li>View all conversations in “Messages” section</li>
+<li>See unread message counts</li>
+<li>Reply to messages</li>
+<li>View conversation history</li>
+</ul>
+<h3 id="recommendations">3.7 Recommendations</h3>
+<h4 id="personalized-recommendations">Personalized Recommendations</h4>
+<ul>
+<li>Based on your search history</li>
+<li>Based on your bookings</li>
+<li>Based on your preferences</li>
+<li>Updated regularly</li>
+</ul>
+<h4 id="viewing-recommendations">Viewing Recommendations</h4>
+<ul>
+<li>Homepage “Recommended for You” section</li>
+<li>Account Settings → Recommendations</li>
+<li>Listing detail pages → “Similar Listings”</li>
+</ul>
+<hr />
+<h2 id="host-user-guide">4. Host User Guide</h2>
+<h3 id="host-onboarding">4.1 Host Onboarding</h3>
+<h4 id="accommodation-onboarding-process">Accommodation Onboarding
+Process</h4>
+<p><strong>Step 1: Property Details</strong> - Select property type
+(House, Apartment, Condo, etc.) - Choose property structure - Select
+privacy type (Entire place, Private room, Shared room)</p>
+<p><strong>Step 2: Location</strong> - Enter complete address - Confirm
+location on map - Set location visibility (precise or approximate)</p>
+<p><strong>Step 3: Property Basics</strong> - Guest capacity - Number of
+bedrooms - Number of beds - Number of bathrooms</p>
+<p><strong>Step 4: Make It Stand Out</strong> - Add highlights (up to 5)
+- Select amenities - Upload photos (minimum 5 required) - Write title
+and description</p>
+<p><strong>Step 5: Pricing</strong> - Set weekday price - Set weekend
+price (optional) - Configure discounts: - Weekly discount - Monthly
+discount - Early bird discount - Last minute discount</p>
+<p><strong>Step 6: Booking Settings</strong> - Advance notice required -
+Preparation time - Availability window - Guest requirements - Instant
+booking (on/off)</p>
+<p><strong>Step 7: Final Details</strong> - House rules - Cancellation
+policy - Safety amenities</p>
+<p><strong>Step 8: Payment Setup</strong> - Connect PayPal account (for
+receiving payments) - Complete subscription payment: - Monthly:
+₱999/month - Yearly: ₱9,999/year - Publish listing</p>
+<h4 id="experience-onboarding-process">Experience Onboarding
+Process</h4>
+<p><strong>Step 1: Category Selection</strong> - Choose experience
+category - Select subcategory</p>
+<p><strong>Step 2: Location</strong> - Select where experience takes
+place - Enter meeting location</p>
+<p><strong>Step 3: Experience Details</strong> - Years of experience -
+Qualifications - Online profiles/portfolio - Residential address -
+Meeting address</p>
+<p><strong>Step 4: Experience Information</strong> - Upload photos -
+Create itinerary - Set maximum guests - Set price per guest</p>
+<p><strong>Step 5: Pricing and Availability</strong> - Review pricing -
+Set discounts - Configure availability</p>
+<p><strong>Step 6: Title and Description</strong> - Create compelling
+title - Write detailed description - Preview listing</p>
+<p><strong>Step 7: Payment and Publish</strong> - Complete subscription
+payment - Publish experience listing</p>
+<h4 id="service-onboarding-process">Service Onboarding Process</h4>
+<p><strong>Step 1: Category Selection</strong> - Choose service
+category</p>
+<p><strong>Step 2: Service Details</strong> - Location - Years of
+experience - Qualifications - Online profiles - Where service is
+provided - Service address</p>
+<p><strong>Step 3: Service Information</strong> - Upload photos -
+Service title - What you provide - Service description - Create
+offerings (if applicable)</p>
+<p><strong>Step 4: Offerings Setup</strong> (if applicable) - Offering
+title - Photos - Guest capacity - Pricing (per guest or fixed) -
+Discounts - Availability</p>
+<p><strong>Step 5: Payment and Publish</strong> - Complete subscription
+payment - Publish service listing</p>
+<h3 id="host-dashboard">4.2 Host Dashboard</h3>
+<h4 id="overview">Overview</h4>
+<ul>
+<li>Total listings count</li>
+<li>Active bookings</li>
+<li>Earnings summary</li>
+<li>Points balance</li>
+<li>Recent activity</li>
+</ul>
+<h4 id="listings-management">Listings Management</h4>
+<ul>
+<li><strong>View All Listings</strong>: See all your listings</li>
+<li><strong>Filter by Category</strong>: Accommodations, Experiences,
+Services</li>
+<li><strong>Listing Status</strong>: Published, Unpublished, Drafts</li>
+<li><strong>Quick Actions</strong>:
+<ul>
+<li>Edit listing</li>
+<li>Unpublish listing</li>
+<li>View listing</li>
+<li>Delete listing</li>
+</ul></li>
+</ul>
+<h4 id="drafts-management">Drafts Management</h4>
+<ul>
+<li>View all draft listings</li>
+<li>Resume editing from where you left off</li>
+<li>Delete drafts</li>
+<li>Continue onboarding process</li>
+</ul>
+<h3 id="managing-bookings">4.3 Managing Bookings</h3>
+<h4 id="booking-requests">Booking Requests</h4>
+<ul>
+<li>View pending booking requests</li>
+<li>See booking details:
+<ul>
+<li>Guest information</li>
+<li>Dates and guests</li>
+<li>Total amount</li>
+<li>Guest message</li>
+</ul></li>
+<li><strong>Actions</strong>:
+<ul>
+<li>Accept booking</li>
+<li>Decline booking</li>
+<li>Message guest</li>
+</ul></li>
+</ul>
+<h4 id="confirming-bookings">Confirming Bookings</h4>
+<ol type="1">
+<li>Review booking request</li>
+<li>Check availability</li>
+<li>Click “Accept” or “Decline”</li>
+<li>If accepted:
+<ul>
+<li>Guest payment will be processed</li>
+<li>Booking status changes to “Confirmed”</li>
+<li>Both parties receive email notification</li>
+</ul></li>
+</ol>
+<h4 id="booking-calendar">Booking Calendar</h4>
+<ul>
+<li>View all bookings in calendar format</li>
+<li>See availability</li>
+<li>Identify conflicts</li>
+<li>Plan ahead</li>
+</ul>
+<h3 id="earnings-and-payments">4.4 Earnings and Payments</h3>
+<h4 id="earnings-overview">Earnings Overview</h4>
+<ul>
+<li>Total earnings</li>
+<li>Pending earnings (not yet released)</li>
+<li>Released earnings</li>
+<li>Earnings by listing</li>
+<li>Earnings by month</li>
+</ul>
+<h4 id="payment-release">Payment Release</h4>
+<ul>
+<li>Earnings are held until booking completion</li>
+<li>Admin releases earnings after stay/service completion</li>
+<li>Released earnings are transferred to your PayPal account</li>
+<li>View payment history in dashboard</li>
+</ul>
+<h4 id="points-system">Points System</h4>
+<ul>
+<li><strong>Earning Points</strong>:
+<ul>
+<li>50 points for first listing published</li>
+<li>Points for confirmed bookings (1 point per ₱100)</li>
+<li>Points for positive reviews:
+<ul>
+<li>5 stars: 25 points</li>
+<li>4 stars: 15 points</li>
+<li>3 stars: 5 points</li>
+</ul></li>
+</ul></li>
+<li><strong>Viewing Points</strong>:
+<ul>
+<li>Dashboard shows current points</li>
+<li>View points history</li>
+<li>See points breakdown</li>
+</ul></li>
+</ul>
+<h4 id="cashing-out-points">Cashing Out Points</h4>
+<ol type="1">
+<li>Go to Host Dashboard</li>
+<li>Click “Cash Out Points”</li>
+<li>Enter amount to cash out</li>
+<li>Submit request</li>
+<li>Admin will process and transfer to PayPal</li>
+</ol>
+<h3 id="coupon-management">4.5 Coupon Management</h3>
+<h4 id="creating-coupons">Creating Coupons</h4>
+<ol type="1">
+<li>Go to Host Dashboard → Coupons</li>
+<li>Click “Create Coupon”</li>
+<li>Enter coupon details:
+<ul>
+<li>Coupon code (unique, uppercase)</li>
+<li>Description</li>
+<li>Discount type (Percentage or Fixed amount)</li>
+<li>Discount value</li>
+<li>Valid from date</li>
+<li>Valid until date</li>
+<li>Maximum uses (optional)</li>
+<li>Minimum booking amount</li>
+<li>Apply to specific listings or all listings</li>
+</ul></li>
+<li>Save coupon</li>
+</ol>
+<h4 id="managing-coupons">Managing Coupons</h4>
+<ul>
+<li>View all coupons</li>
+<li>See usage statistics</li>
+<li>Edit active coupons</li>
+<li>Deactivate coupons</li>
+<li>Delete coupons</li>
+</ul>
+<h3 id="listing-management">4.6 Listing Management</h3>
+<h4 id="editing-listings">Editing Listings</h4>
+<ol type="1">
+<li>Go to Host Dashboard → Listings</li>
+<li>Click “Edit” on desired listing</li>
+<li>Make changes</li>
+<li>Save updates</li>
+<li>Changes are reflected immediately</li>
+</ol>
+<h4 id="unpublishing-listings">Unpublishing Listings</h4>
+<ol type="1">
+<li>Go to listing details</li>
+<li>Click “Unpublish”</li>
+<li>Confirm action</li>
+<li>Listing will be hidden from search</li>
+<li>Existing bookings remain active</li>
+</ol>
+<h4 id="publishing-unpublished-listings">Publishing Unpublished
+Listings</h4>
+<ol type="1">
+<li>Go to unpublished listings</li>
+<li>Click “Publish”</li>
+<li>Listing becomes visible to guests</li>
+</ol>
+<h3 id="host-messaging">4.7 Host Messaging</h3>
+<h4 id="receiving-messages">Receiving Messages</h4>
+<ul>
+<li>Guests can message you about listings</li>
+<li>Messages appear in “Messages” section</li>
+<li>Unread message count shown in navigation</li>
+</ul>
+<h4 id="replying-to-messages">Replying to Messages</h4>
+<ol type="1">
+<li>Open conversation</li>
+<li>Type your response</li>
+<li>Send message</li>
+<li>Guest receives notification</li>
+</ol>
+<h4 id="starting-conversations">Starting Conversations</h4>
+<ul>
+<li>Message guests about their bookings</li>
+<li>Answer questions</li>
+<li>Provide additional information</li>
+</ul>
+<h3 id="host-resources">4.8 Host Resources</h3>
+<h4 id="available-resources">Available Resources</h4>
+<ul>
+<li>Getting Started guides</li>
+<li>Pricing tips</li>
+<li>Guest management best practices</li>
+<li>Photography tips</li>
+<li>Legal information</li>
+<li>Tax information</li>
+</ul>
+<h4 id="accessing-resources">Accessing Resources</h4>
+<ul>
+<li>Navigate to “Resources” in host menu</li>
+<li>Browse by category</li>
+<li>Read articles and guides</li>
+</ul>
+<hr />
+<h2 id="admin-user-guide">5. Admin User Guide</h2>
+<h3 id="admin-dashboard-overview">5.1 Admin Dashboard Overview</h3>
+<h4 id="key-metrics">Key Metrics</h4>
+<ul>
+<li>Total users (guests, hosts, admins)</li>
+<li>Active listings</li>
+<li>Total bookings</li>
+<li>Total revenue</li>
+<li>Service fees collected</li>
+<li>Subscription revenue</li>
+<li>Pending payments</li>
+</ul>
+<h4 id="analytics">Analytics</h4>
+<ul>
+<li>Monthly revenue trends</li>
+<li>Booking trends</li>
+<li>User growth</li>
+<li>Revenue by category</li>
+<li>Top performing hosts</li>
+<li>Booking status distribution</li>
+</ul>
+<h3 id="user-management">5.2 User Management</h3>
+<h4 id="viewing-users">Viewing Users</h4>
+<ul>
+<li>See all registered users</li>
+<li>Filter by role (Guest, Host, Admin)</li>
+<li>Search by name or email</li>
+<li>View user details</li>
+</ul>
+<h4 id="user-actions">User Actions</h4>
+<ul>
+<li>View user profile</li>
+<li>View user bookings</li>
+<li>View user listings (for hosts)</li>
+<li>Terminate host accounts (if necessary)</li>
+</ul>
+<h3 id="booking-management-1">5.3 Booking Management</h3>
+<h4 id="viewing-all-bookings">Viewing All Bookings</h4>
+<ul>
+<li>See all platform bookings</li>
+<li>Filter by status</li>
+<li>Filter by date range</li>
+<li>Search bookings</li>
+</ul>
+<h4 id="booking-actions">Booking Actions</h4>
+<ul>
+<li>View booking details</li>
+<li>Update booking status</li>
+<li>Process refunds</li>
+<li>View payment information</li>
+</ul>
+<h4 id="refund-processing">Refund Processing</h4>
+<ol type="1">
+<li>Navigate to booking details</li>
+<li>Review cancellation request</li>
+<li>Calculate refund amount based on policy</li>
+<li>Process refund</li>
+<li>Update booking status</li>
+<li>Guest receives email notification</li>
+</ol>
+<h3 id="earnings-management">5.4 Earnings Management</h3>
+<h4 id="host-earnings">Host Earnings</h4>
+<ul>
+<li>View all host earnings</li>
+<li>See pending earnings</li>
+<li>Release earnings after booking completion</li>
+<li>View earnings history</li>
+</ul>
+<h4 id="releasing-earnings">Releasing Earnings</h4>
+<ol type="1">
+<li>Go to booking details</li>
+<li>Verify booking completion</li>
+<li>Click “Release Earnings”</li>
+<li>Earnings transferred to host’s account</li>
+<li>Host receives notification</li>
+</ol>
+<h3 id="service-fees-management">5.5 Service Fees Management</h3>
+<h4 id="service-fees-overview">Service Fees Overview</h4>
+<ul>
+<li>Total service fees collected</li>
+<li>Fees by host</li>
+<li>Fees by transaction</li>
+<li>Monthly breakdown</li>
+</ul>
+<h4 id="subscription-management">Subscription Management</h4>
+<ul>
+<li>View all host subscriptions</li>
+<li>See subscription status</li>
+<li>Track subscription revenue</li>
+<li>View payment history</li>
+</ul>
+<h3 id="points-management">5.6 Points Management</h3>
+<h4 id="viewing-host-points">Viewing Host Points</h4>
+<ul>
+<li>See all hosts with points</li>
+<li>View points history</li>
+<li>See points breakdown</li>
+</ul>
+<h4 id="awarding-points">Awarding Points</h4>
+<ol type="1">
+<li>Select host</li>
+<li>Enter points amount</li>
+<li>Add reason</li>
+<li>Award points</li>
+<li>Points added to host account</li>
+</ol>
+<h4 id="deducting-points">Deducting Points</h4>
+<ol type="1">
+<li>Select host</li>
+<li>Enter points to deduct</li>
+<li>Add reason</li>
+<li>Confirm deduction</li>
+<li>Points removed from host account</li>
+</ol>
+<h3 id="cash-out-requests">5.7 Cash Out Requests</h3>
+<h4 id="viewing-requests">Viewing Requests</h4>
+<ul>
+<li>See all cash out requests from hosts</li>
+<li>Filter by status (Pending, Approved, Rejected)</li>
+<li>View request details</li>
+</ul>
+<h4 id="processing-cash-out">Processing Cash Out</h4>
+<ol type="1">
+<li>Review cash out request</li>
+<li>Verify host points balance</li>
+<li>Add admin notes</li>
+<li>Approve or reject request</li>
+<li>If approved, transfer to host PayPal</li>
+<li>Update request status</li>
+</ol>
+<h3 id="policy-management">5.8 Policy Management</h3>
+<h4 id="managing-policies">Managing Policies</h4>
+<ul>
+<li>Create platform policies</li>
+<li>Edit existing policies</li>
+<li>Publish policies</li>
+<li>Set policy categories</li>
+</ul>
+<h4 id="policy-categories">Policy Categories</h4>
+<ul>
+<li>Cancellation policies</li>
+<li>Refund policies</li>
+<li>Host policies</li>
+<li>Guest policies</li>
+<li>Platform terms</li>
+</ul>
+<h3 id="reports">5.9 Reports</h3>
+<h4 id="generating-reports">Generating Reports</h4>
+<ul>
+<li>Select report type</li>
+<li>Choose date range</li>
+<li>Generate report</li>
+<li>Download as PDF or Excel</li>
+</ul>
+<h4 id="available-reports">Available Reports</h4>
+<ul>
+<li>Revenue reports</li>
+<li>Booking reports</li>
+<li>User reports</li>
+<li>Transaction reports</li>
+<li>Service fees reports</li>
+</ul>
+<h3 id="platform-settings">5.10 Platform Settings</h3>
+<h4 id="paypal-configuration">PayPal Configuration</h4>
+<ul>
+<li>Set admin PayPal email</li>
+<li>Configure PayPal account name</li>
+<li>Test PayPal integration</li>
+</ul>
+<h4 id="platform-configuration">Platform Configuration</h4>
+<ul>
+<li>Update platform settings</li>
+<li>Configure email templates</li>
+<li>Manage platform features</li>
+</ul>
+<hr />
+<h2 id="common-features">6. Common Features</h2>
+<h3 id="getpay-wallet">6.1 GetPay Wallet</h3>
+<h4 id="what-is-getpay-wallet">What is GetPay Wallet?</h4>
+<p>GetPay Wallet is the integrated e-wallet system for making and
+receiving payments on the platform.</p>
+<h4 id="adding-funds-cash-in">Adding Funds (Cash In)</h4>
+<ol type="1">
+<li>Go to “E-Wallet” in account settings</li>
+<li>Click “Cash In”</li>
+<li>Enter amount</li>
+<li>Choose payment method:
+<ul>
+<li>PayPal</li>
+</ul></li>
+<li>Complete payment</li>
+<li>Funds added to wallet</li>
+</ol>
+<h4 id="using-wallet-balance">Using Wallet Balance</h4>
+<ul>
+<li>Pay for bookings</li>
+<li>Receive refunds</li>
+<li>Transfer to PayPal (cash out)</li>
+</ul>
+<h4 id="cash-out-to-paypal">Cash Out to PayPal</h4>
+<ol type="1">
+<li>Go to E-Wallet</li>
+<li>Click “Cash Out”</li>
+<li>Enter amount</li>
+<li>Confirm PayPal account</li>
+<li>Submit request</li>
+<li>Funds transferred to PayPal</li>
+</ol>
+<h4 id="transaction-history">Transaction History</h4>
+<ul>
+<li>View all wallet transactions</li>
+<li>Filter by type (Credit, Debit)</li>
+<li>Filter by date range</li>
+<li>See transaction details</li>
+</ul>
+<h3 id="account-settings">6.2 Account Settings</h3>
+<h4 id="profile-information">Profile Information</h4>
+<ul>
+<li>Update first name</li>
+<li>Update last name</li>
+<li>Change email (requires verification)</li>
+<li>Update profile picture</li>
+</ul>
+<h4 id="security">Security</h4>
+<ul>
+<li>Change password</li>
+<li>Enable two-factor authentication (if available)</li>
+<li>View login history</li>
+</ul>
+<h4 id="payment-methods">Payment Methods</h4>
+<ul>
+<li>Connect PayPal account</li>
+<li>Update PayPal email</li>
+<li>View payment history</li>
+</ul>
+<h4 id="notifications">Notifications</h4>
+<ul>
+<li>Email notifications</li>
+<li>Push notifications (if available)</li>
+<li>Notification preferences</li>
+</ul>
+<h4 id="privacy-settings">Privacy Settings</h4>
+<ul>
+<li>Profile visibility</li>
+<li>Data sharing preferences</li>
+</ul>
+<h3 id="notifications-1">6.3 Notifications</h3>
+<h4 id="types-of-notifications">Types of Notifications</h4>
+<ul>
+<li>Booking requests</li>
+<li>Booking confirmations</li>
+<li>Booking cancellations</li>
+<li>New messages</li>
+<li>Payment updates</li>
+<li>Review notifications</li>
+</ul>
+<h4 id="managing-notifications">Managing Notifications</h4>
+<ul>
+<li>View all notifications</li>
+<li>Mark as read</li>
+<li>Clear notifications</li>
+<li>Configure notification preferences</li>
+</ul>
+<h3 id="policies">6.4 Policies</h3>
+<h4 id="viewing-policies">Viewing Policies</h4>
+<ul>
+<li>Guest policies</li>
+<li>Host policies</li>
+<li>Cancellation policies</li>
+<li>Refund policies</li>
+<li>Terms of service</li>
+<li>Privacy policy</li>
+</ul>
+<h4 id="understanding-policies">Understanding Policies</h4>
+<ul>
+<li>Read carefully before booking</li>
+<li>Understand cancellation terms</li>
+<li>Know refund policies</li>
+<li>Contact support for questions</li>
+</ul>
+<hr />
+<h2 id="troubleshooting">7. Troubleshooting</h2>
+<h3 id="common-issues">7.1 Common Issues</h3>
+<h4 id="login-problems">Login Problems</h4>
+<ul>
+<li><strong>Forgot Password</strong>: Use password reset feature</li>
+<li><strong>Email Not Verified</strong>: Check email and verify
+account</li>
+<li><strong>Account Locked</strong>: Contact support</li>
+</ul>
+<h4 id="booking-issues">Booking Issues</h4>
+<ul>
+<li><strong>Payment Failed</strong>: Check wallet balance or payment
+method</li>
+<li><strong>Booking Not Confirmed</strong>: Wait for host response
+(24-48 hours)</li>
+<li><strong>Cannot Cancel</strong>: Check cancellation policy and time
+limits</li>
+</ul>
+<h4 id="payment-issues">Payment Issues</h4>
+<ul>
+<li><strong>Wallet Not Loading</strong>: Refresh page or clear
+cache</li>
+<li><strong>PayPal Not Working</strong>: Verify PayPal account
+connection</li>
+<li><strong>Refund Not Received</strong>: Contact support with booking
+ID</li>
+</ul>
+<h4 id="messaging-issues">Messaging Issues</h4>
+<ul>
+<li><strong>Messages Not Sending</strong>: Check internet
+connection</li>
+<li><strong>Not Receiving Messages</strong>: Check notification
+settings</li>
+</ul>
+<h3 id="getting-help">7.2 Getting Help</h3>
+<h4 id="support-channels">Support Channels</h4>
+<ul>
+<li><strong>Help Center</strong>: Browse FAQ and guides</li>
+<li><strong>Email Support</strong>: support@getaways.com</li>
+<li><strong>In-App Messaging</strong>: Contact support through
+platform</li>
+</ul>
+<h4 id="what-to-include-in-support-requests">What to Include in Support
+Requests</h4>
+<ul>
+<li>Your account email</li>
+<li>Booking ID (if applicable)</li>
+<li>Description of issue</li>
+<li>Screenshots (if helpful)</li>
+<li>Steps to reproduce issue</li>
+</ul>
+<h3 id="best-practices">7.3 Best Practices</h3>
+<h4 id="for-guests-1">For Guests</h4>
+<ul>
+<li>Verify email after registration</li>
+<li>Read listing details carefully</li>
+<li>Communicate with hosts before booking</li>
+<li>Leave honest reviews</li>
+<li>Follow cancellation policies</li>
+</ul>
+<h4 id="for-hosts-1">For Hosts</h4>
+<ul>
+<li>Complete profile information</li>
+<li>Upload high-quality photos</li>
+<li>Respond to booking requests promptly</li>
+<li>Maintain accurate availability calendar</li>
+<li>Communicate clearly with guests</li>
+</ul>
+<h4 id="for-admins">For Admins</h4>
+<ul>
+<li>Review bookings regularly</li>
+<li>Process refunds promptly</li>
+<li>Monitor platform activity</li>
+<li>Respond to support requests</li>
+<li>Maintain platform policies</li>
+</ul>
+<hr />
+<h2 id="appendix-a-keyboard-shortcuts">Appendix A: Keyboard
+Shortcuts</h2>
+<ul>
+<li><strong>Ctrl/Cmd + K</strong>: Search</li>
+<li><strong>Esc</strong>: Close modals</li>
+<li><strong>Tab</strong>: Navigate forms</li>
+</ul>
+<h2 id="appendix-b-browser-compatibility">Appendix B: Browser
+Compatibility</h2>
+<ul>
+<li>Chrome (latest)</li>
+<li>Firefox (latest)</li>
+<li>Safari (latest)</li>
+<li>Edge (latest)</li>
+</ul>
+<h2 id="appendix-c-mobile-access">Appendix C: Mobile Access</h2>
+<ul>
+<li>Responsive design for mobile browsers</li>
+<li>All features available on mobile</li>
+<li>Optimized for touch interactions</li>
+</ul>
+<hr />
+<p><strong>Document Version</strong>: 1.0<br />
+<strong>Last Updated</strong>: 2024<br />
+<strong>Platform Version</strong>: Getaways v1.0</p>
+</body>
+</html>

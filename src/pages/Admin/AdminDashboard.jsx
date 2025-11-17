@@ -79,9 +79,20 @@ const AdminDashboard = () => {
   const [reviews, setReviews] = useState([]);
   const [payments, setPayments] = useState([]);
   const [hosts, setHosts] = useState([]);
+  const [guests, setGuests] = useState([]);
   const [terminatingHost, setTerminatingHost] = useState(null);
+  const [deletingHost, setDeletingHost] = useState(null);
+  const [blockingGuest, setBlockingGuest] = useState(null);
+  const [deletingGuest, setDeletingGuest] = useState(null);
   const [showTerminateHostDialog, setShowTerminateHostDialog] = useState(false);
+  const [showDeleteHostDialog, setShowDeleteHostDialog] = useState(false);
+  const [showBlockGuestDialog, setShowBlockGuestDialog] = useState(false);
+  const [showDeleteGuestDialog, setShowDeleteGuestDialog] = useState(false);
   const [selectedHostForTermination, setSelectedHostForTermination] = useState(null);
+  const [selectedHostForDeletion, setSelectedHostForDeletion] = useState(null);
+  const [selectedGuestForBlocking, setSelectedGuestForBlocking] = useState(null);
+  const [selectedGuestForDeletion, setSelectedGuestForDeletion] = useState(null);
+  const [userManagementView, setUserManagementView] = useState('hosts'); // 'hosts' or 'guests'
   const [bestReviews, setBestReviews] = useState([]);
   const [lowestReviews, setLowestReviews] = useState([]);
   
@@ -133,6 +144,26 @@ const AdminDashboard = () => {
     endDate: ''
   });
   const [dateRangePreset, setDateRangePreset] = useState('all'); // 'all', '7days', '30days', '3months', '6months', '1year', 'custom'
+  const [reportFilters, setReportFilters] = useState({
+    // Bookings filters
+    bookingStatus: 'all', // 'all', 'completed', 'pending', 'confirmed', 'cancelled'
+    paymentStatus: 'all', // 'all', 'paid', 'unpaid'
+    category: 'all', // 'all', 'accommodation', 'experience', 'service'
+    // Users filters
+    userRole: 'all', // 'all', 'host', 'guest', 'admin'
+    accountStatus: 'all', // 'all', 'active', 'terminated', 'blocked'
+    // Reviews filters
+    rating: 'all', // 'all', '1', '2', '3', '4', '5'
+    verified: 'all', // 'all', 'verified', 'unverified'
+    // Hosts filters
+    hostStatus: 'all', // 'all', 'active', 'terminated'
+    subscriptionType: 'all', // 'all', 'monthly', 'yearly'
+    // Financial filters
+    transactionType: 'all', // 'all', 'commission', 'subscription'
+    // Compliance filters
+    violationType: 'all', // 'all', 'host_cancellation', 'low_rating', 'host_appeal'
+    complianceStatus: 'all' // 'all', 'pending', 'reviewed'
+  });
   const [previewData, setPreviewData] = useState(null);
   const [previewHeaders, setPreviewHeaders] = useState([]);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
@@ -170,10 +201,10 @@ const AdminDashboard = () => {
     sortOrder: 'desc',
     userRole: 'all' // 'all', 'admin', 'host', 'guest'
   });
-  const [hostManagementFilter, setHostManagementFilter] = useState({
+  const [userManagementFilter, setUserManagementFilter] = useState({
     search: '',
-    status: 'all', // 'all', 'active', 'terminated'
-    sortBy: 'name', // 'name', 'earnings', 'bookings', 'listings'
+    status: 'all', // 'all', 'active', 'terminated' for hosts; 'all', 'active', 'blocked' for guests
+    sortBy: 'name', // 'name', 'earnings', 'bookings', 'listings' for hosts, 'name', 'bookings' for guests
     sortOrder: 'asc'
   });
   const [transactionsView, setTransactionsView] = useState('all'); // 'all', 'credits', 'debits', 'summary'
@@ -242,6 +273,7 @@ const AdminDashboard = () => {
         loadReviews(),
         loadPayments(),
         loadHosts(),
+        loadGuests(),
         loadPlatformSettings(),
         loadAllMoneyTransactions(),
         loadCashOutRequests()
@@ -1042,6 +1074,53 @@ const AdminDashboard = () => {
     }
   };
 
+  const loadGuests = async () => {
+    try {
+      const usersSnapshot = await getDocs(collection(db, 'users'));
+      const guestsList = [];
+      
+      for (const userDoc of usersSnapshot.docs) {
+        const userData = userDoc.data();
+        const roles = Array.isArray(userData.roles) ? userData.roles : [userData.role || 'guest'];
+        
+        // Include only guests (users who are not hosts and not admins, including blocked guests)
+        if (!roles.includes('host') && !roles.includes('admin') && !userData.isTerminated) {
+          // Get guest's bookings
+          const bookingsSnapshot = await getDocs(
+            query(collection(db, 'bookings'), where('guestId', '==', userDoc.id))
+          );
+          
+          let totalSpent = 0;
+          bookingsSnapshot.forEach(bookingDoc => {
+            const booking = bookingDoc.data();
+            if (booking.status === 'confirmed' || booking.status === 'completed') {
+              totalSpent += booking.bookingAmount || booking.totalPrice || 0;
+            }
+          });
+          
+          guestsList.push({
+            userId: userDoc.id,
+            name: `${userData.firstName || ''} ${userData.lastName || ''}`.trim() || userData.email || 'Unknown',
+            email: userData.email,
+            phone: userData.phone || 'N/A',
+            bookings: bookingsSnapshot.size,
+            totalSpent,
+            createdAt: userData.createdAt || null,
+            lastLogin: userData.lastLogin || null,
+            isBlocked: userData.isBlocked || false,
+            blockedAt: userData.blockedAt || null
+          });
+        }
+      }
+      
+      // Sort by total spent
+      guestsList.sort((a, b) => b.totalSpent - a.totalSpent);
+      setGuests(guestsList);
+    } catch (error) {
+      console.error('Error loading guests:', error);
+    }
+  };
+
   const handleTerminateHost = async (host) => {
     try {
       setTerminatingHost(host.userId);
@@ -1091,6 +1170,224 @@ const AdminDashboard = () => {
       toast.error(`Failed to terminate host: ${error.message}`);
     } finally {
       setTerminatingHost(null);
+    }
+  };
+
+  const handleDeleteHost = async (host) => {
+    try {
+      setDeletingHost(host.userId);
+      
+      // 1. Delete all listings for this host
+      const listingsSnapshot = await getDocs(
+        query(collection(db, 'listings'), where('ownerId', '==', host.userId))
+      );
+      
+      // 2. Delete all reviews for this host's listings (do this first before deleting listings)
+      const listingIds = listingsSnapshot.docs.map(d => d.id);
+      if (listingIds.length > 0) {
+        // Firestore 'in' queries are limited to 10 items, so we need to batch
+        for (let i = 0; i < listingIds.length; i += 10) {
+          const batchIds = listingIds.slice(i, i + 10);
+          const reviewsSnapshot = await getDocs(
+            query(collection(db, 'reviews'), where('listingId', 'in', batchIds))
+          );
+          
+          // Delete reviews in batches (Firestore batch limit is 500 operations)
+          let reviewBatch = writeBatch(db);
+          let operationCount = 0;
+          
+          for (const reviewDoc of reviewsSnapshot.docs) {
+            if (operationCount >= 500) {
+              // Commit current batch and start new one
+              await reviewBatch.commit();
+              reviewBatch = writeBatch(db);
+              operationCount = 0;
+            }
+            reviewBatch.delete(reviewDoc.ref);
+            operationCount++;
+          }
+          
+          if (operationCount > 0) {
+            await reviewBatch.commit();
+          }
+        }
+      }
+      
+      // 3. Delete all listings in batches
+      let listingBatch = writeBatch(db);
+      let listingOpCount = 0;
+      
+      for (const listingDoc of listingsSnapshot.docs) {
+        if (listingOpCount >= 500) {
+          await listingBatch.commit();
+          listingBatch = writeBatch(db);
+          listingOpCount = 0;
+        }
+        listingBatch.delete(listingDoc.ref);
+        listingOpCount++;
+      }
+      
+      if (listingOpCount > 0) {
+        await listingBatch.commit();
+      }
+      
+      // 4. Delete all bookings for this host in batches
+      const bookingsSnapshot = await getDocs(
+        query(collection(db, 'bookings'), where('ownerId', '==', host.userId))
+      );
+      
+      let bookingBatch = writeBatch(db);
+      let bookingOpCount = 0;
+      
+      for (const bookingDoc of bookingsSnapshot.docs) {
+        if (bookingOpCount >= 500) {
+          await bookingBatch.commit();
+          bookingBatch = writeBatch(db);
+          bookingOpCount = 0;
+        }
+        bookingBatch.delete(bookingDoc.ref);
+        bookingOpCount++;
+      }
+      
+      if (bookingOpCount > 0) {
+        await bookingBatch.commit();
+      }
+      
+      // 5. Delete the user document
+      const userRef = doc(db, 'users', host.userId);
+      await deleteDoc(userRef);
+      
+      toast.success(`Host ${host.name} and all associated data deleted successfully`);
+      
+      // Reload hosts and stats
+      await loadHosts();
+      await loadStats();
+      await loadListings();
+      
+      setShowDeleteHostDialog(false);
+      setSelectedHostForDeletion(null);
+    } catch (error) {
+      console.error('Error deleting host:', error);
+      toast.error(`Failed to delete host: ${error.message}`);
+    } finally {
+      setDeletingHost(null);
+    }
+  };
+
+  const handleBlockGuest = async (guest) => {
+    try {
+      setBlockingGuest(guest.userId);
+      
+      const userRef = doc(db, 'users', guest.userId);
+      await updateDoc(userRef, {
+        isBlocked: true,
+        blockedAt: new Date(),
+        blockedBy: user.uid
+      });
+      
+      toast.success(`Guest ${guest.name} has been blocked successfully`);
+      
+      // Reload guests
+      await loadGuests();
+      
+      setShowBlockGuestDialog(false);
+      setSelectedGuestForBlocking(null);
+    } catch (error) {
+      console.error('Error blocking guest:', error);
+      toast.error(`Failed to block guest: ${error.message}`);
+    } finally {
+      setBlockingGuest(null);
+    }
+  };
+
+  const handleUnblockGuest = async (guest) => {
+    try {
+      setBlockingGuest(guest.userId);
+      
+      const userRef = doc(db, 'users', guest.userId);
+      await updateDoc(userRef, {
+        isBlocked: false,
+        blockedAt: null,
+        blockedBy: null
+      });
+      
+      toast.success(`Guest ${guest.name} has been unblocked successfully`);
+      
+      // Reload guests
+      await loadGuests();
+    } catch (error) {
+      console.error('Error unblocking guest:', error);
+      toast.error(`Failed to unblock guest: ${error.message}`);
+    } finally {
+      setBlockingGuest(null);
+    }
+  };
+
+  const handleDeleteGuest = async (guest) => {
+    try {
+      setDeletingGuest(guest.userId);
+      
+      // 1. Delete all bookings for this guest in batches
+      const bookingsSnapshot = await getDocs(
+        query(collection(db, 'bookings'), where('guestId', '==', guest.userId))
+      );
+      
+      let bookingBatch = writeBatch(db);
+      let bookingOpCount = 0;
+      
+      for (const bookingDoc of bookingsSnapshot.docs) {
+        if (bookingOpCount >= 500) {
+          await bookingBatch.commit();
+          bookingBatch = writeBatch(db);
+          bookingOpCount = 0;
+        }
+        bookingBatch.delete(bookingDoc.ref);
+        bookingOpCount++;
+      }
+      
+      if (bookingOpCount > 0) {
+        await bookingBatch.commit();
+      }
+      
+      // 2. Delete all reviews by this guest in batches
+      const reviewsSnapshot = await getDocs(
+        query(collection(db, 'reviews'), where('reviewerId', '==', guest.userId))
+      );
+      
+      let reviewBatch = writeBatch(db);
+      let reviewOpCount = 0;
+      
+      for (const reviewDoc of reviewsSnapshot.docs) {
+        if (reviewOpCount >= 500) {
+          await reviewBatch.commit();
+          reviewBatch = writeBatch(db);
+          reviewOpCount = 0;
+        }
+        reviewBatch.delete(reviewDoc.ref);
+        reviewOpCount++;
+      }
+      
+      if (reviewOpCount > 0) {
+        await reviewBatch.commit();
+      }
+      
+      // 3. Delete the user document
+      const userRef = doc(db, 'users', guest.userId);
+      await deleteDoc(userRef);
+      
+      toast.success(`Guest ${guest.name} and all associated data deleted successfully`);
+      
+      // Reload guests and stats
+      await loadGuests();
+      await loadStats();
+      
+      setShowDeleteGuestDialog(false);
+      setSelectedGuestForDeletion(null);
+    } catch (error) {
+      console.error('Error deleting guest:', error);
+      toast.error(`Failed to delete guest: ${error.message}`);
+    } finally {
+      setDeletingGuest(null);
     }
   };
 
@@ -1174,7 +1471,47 @@ const AdminDashboard = () => {
     }
   };
 
-  const handlePreviewReportWithFilter = async (customDateFilter = null) => {
+  // Build filters object based on report type
+  const buildFiltersForReportType = (reportType, customFilters = null) => {
+    if (!reportType) return null;
+    
+    // Use custom filters if provided, otherwise use state
+    const filtersToUse = customFilters || reportFilters;
+    const filters = {};
+    
+    switch (reportType) {
+      case 'bookings':
+        if (filtersToUse.bookingStatus && filtersToUse.bookingStatus !== 'all') filters.bookingStatus = filtersToUse.bookingStatus;
+        if (filtersToUse.paymentStatus && filtersToUse.paymentStatus !== 'all') filters.paymentStatus = filtersToUse.paymentStatus;
+        if (filtersToUse.category && filtersToUse.category !== 'all') filters.category = filtersToUse.category;
+        break;
+      case 'users':
+        if (filtersToUse.userRole && filtersToUse.userRole !== 'all') filters.userRole = filtersToUse.userRole;
+        if (filtersToUse.accountStatus && filtersToUse.accountStatus !== 'all') filters.accountStatus = filtersToUse.accountStatus;
+        break;
+      case 'reviews':
+        if (filtersToUse.rating && filtersToUse.rating !== 'all') filters.rating = parseInt(filtersToUse.rating);
+        if (filtersToUse.verified && filtersToUse.verified !== 'all') filters.verified = filtersToUse.verified === 'verified';
+        break;
+      case 'hosts':
+        if (filtersToUse.hostStatus && filtersToUse.hostStatus !== 'all') filters.hostStatus = filtersToUse.hostStatus;
+        if (filtersToUse.subscriptionType && filtersToUse.subscriptionType !== 'all') filters.subscriptionType = filtersToUse.subscriptionType;
+        break;
+      case 'financial':
+        if (filtersToUse.transactionType && filtersToUse.transactionType !== 'all') filters.transactionType = filtersToUse.transactionType;
+        break;
+      case 'compliance':
+        if (filtersToUse.violationType && filtersToUse.violationType !== 'all') filters.violationType = filtersToUse.violationType;
+        if (filtersToUse.complianceStatus && filtersToUse.complianceStatus !== 'all') filters.complianceStatus = filtersToUse.complianceStatus;
+        break;
+      default:
+        return null;
+    }
+    
+    return Object.keys(filters).length > 0 ? filters : null;
+  };
+
+  const handlePreviewReportWithFilter = async (customDateFilter = null, customFilters = null) => {
     if (isLoadingPreview || !selectedReportType) return;
     
     try {
@@ -1183,37 +1520,48 @@ const AdminDashboard = () => {
       // Use custom filter if provided, otherwise get from preset
       const dateFilter = customDateFilter || getDateRangeFromPreset(dateRangePreset);
       
+      // Build filters - use custom filters if provided, otherwise use current state
+      // Always pass filters object to ensure filters are properly applied
+      const filtersToUse = customFilters !== null ? customFilters : reportFilters;
+      const filters = buildFiltersForReportType(selectedReportType, filtersToUse);
+      
       // Debug logging
-      console.log('Preview Report - Date Filter:', {
-        preset: dateRangePreset,
-        dateRange: dateRange,
-        customDateFilter: customDateFilter ? {
-          startDate: customDateFilter.startDate?.toISOString(),
-          endDate: customDateFilter.endDate?.toISOString()
-        } : null,
+      console.log('Preview Report - Filters:', {
+        reportType: selectedReportType,
         dateFilter: dateFilter ? {
-          startDate: dateFilter.startDate?.toISOString(),
-          endDate: dateFilter.endDate?.toISOString()
-        } : null
+          startDate: dateFilter.startDate?.toISOString ? dateFilter.startDate.toISOString() : dateFilter.startDate,
+          endDate: dateFilter.endDate?.toISOString ? dateFilter.endDate.toISOString() : dateFilter.endDate
+        } : null,
+        filters: filters,
+        filtersToUse: filtersToUse,
+        reportFiltersState: reportFilters,
+        customFilters: customFilters
       });
 
       const { getReportData } = await import('./services/reportService');
-      const result = await getReportData(selectedReportType, dateFilter);
+      const result = await getReportData(selectedReportType, dateFilter, filters);
       
-      console.log('Preview Report Result:', { selectedReportType, result });
+      console.log('Preview Report Result:', { 
+        selectedReportType, 
+        filtersApplied: filters,
+        dataCount: Array.isArray(result.data) ? result.data.length : 0,
+        sampleData: Array.isArray(result.data) ? result.data.slice(0, 3).map(d => ({
+          status: d.status,
+          bookingStatus: d.bookingStatus,
+          paymentStatus: d.paymentStatus
+        })) : []
+      });
       
       // Ensure data is an array
       const data = Array.isArray(result.data) ? result.data : (result.data || []);
       const headers = Array.isArray(result.headers) ? result.headers : [];
-      
-      console.log('Preview Data:', { dataLength: data.length, headersLength: headers.length, data: data.slice(0, 2) });
       
       setPreviewData(data);
       setPreviewHeaders(headers);
       setShowPreview(true);
       
       if (data.length === 0) {
-        toast.info('No data found for the selected filters. Try adjusting your date range.');
+        toast.info('No data found for the selected filters. Try adjusting your filters.');
       } else {
         toast.success(`Loaded ${data.length} records for preview`);
       }
@@ -1228,7 +1576,8 @@ const AdminDashboard = () => {
   };
 
   const handlePreviewReport = async () => {
-    return handlePreviewReportWithFilter(null);
+    // Always pass current reportFilters to ensure all filters are applied
+    return handlePreviewReportWithFilter(null, reportFilters);
   };
 
   const handleDownloadReport = async () => {
@@ -1243,12 +1592,39 @@ const AdminDashboard = () => {
 
       toast.info(`Generating ${selectedReportType} report... This may take a moment.`);
       const { generateReport: generateReportService } = await import('./services/reportService');
-      await generateReportService(selectedReportType, dateFilter);
+      const filters = buildFiltersForReportType(selectedReportType);
+      
+      // Debug logging
+      console.log('Export Report - Filters Applied:', {
+        reportType: selectedReportType,
+        dateFilter: dateFilter ? {
+          startDate: dateFilter.startDate?.toISOString(),
+          endDate: dateFilter.endDate?.toISOString()
+        } : null,
+        filters: filters,
+        reportFiltersState: reportFilters
+      });
+      
+      await generateReportService(selectedReportType, dateFilter, filters);
       toast.success(`${selectedReportType} report generated and downloaded successfully!`);
       
       // Reset everything after export
       setDateRange({ startDate: '', endDate: '' });
       setDateRangePreset('all');
+      setReportFilters({
+        bookingStatus: 'all',
+        paymentStatus: 'all',
+        category: 'all',
+        userRole: 'all',
+        accountStatus: 'all',
+        rating: 'all',
+        verified: 'all',
+        hostStatus: 'all',
+        subscriptionType: 'all',
+        transactionType: 'all',
+        violationType: 'all',
+        complianceStatus: 'all'
+      });
       setPreviewData(null);
       setPreviewHeaders([]);
       setSelectedReportType(null);
@@ -1272,12 +1648,38 @@ const AdminDashboard = () => {
 
       toast.info(`Generating ${selectedReportType} report... This may take a moment.`);
       const { generateReport: generateReportService } = await import('./services/reportService');
-      await generateReportService(selectedReportType, dateFilter);
+      const filters = buildFiltersForReportType(selectedReportType);
+      
+      // Debug logging
+      console.log('Export Report - Filters Applied:', {
+        reportType: selectedReportType,
+        dateFilter: dateFilter ? {
+          startDate: dateFilter.startDate?.toISOString(),
+          endDate: dateFilter.endDate?.toISOString()
+        } : null,
+        filters: filters
+      });
+      
+      await generateReportService(selectedReportType, dateFilter, filters);
       toast.success(`${selectedReportType} report generated and downloaded successfully!`);
       
       // Reset date range after export
       setDateRange({ startDate: '', endDate: '' });
       setDateRangePreset('all');
+      setReportFilters({
+        bookingStatus: 'all',
+        paymentStatus: 'all',
+        category: 'all',
+        userRole: 'all',
+        accountStatus: 'all',
+        rating: 'all',
+        verified: 'all',
+        hostStatus: 'all',
+        subscriptionType: 'all',
+        transactionType: 'all',
+        violationType: 'all',
+        complianceStatus: 'all'
+      });
       setPreviewData(null);
       setPreviewHeaders([]);
       setSelectedReportType(null);
@@ -1406,65 +1808,124 @@ const AdminDashboard = () => {
           const serviceFeesContent = await generateServiceFeesPrintContent(serviceFeesFilter, dateFilter);
           printContent = serviceFeesContent;
           break;
-        case 'host-management':
-          title = 'Host Management Report';
-          printContent = generateHostManagementPrintContent(hosts, dateFilter);
+        case 'user-management':
+          title = 'User Management Report';
+          printContent = generateUserManagementPrintContent(hosts, guests, userManagementView, dateFilter);
           break;
         case 'compliance':
           title = 'Policies & Compliance Report';
           printContent = '<div class="print-section"><div class="print-section-title">Policies & Compliance</div><p>Policy data will be included here based on current filters.</p></div>';
           break;
         case 'reports':
-          title = 'Reports Summary';
-          const availableReports = [
-            { id: 'financial', label: 'Financial Report', description: 'Revenue, fees, and payment analytics' },
-            { id: 'bookings', label: 'Bookings Report', description: 'Complete booking history and statistics' },
-            { id: 'users', label: 'Users Report', description: 'User growth and activity metrics' },
-            { id: 'reviews', label: 'Reviews Report', description: 'Review analysis and ratings breakdown' },
-            { id: 'hosts', label: 'Hosts Report', description: 'Host performance and earnings' },
-            { id: 'compliance', label: 'Compliance Report', description: 'Policy violations and compliance status' }
-          ];
-          
-          // Filter reports based on reportsFilter
-          let filteredReports = availableReports.filter(report => {
-            if (reportsFilter.search) {
-              const searchLower = reportsFilter.search.toLowerCase();
-              if (!report.label.toLowerCase().includes(searchLower) &&
-                  !report.description.toLowerCase().includes(searchLower)) {
-                return false;
+          title = 'All Reports - Comprehensive Summary';
+          // Generate all reports based on date range
+          try {
+            const { getReportData } = await import('./services/reportService');
+            const reportTypes = [
+              { id: 'financial', label: 'Financial Report', description: 'Revenue, fees, and payment analytics' },
+              { id: 'bookings', label: 'Bookings Report', description: 'Complete booking history and statistics' },
+              { id: 'users', label: 'Users Report', description: 'User growth and activity metrics' },
+              { id: 'reviews', label: 'Reviews Report', description: 'Review analysis and ratings breakdown' },
+              { id: 'hosts', label: 'Hosts Report', description: 'Host performance and earnings' },
+              { id: 'compliance', label: 'Compliance Report', description: 'Policy violations and compliance status' }
+            ];
+
+            let allReportsContent = '';
+            const dateRangeText = dateFilter && dateFilter.startDate && dateFilter.endDate
+              ? `Date Range: ${formatDate(dateFilter.startDate)} to ${formatDate(dateFilter.endDate)}`
+              : 'Date Range: All Time';
+
+            for (const reportType of reportTypes) {
+              try {
+                // Note: Print all reports doesn't use filters - it shows all data for comprehensive view
+                const result = await getReportData(reportType.id, dateFilter, null);
+                const data = Array.isArray(result.data) ? result.data : [];
+                const headers = Array.isArray(result.headers) ? result.headers : [];
+
+                if (data.length > 0) {
+                  allReportsContent += `
+                    <div class="print-section" style="page-break-after: always; margin-bottom: 30px;">
+                      <div class="print-section-title" style="font-size: 20px; font-weight: bold; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid #2563eb;">
+                        ${reportType.label}
+                      </div>
+                      <p style="color: #666; margin-bottom: 15px; font-size: 13px;">${reportType.description}</p>
+                      <p style="color: #999; margin-bottom: 20px; font-size: 12px;">Total Records: ${data.length}</p>
+                      <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
+                        <thead>
+                          <tr style="background-color: #f3f4f6;">
+                            ${headers.map(h => `<th style="padding: 10px; text-align: left; border: 1px solid #ddd; font-weight: bold;">${h.label}</th>`).join('')}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          ${data.map(row => `
+                            <tr>
+                              ${headers.map(h => {
+                                const value = row[h.key];
+                                let displayValue = '';
+                                if (value === null || value === undefined) {
+                                  displayValue = 'N/A';
+                                } else if (value instanceof Date) {
+                                  displayValue = formatDate(value);
+                                } else if (typeof value === 'object') {
+                                  displayValue = JSON.stringify(value);
+                                } else {
+                                  displayValue = String(value);
+                                }
+                                return `<td style="padding: 8px; border: 1px solid #ddd; font-size: 11px; word-wrap: break-word; max-width: 200px;">${displayValue}</td>`;
+                              }).join('')}
+                            </tr>
+                          `).join('')}
+                        </tbody>
+                      </table>
+                    </div>
+                  `;
+                } else {
+                  allReportsContent += `
+                    <div class="print-section" style="page-break-after: always; margin-bottom: 30px;">
+                      <div class="print-section-title" style="font-size: 20px; font-weight: bold; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid #2563eb;">
+                        ${reportType.label}
+                      </div>
+                      <p style="color: #666; margin-bottom: 15px; font-size: 13px;">${reportType.description}</p>
+                      <p style="color: #999; margin-top: 20px; font-style: italic;">No data available for the selected date range.</p>
+                    </div>
+                  `;
+                }
+              } catch (error) {
+                console.error(`Error generating ${reportType.label}:`, error);
+                allReportsContent += `
+                  <div class="print-section" style="page-break-after: always; margin-bottom: 30px;">
+                    <div class="print-section-title" style="font-size: 20px; font-weight: bold; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid #2563eb;">
+                      ${reportType.label}
+                    </div>
+                    <p style="color: #dc2626; margin-top: 20px;">Error loading report data: ${error.message}</p>
+                  </div>
+                `;
               }
             }
-            if (reportsFilter.type !== 'all' && report.id !== reportsFilter.type) {
-              return false;
-            }
-            return true;
-          });
-          
-          printContent = `
-            <div class="print-section">
-              <div class="print-section-title">Available Reports (${filteredReports.length})</div>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Report Type</th>
-                    <th>Description</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${filteredReports.map(report => `
-                    <tr>
-                      <td><strong>${report.label}</strong></td>
-                      <td>${report.description}</td>
-                    </tr>
-                  `).join('')}
-                </tbody>
-              </table>
-              <p style="margin-top: 20px; font-size: 12px; color: #666;">
-                <strong>Note:</strong> To generate a specific report, use the Preview button on the report card, 
-                select a date range (optional), preview the data, and then download as PDF.
-              </p>
-            </div>
-          `;
+
+            printContent = `
+              <div class="print-section">
+                <div class="print-section-title" style="text-align: center; font-size: 24px; font-weight: bold; margin-bottom: 10px;">
+                  Comprehensive Reports Summary
+                </div>
+                <p style="text-align: center; color: #666; margin-bottom: 30px; font-size: 14px;">
+                  ${dateRangeText}
+                </p>
+                <p style="text-align: center; color: #999; margin-bottom: 30px; font-size: 12px;">
+                  Generated on ${new Date().toLocaleString()}
+                </p>
+                ${allReportsContent}
+              </div>
+            `;
+          } catch (error) {
+            console.error('Error generating all reports:', error);
+            printContent = `
+              <div class="print-section">
+                <div class="print-section-title">Error Generating Reports</div>
+                <p style="color: #dc2626;">Failed to generate reports: ${error.message}</p>
+              </div>
+            `;
+          }
           break;
         default:
           title = 'Report';
@@ -1731,25 +2192,44 @@ const AdminDashboard = () => {
             transactions: filteredServiceTransactions
           }
         };
-      case 'host-management':
-        let filteredHosts = hosts.filter(host => {
-          if (hostManagementFilter.search) {
-            const searchLower = hostManagementFilter.search.toLowerCase();
-            if (!host.name.toLowerCase().includes(searchLower) &&
-                !host.email.toLowerCase().includes(searchLower)) {
-              return false;
+      case 'user-management':
+        if (userManagementView === 'hosts') {
+          let filteredHosts = hosts.filter(host => {
+            if (userManagementFilter.search) {
+              const searchLower = userManagementFilter.search.toLowerCase();
+              if (!host.name.toLowerCase().includes(searchLower) &&
+                  !host.email.toLowerCase().includes(searchLower)) {
+                return false;
+              }
             }
-          }
-          if (hostManagementFilter.status !== 'all') {
-            if (hostManagementFilter.status === 'terminated' && !host.isTerminated) return false;
-            if (hostManagementFilter.status === 'active' && host.isTerminated) return false;
-          }
-          return true;
-        });
-        return {
-          title: 'Host Management Preview',
-          data: filteredHosts
-        };
+            if (userManagementFilter.status !== 'all') {
+              if (userManagementFilter.status === 'terminated' && !host.isTerminated) return false;
+              if (userManagementFilter.status === 'active' && host.isTerminated) return false;
+            }
+            return true;
+          });
+          
+          return {
+            title: 'User Management Preview - Hosts',
+            data: filteredHosts
+          };
+        } else {
+          let filteredGuests = guests.filter(guest => {
+            if (userManagementFilter.search) {
+              const searchLower = userManagementFilter.search.toLowerCase();
+              if (!guest.name.toLowerCase().includes(searchLower) &&
+                  !guest.email.toLowerCase().includes(searchLower)) {
+                return false;
+              }
+            }
+            return true;
+          });
+          
+          return {
+            title: 'User Management Preview - Guests',
+            data: filteredGuests
+          };
+        }
       case 'compliance':
         // Note: Policies are loaded in PolicyManagement component
         // This will show a message that policies can be previewed
@@ -1920,7 +2400,7 @@ const AdminDashboard = () => {
             </tr>
           </thead>
           <tbody>
-            ${filteredBookings.slice(0, 50).map(booking => `
+            ${filteredBookings.map(booking => `
               <tr>
                 <td>${booking.id ? booking.id.substring(0, 8) + '...' : 'N/A'}</td>
                 <td>${booking.guestName || 'N/A'}</td>
@@ -1951,7 +2431,7 @@ const AdminDashboard = () => {
             </tr>
           </thead>
           <tbody>
-            ${filteredReviews.slice(0, 50).map(review => `
+            ${filteredReviews.map(review => `
               <tr>
                 <td>${review.listingTitle || 'N/A'}</td>
                 <td>${review.reviewerName || 'Anonymous'}</td>
@@ -2015,7 +2495,12 @@ const AdminDashboard = () => {
     try {
       // Use the report service to get accurate filtered data based on date range
       const { generateServiceFeesReport } = await import('./services/reportService');
-      const hostsData = await generateServiceFeesReport(dateFilter);
+      // Build filters for hosts report
+      const reportFilters = {
+        hostStatus: filters?.hostStatus || 'all',
+        subscriptionType: filters?.subscriptionType || 'all'
+      };
+      const hostsData = await generateServiceFeesReport(dateFilter, reportFilters);
       
       // Apply search filter if provided
       let filteredHosts = hostsData;
@@ -2153,12 +2638,59 @@ const AdminDashboard = () => {
     }
   };
 
-  const generateHostManagementPrintContent = (hosts, dateFilter) => {
+  const generateUserManagementPrintContent = (hosts, guests, view, dateFilter) => {
+    if (view === 'guests') {
+      let filtered = guests;
+      
+      if (dateFilter && dateFilter.startDate && dateFilter.endDate) {
+        filtered = guests.filter(g => {
+          if (g.createdAt) {
+            const date = g.createdAt?.toDate ? g.createdAt.toDate() : new Date(g.createdAt);
+            if (!isNaN(date.getTime())) {
+              return date >= dateFilter.startDate && date <= dateFilter.endDate;
+            }
+          }
+          return false;
+        });
+      }
+
+      return `
+        <div class="print-section">
+          <div class="print-section-title">Guest Management Report (${filtered.length})</div>
+          <table>
+            <thead>
+              <tr>
+                <th>Guest Name</th>
+                <th>Email</th>
+                <th>Phone</th>
+                <th>Total Bookings</th>
+                <th>Total Spent</th>
+                <th>Joined Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filtered.map(guest => `
+                <tr>
+                  <td>${guest.name || 'N/A'}</td>
+                  <td>${guest.email || 'N/A'}</td>
+                  <td>${guest.phone || 'N/A'}</td>
+                  <td>${guest.bookings || 0}</td>
+                  <td>${formatCurrency(guest.totalSpent || 0)}</td>
+                  <td>${formatDate(guest.createdAt)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+    
+    // Hosts view (existing code)
     let filtered = hosts;
     
     if (dateFilter && dateFilter.startDate && dateFilter.endDate) {
       filtered = hosts.filter(h => {
-        // For host management, filter by host creation date or first booking date
+        // For user management, filter by host creation date or first booking date
         if (h.createdAt) {
           const date = h.createdAt?.toDate ? h.createdAt.toDate() : new Date(h.createdAt);
           if (!isNaN(date.getTime())) {
@@ -2173,7 +2705,7 @@ const AdminDashboard = () => {
 
     return `
       <div class="print-section">
-        <div class="print-section-title">Host Management Report (${filtered.length})</div>
+        <div class="print-section-title">User Management Report - Hosts (${filtered.length})</div>
         <table>
           <thead>
             <tr>
@@ -2346,7 +2878,7 @@ const AdminDashboard = () => {
                 { id: 'overview', label: 'Overview', icon: BarChart3, description: 'Dashboard overview' },
                 { id: 'transactions', label: 'All Transactions', icon: Receipt, description: 'All money transactions' },
                 { id: 'service-fees', label: 'Service Fees', icon: DollarSign, description: 'Platform fees' },
-                { id: 'host-management', label: 'Host Management', icon: Users, description: 'Manage hosts and listings' },
+                { id: 'user-management', label: 'User Management', icon: Users, description: 'Manage hosts and guests' },
                 { id: 'platform-settings', label: 'Platform Settings', icon: Settings, description: 'Payment methods & settings' },
                 { id: 'compliance', label: 'Policy & Compliance', icon: Shield, description: 'Policies & rules' },
                 { id: 'reports', label: 'Reports', icon: FileText, description: 'Generate reports' }
@@ -3296,7 +3828,7 @@ const AdminDashboard = () => {
                 <h1 className="font-heading text-2xl font-bold text-foreground">
                   {activeTab === 'transactions' && 'All Transactions'}
                   {activeTab === 'service-fees' && 'Service Fees'}
-                  {activeTab === 'host-management' && 'Host Management'}
+                  {activeTab === 'user-management' && 'User Management'}
                   {activeTab === 'platform-settings' && 'Platform Settings'}
                   {activeTab === 'compliance' && 'Policy & Compliance'}
                   {activeTab === 'reports' && 'Reports'}
@@ -3469,7 +4001,7 @@ const AdminDashboard = () => {
                       </div>
                     </div>
                     <button
-                      onClick={() => setActiveTab('host-management')}
+                      onClick={() => setActiveTab('user-management')}
                       className="text-xs text-primary hover:underline flex items-center gap-1"
                     >
                       View All
@@ -3487,7 +4019,7 @@ const AdminDashboard = () => {
                         <div 
                           key={host.userId} 
                           className="p-4 border border-border rounded-lg hover:bg-muted/30 transition-all cursor-pointer"
-                          onClick={() => setActiveTab('host-management')}
+                          onClick={() => setActiveTab('user-management')}
                         >
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3 flex-1">
@@ -4971,28 +5503,28 @@ const AdminDashboard = () => {
           )}
 
 
-          {/* Host Management Tab */}
-          {activeTab === 'host-management' && (
+          {/* User Management Tab */}
+          {activeTab === 'user-management' && (
             <div className="space-y-6">
             <div className="card-listing p-6">
                 <div className="flex items-center justify-between mb-6">
                   <div>
-                    <h2 className="font-heading text-2xl font-bold text-foreground">Host Management</h2>
-                    <p className="text-muted-foreground mt-1">Manage hosts, view performance metrics, and terminate accounts</p>
+                    <h2 className="font-heading text-2xl font-bold text-foreground">User Management</h2>
+                    <p className="text-muted-foreground mt-1">Manage hosts and guests, view performance metrics, and terminate accounts</p>
                   </div>
                   <div className="flex gap-2">
                     <button
-                      onClick={() => handlePreviewClick('host-management')}
+                      onClick={() => handlePreviewClick('user-management')}
                       className="btn-outline flex items-center gap-2"
-                      title="Preview Host Management"
+                      title="Preview User Management"
                     >
                       <Eye className="w-4 h-4" />
                       Preview
                     </button>
                     <button
-                      onClick={() => handlePrintClick('host-management')}
+                      onClick={() => handlePrintClick('user-management')}
                       className="btn-outline flex items-center gap-2"
-                      title="Print Host Management Report"
+                      title="Print User Management Report"
                     >
                       <Printer className="w-4 h-4" />
                       Print
@@ -5004,55 +5536,118 @@ const AdminDashboard = () => {
                   </div>
               </div>
 
-                {/* Summary Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-semibold text-blue-900">Total Hosts</p>
-                        <p className="text-2xl font-bold text-blue-700">{hosts.length}</p>
-                        <p className="text-xs text-blue-600 mt-1">Active Accounts</p>
-                      </div>
-                      <Users className="w-10 h-10 text-blue-600" />
-                    </div>
-                  </div>
-                  <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-semibold text-green-900">Total Earnings</p>
-                        <p className="text-2xl font-bold text-green-700">
-                          {formatCurrency(hosts.reduce((sum, h) => sum + (h.earnings || 0), 0))}
-                        </p>
-                        <p className="text-xs text-green-600 mt-1">Combined Revenue</p>
-                      </div>
-                      <DollarSign className="w-10 h-10 text-green-600" />
-                    </div>
-                  </div>
-                  <div className="p-4 bg-purple-50 border border-purple-200 rounded-lg">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-semibold text-purple-900">Total Listings</p>
-                        <p className="text-2xl font-bold text-purple-700">
-                          {hosts.reduce((sum, h) => sum + (h.listings || 0), 0)}
-                        </p>
-                        <p className="text-xs text-purple-600 mt-1">Active Listings</p>
-                      </div>
-                      <Home className="w-10 h-10 text-purple-600" />
-                    </div>
-                  </div>
-                  <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-semibold text-orange-900">Total Bookings</p>
-                        <p className="text-2xl font-bold text-orange-700">
-                          {hosts.reduce((sum, h) => sum + (h.bookings || 0), 0)}
-                        </p>
-                        <p className="text-xs text-orange-600 mt-1">All Time</p>
-                      </div>
-                      <Calendar className="w-10 h-10 text-orange-600" />
-                    </div>
-                  </div>
+                {/* View Toggle */}
+                <div className="mb-6 flex gap-2 border-b border-border">
+                  <button
+                    onClick={() => setUserManagementView('hosts')}
+                    className={`px-4 py-2 font-medium transition-colors border-b-2 ${
+                      userManagementView === 'hosts'
+                        ? 'border-primary text-primary'
+                        : 'border-transparent text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    Hosts ({hosts.length})
+                  </button>
+                  <button
+                    onClick={() => setUserManagementView('guests')}
+                    className={`px-4 py-2 font-medium transition-colors border-b-2 ${
+                      userManagementView === 'guests'
+                        ? 'border-primary text-primary'
+                        : 'border-transparent text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    Guests ({guests.length})
+                  </button>
                 </div>
+
+                {/* Summary Cards */}
+                {userManagementView === 'hosts' ? (
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                    <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-semibold text-blue-900">Total Hosts</p>
+                          <p className="text-2xl font-bold text-blue-700">{hosts.length}</p>
+                          <p className="text-xs text-blue-600 mt-1">Active Accounts</p>
+                        </div>
+                        <Users className="w-10 h-10 text-blue-600" />
+                      </div>
+                    </div>
+                    <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-semibold text-green-900">Total Earnings</p>
+                          <p className="text-2xl font-bold text-green-700">
+                            {formatCurrency(hosts.reduce((sum, h) => sum + (h.earnings || 0), 0))}
+                          </p>
+                          <p className="text-xs text-green-600 mt-1">Combined Revenue</p>
+                        </div>
+                        <DollarSign className="w-10 h-10 text-green-600" />
+                      </div>
+                    </div>
+                    <div className="p-4 bg-purple-50 border border-purple-200 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-semibold text-purple-900">Total Listings</p>
+                          <p className="text-2xl font-bold text-purple-700">
+                            {hosts.reduce((sum, h) => sum + (h.listings || 0), 0)}
+                          </p>
+                          <p className="text-xs text-purple-600 mt-1">Active Listings</p>
+                        </div>
+                        <Home className="w-10 h-10 text-purple-600" />
+                      </div>
+                    </div>
+                    <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-semibold text-orange-900">Total Bookings</p>
+                          <p className="text-2xl font-bold text-orange-700">
+                            {hosts.reduce((sum, h) => sum + (h.bookings || 0), 0)}
+                          </p>
+                          <p className="text-xs text-orange-600 mt-1">All Time</p>
+                        </div>
+                        <Calendar className="w-10 h-10 text-orange-600" />
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-semibold text-blue-900">Total Guests</p>
+                          <p className="text-2xl font-bold text-blue-700">{guests.length}</p>
+                          <p className="text-xs text-blue-600 mt-1">Active Accounts</p>
+                        </div>
+                        <Users className="w-10 h-10 text-blue-600" />
+                      </div>
+                    </div>
+                    <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-semibold text-green-900">Total Spent</p>
+                          <p className="text-2xl font-bold text-green-700">
+                            {formatCurrency(guests.reduce((sum, g) => sum + (g.totalSpent || 0), 0))}
+                          </p>
+                          <p className="text-xs text-green-600 mt-1">Combined Spending</p>
+                        </div>
+                        <DollarSign className="w-10 h-10 text-green-600" />
+                      </div>
+                    </div>
+                    <div className="p-4 bg-purple-50 border border-purple-200 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-semibold text-purple-900">Total Bookings</p>
+                          <p className="text-2xl font-bold text-purple-700">
+                            {guests.reduce((sum, g) => sum + (g.bookings || 0), 0)}
+                          </p>
+                          <p className="text-xs text-purple-600 mt-1">All Time</p>
+                        </div>
+                        <Calendar className="w-10 h-10 text-purple-600" />
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Search and Filter */}
                 <div className="mb-6 flex gap-4 flex-wrap">
@@ -5061,42 +5656,64 @@ const AdminDashboard = () => {
                       <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
                       <input
                         type="text"
-                        placeholder="Search hosts by name or email..."
-                        value={hostManagementFilter.search}
-                        onChange={(e) => setHostManagementFilter(prev => ({ ...prev, search: e.target.value }))}
+                        placeholder={userManagementView === 'hosts' ? "Search hosts by name or email..." : "Search guests by name or email..."}
+                        value={userManagementFilter.search}
+                        onChange={(e) => setUserManagementFilter(prev => ({ ...prev, search: e.target.value }))}
                         className="w-full pl-10 pr-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary"
                       />
                     </div>
                   </div>
+                  {userManagementView === 'hosts' && (
+                    <select
+                      value={userManagementFilter.status}
+                      onChange={(e) => setUserManagementFilter(prev => ({ ...prev, status: e.target.value }))}
+                      className="px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary"
+                    >
+                      <option value="all">All Hosts</option>
+                      <option value="active">Active Only</option>
+                      <option value="terminated">Terminated Only</option>
+                    </select>
+                  )}
+                  {userManagementView === 'guests' && (
+                    <select
+                      value={userManagementFilter.status}
+                      onChange={(e) => setUserManagementFilter(prev => ({ ...prev, status: e.target.value }))}
+                      className="px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary"
+                    >
+                      <option value="all">All Guests</option>
+                      <option value="active">Active Only</option>
+                      <option value="blocked">Blocked Only</option>
+                    </select>
+                  )}
                   <select
-                    value={hostManagementFilter.status}
-                    onChange={(e) => setHostManagementFilter(prev => ({ ...prev, status: e.target.value }))}
-                    className="px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary"
-                  >
-                    <option value="all">All Hosts</option>
-                    <option value="active">Active Only</option>
-                    <option value="terminated">Terminated Only</option>
-                  </select>
-                  <select
-                    value={hostManagementFilter.sortBy}
-                    onChange={(e) => setHostManagementFilter(prev => ({ ...prev, sortBy: e.target.value }))}
+                    value={userManagementFilter.sortBy}
+                    onChange={(e) => setUserManagementFilter(prev => ({ ...prev, sortBy: e.target.value }))}
                     className="px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary"
                   >
                     <option value="name">Sort by Name</option>
-                    <option value="earnings">Sort by Earnings</option>
-                    <option value="bookings">Sort by Bookings</option>
-                    <option value="listings">Sort by Listings</option>
+                    {userManagementView === 'hosts' ? (
+                      <>
+                        <option value="earnings">Sort by Earnings</option>
+                        <option value="bookings">Sort by Bookings</option>
+                        <option value="listings">Sort by Listings</option>
+                      </>
+                    ) : (
+                      <option value="bookings">Sort by Bookings</option>
+                    )}
+                    {userManagementView === 'guests' && (
+                      <option value="totalSpent">Sort by Total Spent</option>
+                    )}
                   </select>
                   <button
-                    onClick={() => setHostManagementFilter(prev => ({ ...prev, sortOrder: prev.sortOrder === 'asc' ? 'desc' : 'asc' }))}
+                    onClick={() => setUserManagementFilter(prev => ({ ...prev, sortOrder: prev.sortOrder === 'asc' ? 'desc' : 'asc' }))}
                     className="px-4 py-2 border border-border rounded-lg hover:bg-muted/50 flex items-center gap-2"
                   >
-                    {hostManagementFilter.sortOrder === 'asc' ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
-                    {hostManagementFilter.sortOrder === 'asc' ? 'Ascending' : 'Descending'}
+                    {userManagementFilter.sortOrder === 'asc' ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+                    {userManagementFilter.sortOrder === 'asc' ? 'Ascending' : 'Descending'}
                   </button>
-                  {(hostManagementFilter.search || hostManagementFilter.status !== 'all') && (
+                  {(userManagementFilter.search || userManagementFilter.status !== 'all') && (
                     <button
-                      onClick={() => setHostManagementFilter({
+                      onClick={() => setUserManagementFilter({
                         search: '',
                         status: 'all',
                         sortBy: 'name',
@@ -5110,14 +5727,14 @@ const AdminDashboard = () => {
                   )}
                 </div>
 
-                {/* Hosts List */}
+                {/* Users List */}
               <div className="space-y-4">
-                  {(() => {
+                  {userManagementView === 'hosts' ? (() => {
                     let filtered = [...hosts];
                     
                     // Apply search filter
-                    if (hostManagementFilter.search) {
-                      const searchLower = hostManagementFilter.search.toLowerCase();
+                    if (userManagementFilter.search) {
+                      const searchLower = userManagementFilter.search.toLowerCase();
                       filtered = filtered.filter(host =>
                         host.name.toLowerCase().includes(searchLower) ||
                         host.email.toLowerCase().includes(searchLower)
@@ -5125,22 +5742,22 @@ const AdminDashboard = () => {
                     }
                     
                     // Apply status filter
-                    if (hostManagementFilter.status !== 'all') {
+                    if (userManagementFilter.status !== 'all') {
                       filtered = filtered.filter(host =>
-                        hostManagementFilter.status === 'terminated' ? host.isTerminated : !host.isTerminated
+                        userManagementFilter.status === 'terminated' ? host.isTerminated : !host.isTerminated
                       );
                     }
                     
                     // Apply sorting
                     filtered.sort((a, b) => {
                       let aVal, bVal;
-                      if (hostManagementFilter.sortBy === 'earnings') {
+                      if (userManagementFilter.sortBy === 'earnings') {
                         aVal = a.earnings || 0;
                         bVal = b.earnings || 0;
-                      } else if (hostManagementFilter.sortBy === 'bookings') {
+                      } else if (userManagementFilter.sortBy === 'bookings') {
                         aVal = a.bookings || 0;
                         bVal = b.bookings || 0;
-                      } else if (hostManagementFilter.sortBy === 'listings') {
+                      } else if (userManagementFilter.sortBy === 'listings') {
                         aVal = a.listings || 0;
                         bVal = b.listings || 0;
                       } else {
@@ -5148,7 +5765,7 @@ const AdminDashboard = () => {
                         bVal = b.name.toLowerCase();
                       }
                       
-                      if (hostManagementFilter.sortOrder === 'asc') {
+                      if (userManagementFilter.sortOrder === 'asc') {
                         return aVal > bVal ? 1 : -1;
                       } else {
                         return bVal > aVal ? 1 : -1;
@@ -5157,7 +5774,7 @@ const AdminDashboard = () => {
 
                     return filtered.length > 0 ? (
                       <>
-                        {(hostManagementFilter.search || hostManagementFilter.status !== 'all') && (
+                        {(userManagementFilter.search || userManagementFilter.status !== 'all') && (
                           <div className="text-sm text-muted-foreground mb-2">
                             Showing {filtered.length} of {hosts.length} hosts
                   </div>
@@ -5246,7 +5863,7 @@ const AdminDashboard = () => {
                               setShowTerminateHostDialog(true);
                             }}
                             disabled={terminatingHost === host.userId}
-                                        className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             {terminatingHost === host.userId ? (
                               <>
@@ -5256,7 +5873,27 @@ const AdminDashboard = () => {
                             ) : (
                               <>
                                 <Ban className="w-4 h-4" />
-                                            Terminate
+                                Terminate
+                              </>
+                            )}
+                          </button>
+                          <button
+                            onClick={() => {
+                              setSelectedHostForDeletion(host);
+                              setShowDeleteHostDialog(true);
+                            }}
+                            disabled={deletingHost === host.userId}
+                            className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {deletingHost === host.userId ? (
+                              <>
+                                <Clock className="w-4 h-4 animate-spin" />
+                                Deleting...
+                              </>
+                            ) : (
+                              <>
+                                <Trash2 className="w-4 h-4" />
+                                Delete
                               </>
                             )}
                           </button>
@@ -5314,7 +5951,179 @@ const AdminDashboard = () => {
                       <div className="text-center py-12">
                         <Users className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
                         <p className="text-muted-foreground text-lg">No hosts found</p>
-                        {(hostManagementFilter.search || hostManagementFilter.status !== 'all') && (
+                        {(userManagementFilter.search || userManagementFilter.status !== 'all') && (
+                          <p className="text-sm text-muted-foreground mt-2">Try adjusting your filters</p>
+                        )}
+                      </div>
+                    );
+                  })() : (() => {
+                    // Guests list
+                    let filtered = [...guests];
+                    
+                    // Apply search filter
+                    if (userManagementFilter.search) {
+                      const searchLower = userManagementFilter.search.toLowerCase();
+                      filtered = filtered.filter(guest =>
+                        guest.name.toLowerCase().includes(searchLower) ||
+                        guest.email.toLowerCase().includes(searchLower)
+                      );
+                    }
+                    
+                    // Apply status filter
+                    if (userManagementFilter.status !== 'all') {
+                      filtered = filtered.filter(guest =>
+                        userManagementFilter.status === 'blocked' ? guest.isBlocked : !guest.isBlocked
+                      );
+                    }
+                    
+                    // Apply sorting
+                    filtered.sort((a, b) => {
+                      let aVal, bVal;
+                      if (userManagementFilter.sortBy === 'totalSpent') {
+                        aVal = a.totalSpent || 0;
+                        bVal = b.totalSpent || 0;
+                      } else if (userManagementFilter.sortBy === 'bookings') {
+                        aVal = a.bookings || 0;
+                        bVal = b.bookings || 0;
+                      } else {
+                        aVal = a.name.toLowerCase();
+                        bVal = b.name.toLowerCase();
+                      }
+                      
+                      if (userManagementFilter.sortOrder === 'asc') {
+                        return aVal > bVal ? 1 : -1;
+                      } else {
+                        return bVal > aVal ? 1 : -1;
+                      }
+                    });
+
+                    return filtered.length > 0 ? (
+                      <>
+                        {userManagementFilter.search && (
+                          <div className="text-sm text-muted-foreground mb-2">
+                            Showing {filtered.length} of {guests.length} guests
+                          </div>
+                        )}
+                        {filtered.map(guest => (
+                          <div 
+                            key={guest.userId} 
+                            className="border border-border rounded-lg bg-card overflow-hidden"
+                          >
+                            <div className="flex items-start justify-between p-4 hover:bg-muted/30 transition-colors">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-3 mb-2">
+                                  <h3 className="font-semibold text-lg text-foreground">{guest.name}</h3>
+                                  {guest.isBlocked ? (
+                                    <span className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded-full">
+                                      Blocked
+                                    </span>
+                                  ) : (
+                                    <span className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded-full">
+                                      Guest
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-sm text-muted-foreground mb-2">{guest.email}</p>
+                                {guest.phone && guest.phone !== 'N/A' && (
+                                  <p className="text-sm text-muted-foreground mb-2">Phone: {guest.phone}</p>
+                                )}
+                                <div className="flex flex-wrap gap-4 text-sm">
+                                  <div className="flex items-center gap-2">
+                                    <Calendar className="w-4 h-4 text-muted-foreground" />
+                                    <span className="text-muted-foreground">{guest.bookings} {guest.bookings === 1 ? 'booking' : 'bookings'}</span>
+                                  </div>
+                                  <span>•</span>
+                                  <div className="flex items-center gap-2">
+                                    <DollarSign className="w-4 h-4 text-green-600" />
+                                    <span className="font-semibold text-green-600">{formatCurrency(guest.totalSpent)}</span>
+                                  </div>
+                                  {guest.createdAt && (
+                                    <>
+                                      <span>•</span>
+                                      <div className="flex items-center gap-2">
+                                        <Clock className="w-4 h-4 text-muted-foreground" />
+                                        <span className="text-muted-foreground">Joined {formatDate(guest.createdAt)}</span>
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                                {guest.isBlocked && guest.blockedAt && (
+                                  <p className="text-xs text-red-600 mt-2">
+                                    Blocked on {formatDate(guest.blockedAt)}
+                                  </p>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 ml-4">
+                                {guest.isBlocked ? (
+                                  <button
+                                    onClick={() => handleUnblockGuest(guest)}
+                                    disabled={blockingGuest === guest.userId}
+                                    className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                    {blockingGuest === guest.userId ? (
+                                      <>
+                                        <Clock className="w-4 h-4 animate-spin" />
+                                        Unblocking...
+                                      </>
+                                    ) : (
+                                      <>
+                                        <CheckCircle className="w-4 h-4" />
+                                        Unblock
+                                      </>
+                                    )}
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => {
+                                      setSelectedGuestForBlocking(guest);
+                                      setShowBlockGuestDialog(true);
+                                    }}
+                                    disabled={blockingGuest === guest.userId}
+                                    className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                    {blockingGuest === guest.userId ? (
+                                      <>
+                                        <Clock className="w-4 h-4 animate-spin" />
+                                        Blocking...
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Ban className="w-4 h-4" />
+                                        Block
+                                      </>
+                                    )}
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => {
+                                    setSelectedGuestForDeletion(guest);
+                                    setShowDeleteGuestDialog(true);
+                                  }}
+                                  disabled={deletingGuest === guest.userId}
+                                  className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  {deletingGuest === guest.userId ? (
+                                    <>
+                                      <Clock className="w-4 h-4 animate-spin" />
+                                      Deleting...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Trash2 className="w-4 h-4" />
+                                      Delete
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </>
+                    ) : (
+                      <div className="text-center py-12">
+                        <Users className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+                        <p className="text-muted-foreground text-lg">No guests found</p>
+                        {userManagementFilter.search && (
                           <p className="text-sm text-muted-foreground mt-2">Try adjusting your filters</p>
                         )}
                       </div>
@@ -5693,24 +6502,6 @@ const AdminDashboard = () => {
                     <h2 className="font-heading text-2xl font-bold text-foreground">Policy & Compliance Management</h2>
                     <p className="text-muted-foreground mt-1">Manage all platform policies, rules, and regulations</p>
                   </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => handlePreviewClick('compliance')}
-                      className="btn-outline flex items-center gap-2"
-                      title="Preview Policies"
-                    >
-                      <Eye className="w-4 h-4" />
-                      Preview
-                    </button>
-                    <button
-                      onClick={() => handlePrintClick('compliance')}
-                      className="btn-outline flex items-center gap-2"
-                      title="Print Policies"
-                    >
-                      <Printer className="w-4 h-4" />
-                      Print
-                    </button>
-                  </div>
                 </div>
                 
                 {/* Search and Filter */}
@@ -5753,24 +6544,21 @@ const AdminDashboard = () => {
                   <div className="flex items-center justify-between mb-4">
                     <div>
                       <h2 className="font-heading text-2xl font-bold text-foreground mb-2">Report Generation</h2>
-                      <p className="text-muted-foreground">Generate comprehensive reports with date range filtering and preview capabilities</p>
+                      <p className="text-muted-foreground">Generate comprehensive reports with date range filtering. Click "Print All Reports" to print all reports at once.</p>
                     </div>
                     <div className="flex gap-2">
                       <button
-                        onClick={() => handlePreviewClick('reports')}
+                        onClick={() => {
+                          setPrintSection('reports');
+                          setPrintDateRange({ startDate: '', endDate: '' });
+                          setPrintDateRangePreset('all');
+                          setShowPrintModal(true);
+                        }}
                         className="btn-outline flex items-center gap-2"
-                        title="Preview Reports"
-                      >
-                        <Eye className="w-4 h-4" />
-                        Preview
-                      </button>
-                      <button
-                        onClick={() => handlePrintClick('reports')}
-                        className="btn-outline flex items-center gap-2"
-                        title="Print Reports"
+                        title="Print All Reports"
                       >
                         <Printer className="w-4 h-4" />
-                        Print
+                        Print All Reports
                       </button>
                     </div>
                   </div>
@@ -6321,6 +7109,180 @@ const AdminDashboard = () => {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Delete Host Confirmation Dialog */}
+      <AlertDialog open={showDeleteHostDialog} onOpenChange={setShowDeleteHostDialog}>
+        <AlertDialogContent className="bg-white max-w-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-gray-900 flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-red-600" />
+              Delete Host Account
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-gray-600">
+              {selectedHostForDeletion && (
+                <>
+                  <p className="mb-4">
+                    Are you sure you want to permanently delete <strong>{selectedHostForDeletion.name}</strong>?
+                  </p>
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-4 space-y-2">
+                    <p className="text-sm font-semibold text-red-800">This action will permanently delete:</p>
+                    <ul className="text-sm text-red-700 list-disc list-inside space-y-1">
+                      <li>The host account and all user data</li>
+                      <li>All {selectedHostForDeletion.listings} listing(s) associated with this host</li>
+                      <li>All {selectedHostForDeletion.bookings} booking(s) associated with this host</li>
+                      <li>All reviews for this host's listings</li>
+                    </ul>
+                    <p className="text-sm text-red-600 font-medium mt-3">
+                      ⚠️ This action is PERMANENT and CANNOT be undone!
+                    </p>
+                  </div>
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => {
+              setShowDeleteHostDialog(false);
+              setSelectedHostForDeletion(null);
+            }}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (selectedHostForDeletion) {
+                  handleDeleteHost(selectedHostForDeletion);
+                }
+              }}
+              className="bg-red-600 hover:bg-red-700 text-white"
+              disabled={deletingHost === selectedHostForDeletion?.userId}
+            >
+              {deletingHost === selectedHostForDeletion?.userId ? (
+                <>
+                  <Clock className="w-4 h-4 animate-spin inline mr-2" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete Permanently'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Block Guest Confirmation Dialog */}
+      <AlertDialog open={showBlockGuestDialog} onOpenChange={setShowBlockGuestDialog}>
+        <AlertDialogContent className="bg-white max-w-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-gray-900 flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-orange-600" />
+              Block Guest Account
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-gray-600">
+              {selectedGuestForBlocking && (
+                <>
+                  <p className="mb-4">
+                    Are you sure you want to block <strong>{selectedGuestForBlocking.name}</strong>?
+                  </p>
+                  <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 space-y-2">
+                    <p className="text-sm font-semibold text-orange-800">This action will:</p>
+                    <ul className="text-sm text-orange-700 list-disc list-inside space-y-1">
+                      <li>Prevent the guest from making new bookings</li>
+                      <li>Restrict access to platform features</li>
+                      <li>Mark the account as blocked</li>
+                    </ul>
+                    <p className="text-sm text-orange-600 font-medium mt-3">
+                      Note: The guest can be unblocked later if needed.
+                    </p>
+                  </div>
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => {
+              setShowBlockGuestDialog(false);
+              setSelectedGuestForBlocking(null);
+            }}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (selectedGuestForBlocking) {
+                  handleBlockGuest(selectedGuestForBlocking);
+                }
+              }}
+              className="bg-orange-600 hover:bg-orange-700 text-white"
+              disabled={blockingGuest === selectedGuestForBlocking?.userId}
+            >
+              {blockingGuest === selectedGuestForBlocking?.userId ? (
+                <>
+                  <Clock className="w-4 h-4 animate-spin inline mr-2" />
+                  Blocking...
+                </>
+              ) : (
+                'Block Guest'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Guest Confirmation Dialog */}
+      <AlertDialog open={showDeleteGuestDialog} onOpenChange={setShowDeleteGuestDialog}>
+        <AlertDialogContent className="bg-white max-w-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-gray-900 flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-red-600" />
+              Delete Guest Account
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-gray-600">
+              {selectedGuestForDeletion && (
+                <>
+                  <p className="mb-4">
+                    Are you sure you want to permanently delete <strong>{selectedGuestForDeletion.name}</strong>?
+                  </p>
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-4 space-y-2">
+                    <p className="text-sm font-semibold text-red-800">This action will permanently delete:</p>
+                    <ul className="text-sm text-red-700 list-disc list-inside space-y-1">
+                      <li>The guest account and all user data</li>
+                      <li>All {selectedGuestForDeletion.bookings} booking(s) associated with this guest</li>
+                      <li>All reviews written by this guest</li>
+                    </ul>
+                    <p className="text-sm text-red-600 font-medium mt-3">
+                      ⚠️ This action is PERMANENT and CANNOT be undone!
+                    </p>
+                  </div>
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => {
+              setShowDeleteGuestDialog(false);
+              setSelectedGuestForDeletion(null);
+            }}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (selectedGuestForDeletion) {
+                  handleDeleteGuest(selectedGuestForDeletion);
+                }
+              }}
+              className="bg-red-600 hover:bg-red-700 text-white"
+              disabled={deletingGuest === selectedGuestForDeletion?.userId}
+            >
+              {deletingGuest === selectedGuestForDeletion?.userId ? (
+                <>
+                  <Clock className="w-4 h-4 animate-spin inline mr-2" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete Permanently'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Terminate Host Confirmation Dialog */}
       <AlertDialog open={showTerminateHostDialog} onOpenChange={setShowTerminateHostDialog}>
@@ -6383,6 +7345,20 @@ const AdminDashboard = () => {
           setShowPreview(false);
           setPreviewData(null);
           setPreviewHeaders([]);
+          setReportFilters({
+            bookingStatus: 'all',
+            paymentStatus: 'all',
+            category: 'all',
+            userRole: 'all',
+            accountStatus: 'all',
+            rating: 'all',
+            verified: 'all',
+            hostStatus: 'all',
+            subscriptionType: 'all',
+            transactionType: 'all',
+            violationType: 'all',
+            complianceStatus: 'all'
+          });
         }
       }}>
         <AlertDialogContent className="bg-white max-w-6xl max-h-[95vh] flex flex-col">
@@ -6409,10 +7385,10 @@ const AdminDashboard = () => {
                     setDateRange({ startDate: '', endDate: '' });
                     setShowPreview(false);
                     setPreviewData(null);
-                    // Auto-refresh preview after a short delay
+                    // Auto-refresh preview after a short delay with current filters
                     setTimeout(() => {
                       if (selectedReportType) {
-                        handlePreviewReport();
+                        handlePreviewReportWithFilter(null, reportFilters);
                       }
                     }, 100);
                   }}
@@ -6430,10 +7406,10 @@ const AdminDashboard = () => {
                     setDateRange({ startDate: '', endDate: '' });
                     setShowPreview(false);
                     setPreviewData(null);
-                    // Auto-refresh preview after a short delay
+                    // Auto-refresh preview after a short delay with current filters
                     setTimeout(() => {
                       if (selectedReportType) {
-                        handlePreviewReport();
+                        handlePreviewReportWithFilter(null, reportFilters);
                       }
                     }, 100);
                   }}
@@ -6451,10 +7427,10 @@ const AdminDashboard = () => {
                     setDateRange({ startDate: '', endDate: '' });
                     setShowPreview(false);
                     setPreviewData(null);
-                    // Auto-refresh preview after a short delay
+                    // Auto-refresh preview after a short delay with current filters
                     setTimeout(() => {
                       if (selectedReportType) {
-                        handlePreviewReport();
+                        handlePreviewReportWithFilter(null, reportFilters);
                       }
                     }, 100);
                   }}
@@ -6472,10 +7448,10 @@ const AdminDashboard = () => {
                     setDateRange({ startDate: '', endDate: '' });
                     setShowPreview(false);
                     setPreviewData(null);
-                    // Auto-refresh preview after a short delay
+                    // Auto-refresh preview after a short delay with current filters
                     setTimeout(() => {
                       if (selectedReportType) {
-                        handlePreviewReport();
+                        handlePreviewReportWithFilter(null, reportFilters);
                       }
                     }, 100);
                   }}
@@ -6493,10 +7469,10 @@ const AdminDashboard = () => {
                     setDateRange({ startDate: '', endDate: '' });
                     setShowPreview(false);
                     setPreviewData(null);
-                    // Auto-refresh preview after a short delay
+                    // Auto-refresh preview after a short delay with current filters
                     setTimeout(() => {
                       if (selectedReportType) {
-                        handlePreviewReport();
+                        handlePreviewReportWithFilter(null, reportFilters);
                       }
                     }, 100);
                   }}
@@ -6514,10 +7490,10 @@ const AdminDashboard = () => {
                     setDateRange({ startDate: '', endDate: '' });
                     setShowPreview(false);
                     setPreviewData(null);
-                    // Auto-refresh preview after a short delay
+                    // Auto-refresh preview after a short delay with current filters
                     setTimeout(() => {
                       if (selectedReportType) {
-                        handlePreviewReport();
+                        handlePreviewReportWithFilter(null, reportFilters);
                       }
                     }, 100);
                   }}
@@ -6610,8 +7586,8 @@ const AdminDashboard = () => {
                               dateFilter.startDate.setHours(0, 0, 0, 0);
                               dateFilter.endDate.setHours(23, 59, 59, 999);
                               
-                              // Call preview with the correct date filter
-                              handlePreviewReportWithFilter(dateFilter);
+                              // Call preview with the correct date filter and current filters
+                              handlePreviewReportWithFilter(dateFilter, reportFilters);
                             }
                           }, 300);
                         }
@@ -6630,6 +7606,413 @@ const AdminDashboard = () => {
                   </div>
                 )}
               </div>
+            )}
+
+            {/* Dynamic Filters Based on Report Type */}
+            {selectedReportType === 'bookings' && (
+              <>
+                {/* Booking Status Filter */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-3">
+                    Booking Status
+                  </label>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                    {['all', 'confirmed', 'pending', 'completed', 'cancelled'].map(status => (
+                      <button
+                        key={status}
+                        onClick={async () => {
+                          const updatedFilters = { ...reportFilters, bookingStatus: status };
+                          setReportFilters(updatedFilters);
+                          setShowPreview(false);
+                          setPreviewData(null);
+                          // Use updated filters directly to avoid state timing issues
+                          setTimeout(() => {
+                            if (selectedReportType) {
+                              handlePreviewReportWithFilter(null, updatedFilters);
+                            }
+                          }, 100);
+                        }}
+                        className={`px-4 py-2 rounded-lg border-2 transition-all text-sm font-medium ${
+                          reportFilters.bookingStatus === status
+                            ? 'bg-primary text-white border-primary'
+                            : 'bg-white border-gray-300 hover:border-primary hover:bg-primary/5'
+                        }`}
+                      >
+                        {status === 'all' ? 'All Status' : status.charAt(0).toUpperCase() + status.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Payment Status Filter */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-3">
+                    Payment Status
+                  </label>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    {['all', 'paid', 'unpaid'].map(status => (
+                      <button
+                        key={status}
+                        onClick={async () => {
+                          const updatedFilters = { ...reportFilters, paymentStatus: status };
+                          setReportFilters(updatedFilters);
+                          setShowPreview(false);
+                          setPreviewData(null);
+                          setTimeout(() => {
+                            if (selectedReportType) {
+                              handlePreviewReportWithFilter(null, updatedFilters);
+                            }
+                          }, 100);
+                        }}
+                        className={`px-4 py-2 rounded-lg border-2 transition-all text-sm font-medium ${
+                          reportFilters.paymentStatus === status
+                            ? 'bg-primary text-white border-primary'
+                            : 'bg-white border-gray-300 hover:border-primary hover:bg-primary/5'
+                        }`}
+                      >
+                        {status === 'all' ? 'All Payments' : status.charAt(0).toUpperCase() + status.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Category Filter */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-3">
+                    Category
+                  </label>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    {['all', 'accommodation', 'experience', 'service'].map(cat => (
+                      <button
+                        key={cat}
+                        onClick={async () => {
+                          const updatedFilters = { ...reportFilters, category: cat };
+                          setReportFilters(updatedFilters);
+                          setShowPreview(false);
+                          setPreviewData(null);
+                          setTimeout(() => {
+                            if (selectedReportType) {
+                              handlePreviewReportWithFilter(null, updatedFilters);
+                            }
+                          }, 100);
+                        }}
+                        className={`px-4 py-2 rounded-lg border-2 transition-all text-sm font-medium ${
+                          reportFilters.category === cat
+                            ? 'bg-primary text-white border-primary'
+                            : 'bg-white border-gray-300 hover:border-primary hover:bg-primary/5'
+                        }`}
+                      >
+                        {cat === 'all' ? 'All Categories' : cat.charAt(0).toUpperCase() + cat.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {selectedReportType === 'users' && (
+              <>
+                {/* User Role Filter */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-3">
+                    User Role
+                  </label>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    {['all', 'host', 'guest', 'admin'].map(role => (
+                      <button
+                        key={role}
+                        onClick={async () => {
+                          const updatedFilters = { ...reportFilters, userRole: role };
+                          setReportFilters(updatedFilters);
+                          setShowPreview(false);
+                          setPreviewData(null);
+                          setTimeout(() => {
+                            if (selectedReportType) {
+                              handlePreviewReportWithFilter(null, updatedFilters);
+                            }
+                          }, 100);
+                        }}
+                        className={`px-4 py-2 rounded-lg border-2 transition-all text-sm font-medium ${
+                          reportFilters.userRole === role
+                            ? 'bg-primary text-white border-primary'
+                            : 'bg-white border-gray-300 hover:border-primary hover:bg-primary/5'
+                        }`}
+                      >
+                        {role === 'all' ? 'All Roles' : role.charAt(0).toUpperCase() + role.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Account Status Filter */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-3">
+                    Account Status
+                  </label>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    {['all', 'active', 'terminated', 'blocked'].map(status => (
+                      <button
+                        key={status}
+                        onClick={async () => {
+                          const updatedFilters = { ...reportFilters, accountStatus: status };
+                          setReportFilters(updatedFilters);
+                          setShowPreview(false);
+                          setPreviewData(null);
+                          setTimeout(() => {
+                            if (selectedReportType) {
+                              handlePreviewReportWithFilter(null, updatedFilters);
+                            }
+                          }, 100);
+                        }}
+                        className={`px-4 py-2 rounded-lg border-2 transition-all text-sm font-medium ${
+                          reportFilters.accountStatus === status
+                            ? 'bg-primary text-white border-primary'
+                            : 'bg-white border-gray-300 hover:border-primary hover:bg-primary/5'
+                        }`}
+                      >
+                        {status === 'all' ? 'All Status' : status.charAt(0).toUpperCase() + status.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {selectedReportType === 'reviews' && (
+              <>
+                {/* Rating Filter */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-3">
+                    Rating
+                  </label>
+                  <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
+                    {['all', '1', '2', '3', '4', '5'].map(rating => (
+                      <button
+                        key={rating}
+                        onClick={async () => {
+                          const updatedFilters = { ...reportFilters, rating: rating };
+                          setReportFilters(updatedFilters);
+                          setShowPreview(false);
+                          setPreviewData(null);
+                          setTimeout(() => {
+                            if (selectedReportType) {
+                              handlePreviewReportWithFilter(null, updatedFilters);
+                            }
+                          }, 100);
+                        }}
+                        className={`px-4 py-2 rounded-lg border-2 transition-all text-sm font-medium ${
+                          reportFilters.rating === rating
+                            ? 'bg-primary text-white border-primary'
+                            : 'bg-white border-gray-300 hover:border-primary hover:bg-primary/5'
+                        }`}
+                      >
+                        {rating === 'all' ? 'All Ratings' : `${rating} Star${rating !== '1' ? 's' : ''}`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Verified Filter */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-3">
+                    Verification Status
+                  </label>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    {['all', 'verified', 'unverified'].map(verified => (
+                      <button
+                        key={verified}
+                        onClick={async () => {
+                          const updatedFilters = { ...reportFilters, verified: verified };
+                          setReportFilters(updatedFilters);
+                          setShowPreview(false);
+                          setPreviewData(null);
+                          setTimeout(() => {
+                            if (selectedReportType) {
+                              handlePreviewReportWithFilter(null, updatedFilters);
+                            }
+                          }, 100);
+                        }}
+                        className={`px-4 py-2 rounded-lg border-2 transition-all text-sm font-medium ${
+                          reportFilters.verified === verified
+                            ? 'bg-primary text-white border-primary'
+                            : 'bg-white border-gray-300 hover:border-primary hover:bg-primary/5'
+                        }`}
+                      >
+                        {verified === 'all' ? 'All Reviews' : verified.charAt(0).toUpperCase() + verified.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {selectedReportType === 'hosts' && (
+              <>
+                {/* Host Status Filter */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-3">
+                    Host Status
+                  </label>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    {['all', 'active', 'terminated'].map(status => (
+                      <button
+                        key={status}
+                        onClick={async () => {
+                          const updatedFilters = { ...reportFilters, hostStatus: status };
+                          setReportFilters(updatedFilters);
+                          setShowPreview(false);
+                          setPreviewData(null);
+                          setTimeout(() => {
+                            if (selectedReportType) {
+                              handlePreviewReportWithFilter(null, updatedFilters);
+                            }
+                          }, 100);
+                        }}
+                        className={`px-4 py-2 rounded-lg border-2 transition-all text-sm font-medium ${
+                          reportFilters.hostStatus === status
+                            ? 'bg-primary text-white border-primary'
+                            : 'bg-white border-gray-300 hover:border-primary hover:bg-primary/5'
+                        }`}
+                      >
+                        {status === 'all' ? 'All Hosts' : status.charAt(0).toUpperCase() + status.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Subscription Type Filter */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-3">
+                    Subscription Type
+                  </label>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    {['all', 'monthly', 'yearly'].map(type => (
+                      <button
+                        key={type}
+                        onClick={async () => {
+                          const updatedFilters = { ...reportFilters, subscriptionType: type };
+                          setReportFilters(updatedFilters);
+                          setShowPreview(false);
+                          setPreviewData(null);
+                          setTimeout(() => {
+                            if (selectedReportType) {
+                              handlePreviewReportWithFilter(null, updatedFilters);
+                            }
+                          }, 100);
+                        }}
+                        className={`px-4 py-2 rounded-lg border-2 transition-all text-sm font-medium ${
+                          reportFilters.subscriptionType === type
+                            ? 'bg-primary text-white border-primary'
+                            : 'bg-white border-gray-300 hover:border-primary hover:bg-primary/5'
+                        }`}
+                      >
+                        {type === 'all' ? 'All Subscriptions' : type.charAt(0).toUpperCase() + type.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {selectedReportType === 'financial' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-3">
+                  Transaction Type
+                </label>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                  {['all', 'commission', 'subscription'].map(type => (
+                    <button
+                      key={type}
+                      onClick={async () => {
+                        const updatedFilters = { ...reportFilters, transactionType: type };
+                        setReportFilters(updatedFilters);
+                        setShowPreview(false);
+                        setPreviewData(null);
+                        setTimeout(() => {
+                          if (selectedReportType) {
+                            handlePreviewReportWithFilter(null, updatedFilters);
+                          }
+                        }, 100);
+                      }}
+                      className={`px-4 py-2 rounded-lg border-2 transition-all text-sm font-medium ${
+                        reportFilters.transactionType === type
+                          ? 'bg-primary text-white border-primary'
+                          : 'bg-white border-gray-300 hover:border-primary hover:bg-primary/5'
+                      }`}
+                    >
+                      {type === 'all' ? 'All Types' : type.charAt(0).toUpperCase() + type.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {selectedReportType === 'compliance' && (
+              <>
+                {/* Violation Type Filter */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-3">
+                    Violation Type
+                  </label>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    {['all', 'host_cancellation', 'low_rating', 'host_appeal'].map(type => (
+                      <button
+                        key={type}
+                        onClick={async () => {
+                          const updatedFilters = { ...reportFilters, violationType: type };
+                          setReportFilters(updatedFilters);
+                          setShowPreview(false);
+                          setPreviewData(null);
+                          setTimeout(() => {
+                            if (selectedReportType) {
+                              handlePreviewReportWithFilter(null, updatedFilters);
+                            }
+                          }, 100);
+                        }}
+                        className={`px-4 py-2 rounded-lg border-2 transition-all text-sm font-medium ${
+                          reportFilters.violationType === type
+                            ? 'bg-primary text-white border-primary'
+                            : 'bg-white border-gray-300 hover:border-primary hover:bg-primary/5'
+                        }`}
+                      >
+                        {type === 'all' ? 'All Types' : type.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Compliance Status Filter */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-3">
+                    Compliance Status
+                  </label>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    {['all', 'pending', 'reviewed'].map(status => (
+                      <button
+                        key={status}
+                        onClick={async () => {
+                          const updatedFilters = { ...reportFilters, complianceStatus: status };
+                          setReportFilters(updatedFilters);
+                          setShowPreview(false);
+                          setPreviewData(null);
+                          setTimeout(() => {
+                            if (selectedReportType) {
+                              handlePreviewReportWithFilter(null, updatedFilters);
+                            }
+                          }, 100);
+                        }}
+                        className={`px-4 py-2 rounded-lg border-2 transition-all text-sm font-medium ${
+                          reportFilters.complianceStatus === status
+                            ? 'bg-primary text-white border-primary'
+                            : 'bg-white border-gray-300 hover:border-primary hover:bg-primary/5'
+                        }`}
+                      >
+                        {status === 'all' ? 'All Status' : status.charAt(0).toUpperCase() + status.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
             )}
 
             {/* Display selected preset info */}
@@ -7096,21 +8479,30 @@ const AdminDashboard = () => {
                     )}
                   </div>
                 );
-              } else if (previewSection === 'host-management') {
+              } else if (previewSection === 'user-management') {
+                const isGuests = userManagementView === 'guests';
                 return (
                   <div className="space-y-2">
-                    <p className="text-sm text-gray-600 mb-2">Showing {data.length} hosts</p>
-                    {data.map((host, idx) => (
+                    <p className="text-sm text-gray-600 mb-2">Showing {data.length} {isGuests ? 'guests' : 'hosts'}</p>
+                    {data.map((item, idx) => (
                       <div key={idx} className="p-3 border border-gray-200 rounded-lg text-sm">
                         <div className="flex justify-between items-start">
                           <div>
-                            <p className="font-medium">{host.name || 'Unknown'}</p>
-                            <p className="text-gray-600 text-xs">{host.email || 'N/A'}</p>
-                            <p className="text-gray-500 text-xs">
-                              {host.listings} listings • {host.bookings} bookings
-                            </p>
+                            <p className="font-medium">{item.name || 'Unknown'}</p>
+                            <p className="text-gray-600 text-xs">{item.email || 'N/A'}</p>
+                            {isGuests ? (
+                              <p className="text-gray-500 text-xs">
+                                {item.bookings || 0} bookings
+                              </p>
+                            ) : (
+                              <p className="text-gray-500 text-xs">
+                                {item.listings || 0} listings • {item.bookings || 0} bookings
+                              </p>
+                            )}
                           </div>
-                          <p className="font-bold text-green-600">{formatCurrency(host.earnings || 0)}</p>
+                          <p className="font-bold text-green-600">
+                            {formatCurrency(isGuests ? (item.totalSpent || 0) : (item.earnings || 0))}
+                          </p>
                         </div>
                       </div>
                     ))}
@@ -7174,7 +8566,7 @@ const AdminDashboard = () => {
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
               <Printer className="w-5 h-5" />
-              Print {printSection === 'overview' ? 'Overview' : printSection === 'transactions' ? 'Transactions' : printSection === 'earnings' ? 'Earnings' : printSection === 'service-fees' ? 'Service Fees' : printSection === 'host-management' ? 'Host Management' : 'Report'}
+              Print {printSection === 'overview' ? 'Overview' : printSection === 'transactions' ? 'Transactions' : printSection === 'earnings' ? 'Earnings' : printSection === 'service-fees' ? 'Service Fees' : printSection === 'user-management' ? 'User Management' : 'Report'}
             </AlertDialogTitle>
             <AlertDialogDescription>
               Select a date range preset or choose custom dates to filter the data before printing.

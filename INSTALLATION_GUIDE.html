@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>INSTALLATION_GUIDE</title>
+  <style>
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+    /* CSS for syntax highlighting */
+    html { -webkit-text-size-adjust: 100%; }
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    .sourceCode { overflow: visible; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {   }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ff0000; font-weight: bold; } /* Alert */
+    code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #7d9029; } /* Attribute */
+    code span.bn { color: #40a070; } /* BaseN */
+    code span.bu { color: #008000; } /* BuiltIn */
+    code span.cf { color: #007020; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4070a0; } /* Char */
+    code span.cn { color: #880000; } /* Constant */
+    code span.co { color: #60a0b0; font-style: italic; } /* Comment */
+    code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #ba2121; font-style: italic; } /* Documentation */
+    code span.dt { color: #902000; } /* DataType */
+    code span.dv { color: #40a070; } /* DecVal */
+    code span.er { color: #ff0000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #40a070; } /* Float */
+    code span.fu { color: #06287e; } /* Function */
+    code span.im { color: #008000; font-weight: bold; } /* Import */
+    code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #007020; font-weight: bold; } /* Keyword */
+    code span.op { color: #666666; } /* Operator */
+    code span.ot { color: #007020; } /* Other */
+    code span.pp { color: #bc7a00; } /* Preprocessor */
+    code span.sc { color: #4070a0; } /* SpecialChar */
+    code span.ss { color: #bb6688; } /* SpecialString */
+    code span.st { color: #4070a0; } /* String */
+    code span.va { color: #19177c; } /* Variable */
+    code span.vs { color: #4070a0; } /* VerbatimString */
+    code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/water.css@2/out/water.css" />
+</head>
+<body>
+<h1 id="getaways-platform---installation-setup-guide">GETAWAYS PLATFORM
+- INSTALLATION &amp; SETUP GUIDE</h1>
+<h2 id="table-of-contents">Table of Contents</h2>
+<ol type="1">
+<li><a href="#prerequisites">Prerequisites</a></li>
+<li><a href="#local-development-setup">Local Development Setup</a></li>
+<li><a href="#firebase-configuration">Firebase Configuration</a></li>
+<li><a href="#emailjs-configuration">EmailJS Configuration</a></li>
+<li><a href="#paypal-configuration">PayPal Configuration</a></li>
+<li><a href="#environment-variables">Environment Variables</a></li>
+<li><a href="#running-the-application">Running the Application</a></li>
+<li><a href="#building-for-production">Building for Production</a></li>
+<li><a href="#deployment">Deployment</a></li>
+<li><a href="#troubleshooting">Troubleshooting</a></li>
+</ol>
+<hr />
+<h2 id="prerequisites">1. Prerequisites</h2>
+<h3 id="required-software">1.1 Required Software</h3>
+<ul>
+<li><strong>Node.js</strong>: Version 18.x or higher</li>
+<li><strong>npm</strong>: Version 9.x or higher (comes with
+Node.js)</li>
+<li><strong>Git</strong>: For version control</li>
+<li><strong>Firebase CLI</strong>: For deployment</li>
+<li><strong>Code Editor</strong>: VS Code recommended</li>
+</ul>
+<h3 id="required-accounts">1.2 Required Accounts</h3>
+<ul>
+<li><strong>Firebase Account</strong>: <a
+href="https://firebase.google.com">firebase.google.com</a></li>
+<li><strong>EmailJS Account</strong>: <a
+href="https://emailjs.com">emailjs.com</a></li>
+<li><strong>PayPal Developer Account</strong>: <a
+href="https://developer.paypal.com">developer.paypal.com</a></li>
+</ul>
+<h3 id="system-requirements">1.3 System Requirements</h3>
+<ul>
+<li><strong>Operating System</strong>: Windows, macOS, or Linux</li>
+<li><strong>RAM</strong>: Minimum 4GB (8GB recommended)</li>
+<li><strong>Disk Space</strong>: At least 500MB free space</li>
+<li><strong>Internet Connection</strong>: Required for dependencies and
+Firebase</li>
+</ul>
+<hr />
+<h2 id="local-development-setup">2. Local Development Setup</h2>
+<h3 id="clone-the-repository">2.1 Clone the Repository</h3>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> clone <span class="op">&lt;</span>repository-url<span class="op">&gt;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="bu">cd</span> getaways</span></code></pre></div>
+<h3 id="install-dependencies">2.2 Install Dependencies</h3>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> install</span></code></pre></div>
+<p>This will install all required packages listed in
+<code>package.json</code>: - React and React DOM - React Router -
+Firebase SDK - Tailwind CSS - And all other dependencies</p>
+<h3 id="verify-installation">2.3 Verify Installation</h3>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> run dev</span></code></pre></div>
+<p>The application should start on
+<code>http://localhost:5173</code></p>
+<hr />
+<h2 id="firebase-configuration">3. Firebase Configuration</h2>
+<h3 id="create-firebase-project">3.1 Create Firebase Project</h3>
+<ol type="1">
+<li>Go to <a href="https://console.firebase.google.com">Firebase
+Console</a></li>
+<li>Click “Add project”</li>
+<li>Enter project name: “Getaways” (or your preferred name)</li>
+<li>Enable Google Analytics (optional)</li>
+<li>Click “Create project”</li>
+</ol>
+<h3 id="enable-firebase-services">3.2 Enable Firebase Services</h3>
+<h4 id="authentication">Authentication</h4>
+<ol type="1">
+<li>Go to “Authentication” → “Get started”</li>
+<li>Enable “Email/Password” provider</li>
+<li>Enable “Google” provider</li>
+<li>Add authorized domains:
+<ul>
+<li><code>localhost</code> (for development)</li>
+<li>Your production domain</li>
+</ul></li>
+</ol>
+<h4 id="firestore-database">Firestore Database</h4>
+<ol type="1">
+<li>Go to “Firestore Database” → “Create database”</li>
+<li>Start in “Production mode” (we’ll add rules later)</li>
+<li>Choose location (closest to your users)</li>
+<li>Click “Enable”</li>
+</ol>
+<h4 id="storage">Storage</h4>
+<ol type="1">
+<li>Go to “Storage” → “Get started”</li>
+<li>Start in “Production mode”</li>
+<li>Use default security rules</li>
+<li>Choose location (same as Firestore)</li>
+<li>Click “Done”</li>
+</ol>
+<h4 id="hosting">Hosting</h4>
+<ol type="1">
+<li><p>Go to “Hosting” → “Get started”</p></li>
+<li><p>Follow setup instructions</p></li>
+<li><p>Install Firebase CLI if not already installed:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> install <span class="at">-g</span> firebase-tools</span></code></pre></div></li>
+<li><p>Login to Firebase:</p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="ex">firebase</span> login</span></code></pre></div></li>
+<li><p>Initialize hosting:</p>
+<div class="sourceCode" id="cb6"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="ex">firebase</span> init hosting</span></code></pre></div>
+<ul>
+<li>Select existing project</li>
+<li>Public directory: <code>dist</code></li>
+<li>Single-page app: Yes</li>
+<li>Automatic builds: No</li>
+</ul></li>
+</ol>
+<h3 id="get-firebase-configuration">3.3 Get Firebase Configuration</h3>
+<ol type="1">
+<li>Go to Project Settings (gear icon)</li>
+<li>Scroll to “Your apps”</li>
+<li>Click web icon (<code>&lt;/&gt;</code>)</li>
+<li>Register app with nickname</li>
+<li>Copy the configuration object</li>
+</ol>
+<h3 id="configure-firebase-in-project">3.4 Configure Firebase in
+Project</h3>
+<p>Update <code>src/lib/firebase.js</code> with your configuration:</p>
+<div class="sourceCode" id="cb7"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> firebaseConfig <span class="op">=</span> {</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">apiKey</span><span class="op">:</span> <span class="st">&quot;YOUR_API_KEY&quot;</span><span class="op">,</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">authDomain</span><span class="op">:</span> <span class="st">&quot;YOUR_AUTH_DOMAIN&quot;</span><span class="op">,</span></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">projectId</span><span class="op">:</span> <span class="st">&quot;YOUR_PROJECT_ID&quot;</span><span class="op">,</span></span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">storageBucket</span><span class="op">:</span> <span class="st">&quot;YOUR_STORAGE_BUCKET&quot;</span><span class="op">,</span></span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">messagingSenderId</span><span class="op">:</span> <span class="st">&quot;YOUR_MESSAGING_SENDER_ID&quot;</span><span class="op">,</span></span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">appId</span><span class="op">:</span> <span class="st">&quot;YOUR_APP_ID&quot;</span><span class="op">,</span></span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>  <span class="dt">measurementId</span><span class="op">:</span> <span class="st">&quot;YOUR_MEASUREMENT_ID&quot;</span></span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>}<span class="op">;</span></span></code></pre></div>
+<h3 id="set-up-firestore-security-rules">3.5 Set Up Firestore Security
+Rules</h3>
+<ol type="1">
+<li>Go to Firestore Database → Rules</li>
+<li>Update rules (see Technical Documentation for full rules)</li>
+<li>Publish rules</li>
+</ol>
+<h3 id="set-up-storage-security-rules">3.6 Set Up Storage Security
+Rules</h3>
+<ol type="1">
+<li>Go to Storage → Rules</li>
+<li>Update rules (see Technical Documentation for full rules)</li>
+<li>Publish rules</li>
+</ol>
+<hr />
+<h2 id="emailjs-configuration">4. EmailJS Configuration</h2>
+<h3 id="create-emailjs-account">4.1 Create EmailJS Account</h3>
+<ol type="1">
+<li>Go to <a href="https://www.emailjs.com">EmailJS</a></li>
+<li>Sign up for free account</li>
+<li>Verify email address</li>
+</ol>
+<h3 id="create-email-service">4.2 Create Email Service</h3>
+<h4 id="auth-service-for-verification-and-password-reset">Auth Service
+(for verification and password reset)</h4>
+<ol type="1">
+<li>Go to “Email Services”</li>
+<li>Click “Add New Service”</li>
+<li>Choose email provider (Gmail recommended)</li>
+<li>Connect your email account</li>
+<li>Name it: “Auth Service”</li>
+<li>Copy Service ID (e.g., <code>service_xxxxx</code>)</li>
+</ol>
+<h4 id="booking-service-for-booking-emails">Booking Service (for booking
+emails)</h4>
+<ol type="1">
+<li>Create another service</li>
+<li>Name it: “Booking Service”</li>
+<li>Copy Service ID</li>
+</ol>
+<h3 id="create-email-templates">4.3 Create Email Templates</h3>
+<h4 id="verification-email-template">Verification Email Template</h4>
+<ol type="1">
+<li>Go to “Email Templates”</li>
+<li>Click “Create New Template”</li>
+<li>Template ID: <code>template_qo9q8de</code> (or generate new)</li>
+<li>Use these variables:
+<ul>
+<li><code>{{to_email}}</code></li>
+<li><code>{{to_name}}</code></li>
+<li><code>{{verification_link}}</code></li>
+<li><code>{{app_name}}</code></li>
+<li><code>{{support_email}}</code></li>
+<li><code>{{logo_url}}</code></li>
+</ul></li>
+<li>Save template</li>
+</ol>
+<h4 id="password-reset-template">Password Reset Template</h4>
+<ol type="1">
+<li>Create new template</li>
+<li>Template ID: <code>template_btqnqws</code></li>
+<li>Use variables:
+<ul>
+<li><code>{{to_email}}</code></li>
+<li><code>{{to_name}}</code></li>
+<li><code>{{reset_link}}</code></li>
+<li><code>{{app_name}}</code></li>
+<li><code>{{support_email}}</code></li>
+<li><code>{{logo_url}}</code></li>
+</ul></li>
+<li>Save template</li>
+</ol>
+<h4 id="booking-confirmation-template">Booking Confirmation
+Template</h4>
+<ol type="1">
+<li>Create new template</li>
+<li>Template ID: <code>template_sl3wzej</code></li>
+<li>Use variables:
+<ul>
+<li><code>{{to_email}}</code></li>
+<li><code>{{to_name}}</code></li>
+<li><code>{{booking_id}}</code></li>
+<li><code>{{listing_title}}</code></li>
+<li><code>{{check_in_date}}</code></li>
+<li><code>{{check_out_date}}</code></li>
+<li><code>{{total_price}}</code></li>
+<li><code>{{app_name}}</code></li>
+<li><code>{{support_email}}</code></li>
+<li><code>{{logo_url}}</code></li>
+</ul></li>
+<li>Save template</li>
+</ol>
+<h4 id="cancellation-template">Cancellation Template</h4>
+<ol type="1">
+<li>Create new template</li>
+<li>Template ID: <code>template_v7z3kcj</code></li>
+<li>Use variables (see Technical Documentation for full list)</li>
+<li>Save template</li>
+</ol>
+<h3 id="get-public-key">4.4 Get Public Key</h3>
+<ol type="1">
+<li>Go to “Account” → “General”</li>
+<li>Copy “Public Key”</li>
+<li>You’ll have separate keys for each service</li>
+</ol>
+<hr />
+<h2 id="paypal-configuration">5. PayPal Configuration</h2>
+<h3 id="create-paypal-developer-account">5.1 Create PayPal Developer
+Account</h3>
+<ol type="1">
+<li>Go to <a href="https://developer.paypal.com">PayPal
+Developer</a></li>
+<li>Sign up or log in</li>
+<li>Create a new app</li>
+</ol>
+<h3 id="create-paypal-app">5.2 Create PayPal App</h3>
+<ol type="1">
+<li>Go to “My Apps &amp; Credentials”</li>
+<li>Click “Create App”</li>
+<li>Enter app name: “Getaways”</li>
+<li>Select environment:
+<ul>
+<li><strong>Sandbox</strong>: For testing</li>
+<li><strong>Live</strong>: For production</li>
+</ul></li>
+<li>Click “Create App”</li>
+</ol>
+<h3 id="get-client-id">5.3 Get Client ID</h3>
+<ol type="1">
+<li>Copy “Client ID” from app details</li>
+<li>For production, use Live Client ID</li>
+<li>For development, use Sandbox Client ID</li>
+</ol>
+<h3 id="configure-paypal-in-project">5.4 Configure PayPal in
+Project</h3>
+<p>Add Client ID to environment variables (see section 6)</p>
+<hr />
+<h2 id="environment-variables">6. Environment Variables</h2>
+<h3 id="create-environment-file">6.1 Create Environment File</h3>
+<p>Create <code>.env</code> file in project root:</p>
+<pre class="env"><code># Firebase Configuration
+VITE_FIREBASE_API_KEY=your_api_key_here
+VITE_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=your_project_id
+VITE_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
+VITE_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
+VITE_FIREBASE_APP_ID=your_app_id
+VITE_FIREBASE_MEASUREMENT_ID=your_measurement_id
+
+# EmailJS Configuration - Auth Service
+VITE_EMAILJS_AUTH_SERVICE_ID=service_xxxxx
+VITE_EMAILJS_AUTH_PUBLIC_KEY=your_auth_public_key
+
+# EmailJS Configuration - Booking Service
+VITE_EMAILJS_BOOKING_SERVICE_ID=service_xxxxx
+VITE_EMAILJS_BOOKING_PUBLIC_KEY=your_booking_public_key
+
+# EmailJS Template IDs
+VITE_EMAILJS_VERIFY_TEMPLATE_ID=template_xxxxx
+VITE_EMAILJS_RESET_TEMPLATE_ID=template_xxxxx
+VITE_EMAILJS_BOOKING_SUCCESS_TEMPLATE_ID=template_xxxxx
+VITE_EMAILJS_CANCELLATION_TEMPLATE_ID=template_xxxxx
+VITE_EMAILJS_SUBSCRIPTION_SUCCESS_TEMPLATE_ID=template_xxxxx
+
+# PayPal Configuration
+VITE_PAYPAL_CLIENT_ID=your_paypal_client_id
+
+# Support Email
+VITE_SUPPORT_EMAIL=support@getaways.com
+
+# Logo URL (optional)
+VITE_LOGO_URL=https://your-domain.com/logo.jpg</code></pre>
+<h3 id="environment-file-security">6.2 Environment File Security</h3>
+<ul>
+<li><strong>Never commit <code>.env</code> to version
+control</strong></li>
+<li>Add <code>.env</code> to <code>.gitignore</code></li>
+<li>Use different values for development and production</li>
+<li>Keep production keys secure</li>
+</ul>
+<h3 id="firebase-configuration-alternative">6.3 Firebase Configuration
+Alternative</h3>
+<p>If you prefer to hardcode Firebase config (not recommended for
+production), update <code>src/lib/firebase.js</code> directly.</p>
+<hr />
+<h2 id="running-the-application">7. Running the Application</h2>
+<h3 id="development-server">7.1 Development Server</h3>
+<div class="sourceCode" id="cb9"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> run dev</span></code></pre></div>
+<ul>
+<li>Server starts on <code>http://localhost:5173</code></li>
+<li>Hot module replacement enabled</li>
+<li>Changes reflect immediately</li>
+</ul>
+<h3 id="build-preview">7.2 Build Preview</h3>
+<div class="sourceCode" id="cb10"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> run build</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> run preview</span></code></pre></div>
+<ul>
+<li>Builds production bundle</li>
+<li>Serves on <code>http://localhost:4173</code></li>
+<li>Tests production build locally</li>
+</ul>
+<h3 id="linting">7.3 Linting</h3>
+<div class="sourceCode" id="cb11"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> run lint</span></code></pre></div>
+<ul>
+<li>Checks code for errors</li>
+<li>Follows ESLint configuration</li>
+</ul>
+<hr />
+<h2 id="building-for-production">8. Building for Production</h2>
+<h3 id="production-build">8.1 Production Build</h3>
+<div class="sourceCode" id="cb12"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> run build</span></code></pre></div>
+<p>This creates optimized production files in <code>dist/</code>
+directory: - Minified JavaScript - Optimized CSS - Compressed assets -
+Tree-shaken dependencies</p>
+<h3 id="build-output">8.2 Build Output</h3>
+<pre><code>dist/
+├── index.html
+├── assets/
+│   ├── index-[hash].js
+│   ├── index-[hash].css
+│   └── ...
+└── ...</code></pre>
+<h3 id="verify-build">8.3 Verify Build</h3>
+<ol type="1">
+<li>Test locally with <code>npm run preview</code></li>
+<li>Check all routes work</li>
+<li>Verify API connections</li>
+<li>Test payment flows (use sandbox)</li>
+</ol>
+<hr />
+<h2 id="deployment">9. Deployment</h2>
+<h3 id="firebase-hosting-deployment">9.1 Firebase Hosting
+Deployment</h3>
+<h4 id="initial-setup">Initial Setup</h4>
+<div class="sourceCode" id="cb14"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="ex">firebase</span> login</span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a><span class="ex">firebase</span> init hosting</span></code></pre></div>
+<h4 id="deploy">Deploy</h4>
+<div class="sourceCode" id="cb15"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> run build</span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a><span class="ex">firebase</span> deploy <span class="at">--only</span> hosting</span></code></pre></div>
+<h4 id="deploy-specific-features">Deploy Specific Features</h4>
+<div class="sourceCode" id="cb16"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Deploy hosting only</span></span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a><span class="ex">firebase</span> deploy <span class="at">--only</span> hosting</span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Deploy functions only (if you have Cloud Functions)</span></span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a><span class="ex">firebase</span> deploy <span class="at">--only</span> functions</span>
+<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a><span class="co"># Deploy everything</span></span>
+<span id="cb16-8"><a href="#cb16-8" aria-hidden="true" tabindex="-1"></a><span class="ex">firebase</span> deploy</span></code></pre></div>
+<h3 id="environment-variables-for-production">9.2 Environment Variables
+for Production</h3>
+<ol type="1">
+<li>Set environment variables in Firebase Hosting</li>
+<li>Or use Firebase Functions to inject variables</li>
+<li>Or hardcode in build (not recommended)</li>
+</ol>
+<h3 id="post-deployment-checklist">9.3 Post-Deployment Checklist</h3>
+<ul class="task-list">
+<li><label><input type="checkbox" />Verify site loads
+correctly</label></li>
+<li><label><input type="checkbox" />Test authentication</label></li>
+<li><label><input type="checkbox" />Test booking flow</label></li>
+<li><label><input type="checkbox" />Test payment (sandbox)</label></li>
+<li><label><input type="checkbox" />Verify emails are
+sending</label></li>
+<li><label><input type="checkbox" />Check Firebase rules</label></li>
+<li><label><input type="checkbox" />Monitor error logs</label></li>
+<li><label><input type="checkbox" />Test on mobile devices</label></li>
+</ul>
+<hr />
+<h2 id="troubleshooting">10. Troubleshooting</h2>
+<h3 id="common-issues">10.1 Common Issues</h3>
+<h4 id="firebase-connection-errors">Firebase Connection Errors</h4>
+<p><strong>Problem</strong>: Cannot connect to Firebase
+<strong>Solution</strong>: - Check Firebase configuration - Verify API
+keys are correct - Check internet connection - Verify Firebase project
+is active</p>
+<h4 id="emailjs-errors">EmailJS Errors</h4>
+<p><strong>Problem</strong>: Emails not sending
+<strong>Solution</strong>: - Verify EmailJS service IDs - Check public
+keys - Verify template IDs - Check email service connection - Review
+EmailJS dashboard for errors</p>
+<h4 id="paypal-errors">PayPal Errors</h4>
+<p><strong>Problem</strong>: PayPal payments not working
+<strong>Solution</strong>: - Verify Client ID is correct - Check
+environment (sandbox vs live) - Verify PayPal app is active - Check
+browser console for errors</p>
+<h4 id="build-errors">Build Errors</h4>
+<p><strong>Problem</strong>: Build fails <strong>Solution</strong>: -
+Clear node_modules: <code>rm -rf node_modules</code> - Clear cache:
+<code>npm cache clean --force</code> - Reinstall:
+<code>npm install</code> - Check Node.js version - Review error
+messages</p>
+<h4 id="port-already-in-use">Port Already in Use</h4>
+<p><strong>Problem</strong>: Port 5173 already in use
+<strong>Solution</strong>:</p>
+<div class="sourceCode" id="cb17"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Kill process on port 5173</span></span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a><span class="co"># Windows</span></span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a><span class="fu">netstat</span> <span class="at">-ano</span> <span class="kw">|</span> <span class="ex">findstr</span> :5173</span>
+<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a><span class="ex">taskkill</span> /PID <span class="op">&lt;</span>PID<span class="op">&gt;</span> /F</span>
+<span id="cb17-5"><a href="#cb17-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb17-6"><a href="#cb17-6" aria-hidden="true" tabindex="-1"></a><span class="co"># macOS/Linux</span></span>
+<span id="cb17-7"><a href="#cb17-7" aria-hidden="true" tabindex="-1"></a><span class="ex">lsof</span> <span class="at">-ti:5173</span> <span class="kw">|</span> <span class="fu">xargs</span> kill</span></code></pre></div>
+<h3 id="debugging-tips">10.2 Debugging Tips</h3>
+<h4 id="enable-debug-logging">Enable Debug Logging</h4>
+<ul>
+<li>Check browser console</li>
+<li>Check Firebase console</li>
+<li>Check EmailJS dashboard</li>
+<li>Check PayPal developer dashboard</li>
+</ul>
+<h4 id="common-console-errors">Common Console Errors</h4>
+<ul>
+<li><strong>CORS errors</strong>: Check Firebase rules</li>
+<li><strong>Auth errors</strong>: Verify email verification</li>
+<li><strong>Payment errors</strong>: Check PayPal configuration</li>
+<li><strong>Network errors</strong>: Check API endpoints</li>
+</ul>
+<h3 id="getting-help">10.3 Getting Help</h3>
+<ul>
+<li>Check Firebase documentation</li>
+<li>Check EmailJS documentation</li>
+<li>Check PayPal documentation</li>
+<li>Review error logs</li>
+<li>Contact support</li>
+</ul>
+<hr />
+<h2 id="appendix-a-quick-start-checklist">Appendix A: Quick Start
+Checklist</h2>
+<ul class="task-list">
+<li><label><input type="checkbox" />Install Node.js and npm</label></li>
+<li><label><input type="checkbox" />Clone repository</label></li>
+<li><label><input type="checkbox" />Install dependencies</label></li>
+<li><label><input type="checkbox" />Create Firebase project</label></li>
+<li><label><input type="checkbox" />Configure Firebase
+services</label></li>
+<li><label><input type="checkbox" />Set up EmailJS</label></li>
+<li><label><input type="checkbox" />Configure PayPal</label></li>
+<li><label><input type="checkbox" />Create <code>.env</code>
+file</label></li>
+<li><label><input type="checkbox" />Test locally</label></li>
+<li><label><input type="checkbox" />Build for production</label></li>
+<li><label><input type="checkbox" />Deploy to Firebase</label></li>
+</ul>
+<h2 id="appendix-b-useful-commands">Appendix B: Useful Commands</h2>
+<div class="sourceCode" id="cb18"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Development</span></span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> run dev              <span class="co"># Start dev server</span></span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> run build            <span class="co"># Build for production</span></span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> run preview          <span class="co"># Preview production build</span></span>
+<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> run lint             <span class="co"># Run linter</span></span>
+<span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-7"><a href="#cb18-7" aria-hidden="true" tabindex="-1"></a><span class="co"># Firebase</span></span>
+<span id="cb18-8"><a href="#cb18-8" aria-hidden="true" tabindex="-1"></a><span class="ex">firebase</span> login           <span class="co"># Login to Firebase</span></span>
+<span id="cb18-9"><a href="#cb18-9" aria-hidden="true" tabindex="-1"></a><span class="ex">firebase</span> init            <span class="co"># Initialize Firebase</span></span>
+<span id="cb18-10"><a href="#cb18-10" aria-hidden="true" tabindex="-1"></a><span class="ex">firebase</span> deploy          <span class="co"># Deploy to Firebase</span></span>
+<span id="cb18-11"><a href="#cb18-11" aria-hidden="true" tabindex="-1"></a><span class="ex">firebase</span> serve           <span class="co"># Serve locally</span></span>
+<span id="cb18-12"><a href="#cb18-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-13"><a href="#cb18-13" aria-hidden="true" tabindex="-1"></a><span class="co"># Git</span></span>
+<span id="cb18-14"><a href="#cb18-14" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> clone <span class="op">&lt;</span>url<span class="op">&gt;</span>          <span class="co"># Clone repository</span></span>
+<span id="cb18-15"><a href="#cb18-15" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> pull                 <span class="co"># Pull latest changes</span></span>
+<span id="cb18-16"><a href="#cb18-16" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> add .                <span class="co"># Stage changes</span></span>
+<span id="cb18-17"><a href="#cb18-17" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> commit <span class="at">-m</span> <span class="st">&quot;message&quot;</span>  <span class="co"># Commit changes</span></span>
+<span id="cb18-18"><a href="#cb18-18" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> push                 <span class="co"># Push changes</span></span></code></pre></div>
+<hr />
+<p><strong>Document Version</strong>: 1.0<br />
+<strong>Last Updated</strong>: 2024<br />
+<strong>Platform Version</strong>: Getaways v1.0</p>
+</body>
+</html>

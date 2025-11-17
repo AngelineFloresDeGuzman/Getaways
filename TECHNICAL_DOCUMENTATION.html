@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>TECHNICAL_DOCUMENTATION</title>
+  <style>
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+    /* CSS for syntax highlighting */
+    html { -webkit-text-size-adjust: 100%; }
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    .sourceCode { overflow: visible; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {   }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ff0000; font-weight: bold; } /* Alert */
+    code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #7d9029; } /* Attribute */
+    code span.bn { color: #40a070; } /* BaseN */
+    code span.bu { color: #008000; } /* BuiltIn */
+    code span.cf { color: #007020; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4070a0; } /* Char */
+    code span.cn { color: #880000; } /* Constant */
+    code span.co { color: #60a0b0; font-style: italic; } /* Comment */
+    code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #ba2121; font-style: italic; } /* Documentation */
+    code span.dt { color: #902000; } /* DataType */
+    code span.dv { color: #40a070; } /* DecVal */
+    code span.er { color: #ff0000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #40a070; } /* Float */
+    code span.fu { color: #06287e; } /* Function */
+    code span.im { color: #008000; font-weight: bold; } /* Import */
+    code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #007020; font-weight: bold; } /* Keyword */
+    code span.op { color: #666666; } /* Operator */
+    code span.ot { color: #007020; } /* Other */
+    code span.pp { color: #bc7a00; } /* Preprocessor */
+    code span.sc { color: #4070a0; } /* SpecialChar */
+    code span.ss { color: #bb6688; } /* SpecialString */
+    code span.st { color: #4070a0; } /* String */
+    code span.va { color: #19177c; } /* Variable */
+    code span.vs { color: #4070a0; } /* VerbatimString */
+    code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/water.css@2/out/water.css" />
+</head>
+<body>
+<h1 id="getaways-platform---technical-documentation">GETAWAYS PLATFORM -
+TECHNICAL DOCUMENTATION</h1>
+<h2 id="table-of-contents">Table of Contents</h2>
+<ol type="1">
+<li><a href="#system-architecture">System Architecture</a></li>
+<li><a href="#technology-stack">Technology Stack</a></li>
+<li><a href="#database-structure">Database Structure</a></li>
+<li><a href="#api-integration">API Integration</a></li>
+<li><a href="#authentication--authorization">Authentication &amp;
+Authorization</a></li>
+<li><a href="#payment-system">Payment System</a></li>
+<li><a href="#email-system">Email System</a></li>
+<li><a href="#file-storage">File Storage</a></li>
+<li><a href="#security">Security</a></li>
+<li><a href="#deployment">Deployment</a></li>
+</ol>
+<hr />
+<h2 id="system-architecture">1. System Architecture</h2>
+<h3 id="overview">1.1 Overview</h3>
+<p>Getaways is a single-page application (SPA) built with React,
+utilizing Firebase as the backend-as-a-service (BaaS) platform. The
+architecture follows a modern client-server model with real-time
+capabilities.</p>
+<h3 id="architecture-diagram">1.2 Architecture Diagram</h3>
+<pre><code>┌─────────────────┐
+│   React Client  │
+│   (Vite + React)│
+└────────┬────────┘
+         │
+         ├─────────────────┬─────────────────┬─────────────────┐
+         │                 │                 │                 │
+┌────────▼────────┐ ┌──────▼──────┐ ┌──────▼──────┐ ┌──────▼──────┐
+│  Firebase Auth  │ │  Firestore  │ │   Storage   │ │   EmailJS   │
+│  (Authentication)│ │  (Database) │ │  (Files)    │ │   (Emails)  │
+└─────────────────┘ └─────────────┘ └─────────────┘ └─────────────┘
+         │
+         │
+┌────────▼────────┐
+│   PayPal API    │
+│  (Payments)     │
+└─────────────────┘</code></pre>
+<h3 id="component-structure">1.3 Component Structure</h3>
+<pre><code>src/
+├── components/          # Reusable UI components
+│   ├── ui/             # Base UI components (shadcn/ui)
+│   └── ...             # Feature components
+├── pages/              # Page components
+│   ├── Guest/          # Guest-specific pages
+│   ├── Host/           # Host-specific pages
+│   ├── Admin/          # Admin-specific pages
+│   ├── Auth/           # Authentication pages
+│   └── Common/         # Shared pages
+├── lib/                # Library configurations
+│   ├── firebase.js     # Firebase configuration
+│   ├── emailService.js # Email service
+│   └── utils.jsx       # Utility functions
+├── hooks/              # Custom React hooks
+├── utils/              # Utility functions
+└── services/           # Business logic services</code></pre>
+<hr />
+<h2 id="technology-stack">2. Technology Stack</h2>
+<h3 id="frontend">2.1 Frontend</h3>
+<ul>
+<li><strong>React 19.1.1</strong>: UI library</li>
+<li><strong>React Router DOM 7.9.3</strong>: Client-side routing</li>
+<li><strong>Vite 7.1.7</strong>: Build tool and dev server</li>
+<li><strong>Tailwind CSS 4.1.14</strong>: Utility-first CSS
+framework</li>
+<li><strong>Radix UI</strong>: Accessible component primitives</li>
+<li><strong>Framer Motion 11.18.2</strong>: Animation library</li>
+<li><strong>React Query 5.90.2</strong>: Data fetching and caching</li>
+<li><strong>Lucide React</strong>: Icon library</li>
+</ul>
+<h3 id="backend-services">2.2 Backend Services</h3>
+<ul>
+<li><strong>Firebase Authentication</strong>: User authentication</li>
+<li><strong>Cloud Firestore</strong>: NoSQL database</li>
+<li><strong>Firebase Storage</strong>: File storage</li>
+<li><strong>Firebase Hosting</strong>: Web hosting</li>
+<li><strong>EmailJS</strong>: Email service integration</li>
+</ul>
+<h3 id="payment-processing">2.3 Payment Processing</h3>
+<ul>
+<li><strong>PayPal SDK</strong>: PayPal payment integration</li>
+<li><strong>GetPay Wallet</strong>: Custom e-wallet system
+(Firestore-based)</li>
+</ul>
+<h3 id="development-tools">2.4 Development Tools</h3>
+<ul>
+<li><strong>ESLint</strong>: Code linting</li>
+<li><strong>TypeScript Types</strong>: Type definitions for React</li>
+<li><strong>Vite Plugins</strong>: React plugin, Tailwind plugin</li>
+</ul>
+<h3 id="additional-libraries">2.5 Additional Libraries</h3>
+<ul>
+<li><strong>date-fns</strong>: Date manipulation</li>
+<li><strong>jsPDF</strong>: PDF generation</li>
+<li><strong>jspdf-autotable</strong>: PDF table generation</li>
+<li><strong>leaflet</strong>: Map functionality</li>
+<li><strong>react-leaflet</strong>: React wrapper for Leaflet</li>
+<li><strong>uuid</strong>: Unique ID generation</li>
+<li><strong>browser-image-compression</strong>: Image optimization</li>
+</ul>
+<hr />
+<h2 id="database-structure">3. Database Structure</h2>
+<h3 id="firestore-collections">3.1 Firestore Collections</h3>
+<h4 id="users-collection-users">Users Collection
+(<code>users</code>)</h4>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>{</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">uid</span><span class="op">:</span> string<span class="op">,</span>                    <span class="co">// Firebase Auth UID</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">email</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">firstName</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">lastName</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">emailVerified</span><span class="op">:</span> boolean<span class="op">,</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">roles</span><span class="op">:</span> string[]<span class="op">,</span>                <span class="co">// [&#39;guest&#39;, &#39;host&#39;, &#39;admin&#39;]</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>  <span class="dt">profileImage</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>  <span class="dt">createdAt</span><span class="op">:</span> Timestamp<span class="op">,</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>  <span class="dt">updatedAt</span><span class="op">:</span> Timestamp<span class="op">,</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>  <span class="dt">points</span><span class="op">:</span> number<span class="op">,</span>                 <span class="co">// Host points</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>  <span class="dt">pointsHistory</span><span class="op">:</span> <span class="bu">Array</span><span class="op">,</span>           <span class="co">// Points transaction history</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>  <span class="dt">payment</span><span class="op">:</span> {</span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>    <span class="dt">paypalEmail</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>    <span class="dt">paypalStatus</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>    <span class="dt">method</span><span class="op">:</span> string</span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>  }<span class="op">,</span></span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>  <span class="dt">favorites</span><span class="op">:</span> string[]             <span class="co">// Listing IDs</span></span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h4 id="listings-collection-listings">Listings Collection
+(<code>listings</code>)</h4>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>{</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">ownerId</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">ownerEmail</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">category</span><span class="op">:</span> string<span class="op">,</span>               <span class="co">// &#39;accommodation&#39;, &#39;experience&#39;, &#39;service&#39;</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">title</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">description</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">photos</span><span class="op">:</span> string[]<span class="op">,</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>  <span class="dt">location</span><span class="op">:</span> {</span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>    <span class="dt">address</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>    <span class="dt">city</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>    <span class="dt">province</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>    <span class="dt">country</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>    <span class="dt">latitude</span><span class="op">:</span> number<span class="op">,</span></span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>    <span class="dt">longitude</span><span class="op">:</span> number</span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>  }<span class="op">,</span></span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>  <span class="dt">pricing</span><span class="op">:</span> {</span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a>    <span class="dt">weekdayPrice</span><span class="op">:</span> number<span class="op">,</span></span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a>    <span class="dt">weekendPrice</span><span class="op">:</span> number<span class="op">,</span></span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a>    <span class="dt">discounts</span><span class="op">:</span> {</span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a>      <span class="dt">weekly</span><span class="op">:</span> number<span class="op">,</span></span>
+<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a>      <span class="dt">monthly</span><span class="op">:</span> number<span class="op">,</span></span>
+<span id="cb4-22"><a href="#cb4-22" aria-hidden="true" tabindex="-1"></a>      <span class="dt">earlyBird</span><span class="op">:</span> number<span class="op">,</span></span>
+<span id="cb4-23"><a href="#cb4-23" aria-hidden="true" tabindex="-1"></a>      <span class="dt">lastMinute</span><span class="op">:</span> number</span>
+<span id="cb4-24"><a href="#cb4-24" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb4-25"><a href="#cb4-25" aria-hidden="true" tabindex="-1"></a>  }<span class="op">,</span></span>
+<span id="cb4-26"><a href="#cb4-26" aria-hidden="true" tabindex="-1"></a>  <span class="dt">amenities</span><span class="op">:</span> string[]<span class="op">,</span></span>
+<span id="cb4-27"><a href="#cb4-27" aria-hidden="true" tabindex="-1"></a>  <span class="dt">guestCapacity</span><span class="op">:</span> number<span class="op">,</span></span>
+<span id="cb4-28"><a href="#cb4-28" aria-hidden="true" tabindex="-1"></a>  <span class="dt">bedrooms</span><span class="op">:</span> number<span class="op">,</span></span>
+<span id="cb4-29"><a href="#cb4-29" aria-hidden="true" tabindex="-1"></a>  <span class="dt">beds</span><span class="op">:</span> number<span class="op">,</span></span>
+<span id="cb4-30"><a href="#cb4-30" aria-hidden="true" tabindex="-1"></a>  <span class="dt">bathrooms</span><span class="op">:</span> number<span class="op">,</span></span>
+<span id="cb4-31"><a href="#cb4-31" aria-hidden="true" tabindex="-1"></a>  <span class="dt">rating</span><span class="op">:</span> number<span class="op">,</span></span>
+<span id="cb4-32"><a href="#cb4-32" aria-hidden="true" tabindex="-1"></a>  <span class="dt">reviews</span><span class="op">:</span> number<span class="op">,</span></span>
+<span id="cb4-33"><a href="#cb4-33" aria-hidden="true" tabindex="-1"></a>  <span class="dt">status</span><span class="op">:</span> string<span class="op">,</span>                 <span class="co">// &#39;published&#39;, &#39;unpublished&#39;, &#39;draft&#39;</span></span>
+<span id="cb4-34"><a href="#cb4-34" aria-hidden="true" tabindex="-1"></a>  <span class="dt">createdAt</span><span class="op">:</span> Timestamp<span class="op">,</span></span>
+<span id="cb4-35"><a href="#cb4-35" aria-hidden="true" tabindex="-1"></a>  <span class="dt">updatedAt</span><span class="op">:</span> Timestamp</span>
+<span id="cb4-36"><a href="#cb4-36" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h4 id="bookings-collection-bookings">Bookings Collection
+(<code>bookings</code>)</h4>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>{</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">guestId</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">guestEmail</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">listingId</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">ownerId</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">ownerEmail</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">checkInDate</span><span class="op">:</span> Timestamp<span class="op">,</span></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>  <span class="dt">checkOutDate</span><span class="op">:</span> Timestamp<span class="op">,</span></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>  <span class="dt">guests</span><span class="op">:</span> number<span class="op">,</span></span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>  <span class="dt">totalPrice</span><span class="op">:</span> number<span class="op">,</span></span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>  <span class="dt">bookingAmount</span><span class="op">:</span> number<span class="op">,</span>          <span class="co">// Amount host receives</span></span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>  <span class="dt">guestFee</span><span class="op">:</span> number<span class="op">,</span>               <span class="co">// Platform service fee</span></span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>  <span class="dt">status</span><span class="op">:</span> string<span class="op">,</span>                 <span class="co">// &#39;pending&#39;, &#39;confirmed&#39;, &#39;completed&#39;, &#39;cancelled&#39;</span></span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>  <span class="dt">paymentProvider</span><span class="op">:</span> string<span class="op">,</span>        <span class="co">// &#39;getpay&#39;, &#39;paypal&#39;</span></span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>  <span class="dt">paymentMethod</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>  <span class="dt">paymentStatus</span><span class="op">:</span> string<span class="op">,</span>          <span class="co">// &#39;pending&#39;, &#39;paid&#39;, &#39;refunded&#39;</span></span>
+<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>  <span class="dt">earningsReleased</span><span class="op">:</span> boolean<span class="op">,</span></span>
+<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a>  <span class="dt">couponCode</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a>  <span class="dt">couponDiscount</span><span class="op">:</span> number<span class="op">,</span></span>
+<span id="cb5-20"><a href="#cb5-20" aria-hidden="true" tabindex="-1"></a>  <span class="dt">paypalOrderId</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb5-21"><a href="#cb5-21" aria-hidden="true" tabindex="-1"></a>  <span class="dt">paypalTransactionId</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb5-22"><a href="#cb5-22" aria-hidden="true" tabindex="-1"></a>  <span class="dt">refundAmount</span><span class="op">:</span> number<span class="op">,</span></span>
+<span id="cb5-23"><a href="#cb5-23" aria-hidden="true" tabindex="-1"></a>  <span class="dt">refundType</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb5-24"><a href="#cb5-24" aria-hidden="true" tabindex="-1"></a>  <span class="dt">refundStatus</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb5-25"><a href="#cb5-25" aria-hidden="true" tabindex="-1"></a>  <span class="dt">reviewed</span><span class="op">:</span> boolean<span class="op">,</span></span>
+<span id="cb5-26"><a href="#cb5-26" aria-hidden="true" tabindex="-1"></a>  <span class="dt">createdAt</span><span class="op">:</span> Timestamp<span class="op">,</span></span>
+<span id="cb5-27"><a href="#cb5-27" aria-hidden="true" tabindex="-1"></a>  <span class="dt">updatedAt</span><span class="op">:</span> Timestamp</span>
+<span id="cb5-28"><a href="#cb5-28" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h4 id="reviews-collection-reviews">Reviews Collection
+(<code>reviews</code>)</h4>
+<div class="sourceCode" id="cb6"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>{</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">listingId</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">bookingId</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">reviewerId</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">reviewerName</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">reviewerEmail</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">reviewerImage</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>  <span class="dt">rating</span><span class="op">:</span> number<span class="op">,</span>                 <span class="co">// 1-5</span></span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>  <span class="dt">comment</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>  <span class="dt">listingTitle</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>  <span class="dt">listingCategory</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>  <span class="dt">createdAt</span><span class="op">:</span> Timestamp</span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h4 id="conversations-collection-conversations">Conversations Collection
+(<code>conversations</code>)</h4>
+<div class="sourceCode" id="cb7"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>{</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">participants</span><span class="op">:</span> string[]<span class="op">,</span>         <span class="co">// [userId1, userId2]</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">listingId</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">bookingId</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">lastMessage</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">lastMessageAt</span><span class="op">:</span> Timestamp<span class="op">,</span></span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">unreadCounts</span><span class="op">:</span> {</span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>    [userId]<span class="op">:</span> number</span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>  }<span class="op">,</span></span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a>  <span class="dt">createdAt</span><span class="op">:</span> Timestamp</span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h4
+id="messages-subcollection-conversationsconversationidmessages">Messages
+Subcollection
+(<code>conversations/{conversationId}/messages</code>)</h4>
+<div class="sourceCode" id="cb8"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>{</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">senderId</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">text</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">createdAt</span><span class="op">:</span> Timestamp<span class="op">,</span></span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">read</span><span class="op">:</span> boolean<span class="op">,</span></span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">type</span><span class="op">:</span> string                    <span class="co">// &#39;booking_message&#39;, &#39;regular&#39;</span></span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h4 id="coupons-collection-coupons">Coupons Collection
+(<code>coupons</code>)</h4>
+<div class="sourceCode" id="cb9"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>{</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">hostId</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">code</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">description</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">discountType</span><span class="op">:</span> string<span class="op">,</span>           <span class="co">// &#39;percentage&#39;, &#39;fixed&#39;</span></span>
+<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">discountValue</span><span class="op">:</span> number<span class="op">,</span></span>
+<span id="cb9-7"><a href="#cb9-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">validFrom</span><span class="op">:</span> Timestamp<span class="op">,</span></span>
+<span id="cb9-8"><a href="#cb9-8" aria-hidden="true" tabindex="-1"></a>  <span class="dt">validUntil</span><span class="op">:</span> Timestamp<span class="op">,</span></span>
+<span id="cb9-9"><a href="#cb9-9" aria-hidden="true" tabindex="-1"></a>  <span class="dt">maxUses</span><span class="op">:</span> number<span class="op">,</span></span>
+<span id="cb9-10"><a href="#cb9-10" aria-hidden="true" tabindex="-1"></a>  <span class="dt">currentUses</span><span class="op">:</span> number<span class="op">,</span></span>
+<span id="cb9-11"><a href="#cb9-11" aria-hidden="true" tabindex="-1"></a>  <span class="dt">listingIds</span><span class="op">:</span> string[]<span class="op">,</span>           <span class="co">// Empty = all listings</span></span>
+<span id="cb9-12"><a href="#cb9-12" aria-hidden="true" tabindex="-1"></a>  <span class="dt">active</span><span class="op">:</span> boolean<span class="op">,</span></span>
+<span id="cb9-13"><a href="#cb9-13" aria-hidden="true" tabindex="-1"></a>  <span class="dt">minBookingAmount</span><span class="op">:</span> number<span class="op">,</span></span>
+<span id="cb9-14"><a href="#cb9-14" aria-hidden="true" tabindex="-1"></a>  <span class="dt">createdAt</span><span class="op">:</span> Timestamp<span class="op">,</span></span>
+<span id="cb9-15"><a href="#cb9-15" aria-hidden="true" tabindex="-1"></a>  <span class="dt">updatedAt</span><span class="op">:</span> Timestamp</span>
+<span id="cb9-16"><a href="#cb9-16" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h4 id="drafts-collection-drafts">Drafts Collection
+(<code>drafts</code>)</h4>
+<div class="sourceCode" id="cb10"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>{</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">userId</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">category</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">currentStep</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">data</span><span class="op">:</span> <span class="bu">Object</span><span class="op">,</span>                   <span class="co">// Onboarding form data</span></span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">lastSaved</span><span class="op">:</span> Timestamp<span class="op">,</span></span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">createdAt</span><span class="op">:</span> Timestamp</span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h4 id="verification-tokens-collection-verificationtokens">Verification
+Tokens Collection (<code>verificationTokens</code>)</h4>
+<div class="sourceCode" id="cb11"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>{</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">userId</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">email</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">token</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">type</span><span class="op">:</span> string<span class="op">,</span>                   <span class="co">// &#39;email_verification&#39;</span></span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">expiresAt</span><span class="op">:</span> Timestamp<span class="op">,</span></span>
+<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">createdAt</span><span class="op">:</span> Timestamp<span class="op">,</span></span>
+<span id="cb11-8"><a href="#cb11-8" aria-hidden="true" tabindex="-1"></a>  <span class="dt">used</span><span class="op">:</span> boolean</span>
+<span id="cb11-9"><a href="#cb11-9" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h4 id="password-reset-tokens-collection-passwordresettokens">Password
+Reset Tokens Collection (<code>passwordResetTokens</code>)</h4>
+<div class="sourceCode" id="cb12"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>{</span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">userId</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">email</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">token</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">expiresAt</span><span class="op">:</span> Timestamp<span class="op">,</span></span>
+<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">createdAt</span><span class="op">:</span> Timestamp<span class="op">,</span></span>
+<span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">used</span><span class="op">:</span> boolean</span>
+<span id="cb12-8"><a href="#cb12-8" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h4 id="platform-settings-collection-platformsettings">Platform Settings
+Collection (<code>platformSettings</code>)</h4>
+<div class="sourceCode" id="cb13"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>{</span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">adminPayPalEmail</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">adminPayPalAccountName</span><span class="op">:</span> string<span class="op">,</span></span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">updatedAt</span><span class="op">:</span> Timestamp</span>
+<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h3 id="security-rules">3.2 Security Rules</h3>
+<h4 id="firestore-rules">Firestore Rules</h4>
+<div class="sourceCode" id="cb14"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a>rules_version <span class="op">=</span> <span class="st">&#39;2&#39;</span><span class="op">;</span></span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>service cloud<span class="op">.</span><span class="at">firestore</span> {</span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>  match <span class="op">/</span>databases<span class="op">/</span>{database}<span class="ss">/documents {</span></span>
+<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a><span class="ss">    // Users can read their own data, admins can read all</span></span>
+<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a><span class="ss">    match /users/{userId} {</span></span>
+<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a><span class="ss">      allow read: if request.auth != null &amp;&amp; </span></span>
+<span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a><span class="ss">        </span><span class="sc">(</span><span class="ss">request.auth.uid == userId </span><span class="sc">||</span><span class="ss"> </span></span>
+<span id="cb14-8"><a href="#cb14-8" aria-hidden="true" tabindex="-1"></a><span class="ss">         get</span><span class="sc">(</span><span class="ss">/databases/$</span><span class="sc">(</span><span class="ss">database</span><span class="sc">)</span><span class="ss">/documents/users/</span><span class="fu">$</span>(request<span class="op">.</span><span class="at">auth</span><span class="op">.</span><span class="at">uid</span>))<span class="op">.</span><span class="at">data</span><span class="op">.</span><span class="at">roles</span><span class="op">.</span><span class="fu">hasAny</span>([<span class="st">&#39;admin&#39;</span>]))<span class="op">;</span></span>
+<span id="cb14-9"><a href="#cb14-9" aria-hidden="true" tabindex="-1"></a>      allow <span class="dt">write</span><span class="op">:</span> <span class="cf">if</span> request<span class="op">.</span><span class="at">auth</span> <span class="op">!=</span> <span class="kw">null</span> <span class="op">&amp;&amp;</span> request<span class="op">.</span><span class="at">auth</span><span class="op">.</span><span class="at">uid</span> <span class="op">==</span> userId<span class="op">;</span></span>
+<span id="cb14-10"><a href="#cb14-10" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb14-11"><a href="#cb14-11" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb14-12"><a href="#cb14-12" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Listings: public read, owner write</span></span>
+<span id="cb14-13"><a href="#cb14-13" aria-hidden="true" tabindex="-1"></a>    match <span class="op">/</span>listings<span class="op">/</span>{listingId} {</span>
+<span id="cb14-14"><a href="#cb14-14" aria-hidden="true" tabindex="-1"></a>      allow <span class="dt">read</span><span class="op">:</span> <span class="cf">if</span> <span class="kw">true</span><span class="op">;</span></span>
+<span id="cb14-15"><a href="#cb14-15" aria-hidden="true" tabindex="-1"></a>      allow <span class="dt">write</span><span class="op">:</span> <span class="cf">if</span> request<span class="op">.</span><span class="at">auth</span> <span class="op">!=</span> <span class="kw">null</span> <span class="op">&amp;&amp;</span> </span>
+<span id="cb14-16"><a href="#cb14-16" aria-hidden="true" tabindex="-1"></a>        resource<span class="op">.</span><span class="at">data</span><span class="op">.</span><span class="at">ownerId</span> <span class="op">==</span> request<span class="op">.</span><span class="at">auth</span><span class="op">.</span><span class="at">uid</span><span class="op">;</span></span>
+<span id="cb14-17"><a href="#cb14-17" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb14-18"><a href="#cb14-18" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb14-19"><a href="#cb14-19" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Bookings: participants and admins can read</span></span>
+<span id="cb14-20"><a href="#cb14-20" aria-hidden="true" tabindex="-1"></a>    match <span class="op">/</span>bookings<span class="op">/</span>{bookingId} {</span>
+<span id="cb14-21"><a href="#cb14-21" aria-hidden="true" tabindex="-1"></a>      allow <span class="dt">read</span><span class="op">:</span> <span class="cf">if</span> request<span class="op">.</span><span class="at">auth</span> <span class="op">!=</span> <span class="kw">null</span> <span class="op">&amp;&amp;</span> </span>
+<span id="cb14-22"><a href="#cb14-22" aria-hidden="true" tabindex="-1"></a>        (resource<span class="op">.</span><span class="at">data</span><span class="op">.</span><span class="at">guestId</span> <span class="op">==</span> request<span class="op">.</span><span class="at">auth</span><span class="op">.</span><span class="at">uid</span> <span class="op">||</span> </span>
+<span id="cb14-23"><a href="#cb14-23" aria-hidden="true" tabindex="-1"></a>         resource<span class="op">.</span><span class="at">data</span><span class="op">.</span><span class="at">ownerId</span> <span class="op">==</span> request<span class="op">.</span><span class="at">auth</span><span class="op">.</span><span class="at">uid</span> <span class="op">||</span></span>
+<span id="cb14-24"><a href="#cb14-24" aria-hidden="true" tabindex="-1"></a>         <span class="kw">get</span>(<span class="ss">/databases/</span><span class="fu">$</span>(database)<span class="op">/</span>documents<span class="op">/</span>users<span class="op">/</span><span class="fu">$</span>(request<span class="op">.</span><span class="at">auth</span><span class="op">.</span><span class="at">uid</span>))<span class="op">.</span><span class="at">data</span><span class="op">.</span><span class="at">roles</span><span class="op">.</span><span class="fu">hasAny</span>([<span class="st">&#39;admin&#39;</span>]))<span class="op">;</span></span>
+<span id="cb14-25"><a href="#cb14-25" aria-hidden="true" tabindex="-1"></a>      allow <span class="dt">create</span><span class="op">:</span> <span class="cf">if</span> request<span class="op">.</span><span class="at">auth</span> <span class="op">!=</span> <span class="kw">null</span><span class="op">;</span></span>
+<span id="cb14-26"><a href="#cb14-26" aria-hidden="true" tabindex="-1"></a>      allow <span class="dt">update</span><span class="op">:</span> <span class="cf">if</span> request<span class="op">.</span><span class="at">auth</span> <span class="op">!=</span> <span class="kw">null</span> <span class="op">&amp;&amp;</span> </span>
+<span id="cb14-27"><a href="#cb14-27" aria-hidden="true" tabindex="-1"></a>        (resource<span class="op">.</span><span class="at">data</span><span class="op">.</span><span class="at">guestId</span> <span class="op">==</span> request<span class="op">.</span><span class="at">auth</span><span class="op">.</span><span class="at">uid</span> <span class="op">||</span> </span>
+<span id="cb14-28"><a href="#cb14-28" aria-hidden="true" tabindex="-1"></a>         resource<span class="op">.</span><span class="at">data</span><span class="op">.</span><span class="at">ownerId</span> <span class="op">==</span> request<span class="op">.</span><span class="at">auth</span><span class="op">.</span><span class="at">uid</span> <span class="op">||</span></span>
+<span id="cb14-29"><a href="#cb14-29" aria-hidden="true" tabindex="-1"></a>         <span class="kw">get</span>(<span class="ss">/databases/</span><span class="fu">$</span>(database)<span class="op">/</span>documents<span class="op">/</span>users<span class="op">/</span><span class="fu">$</span>(request<span class="op">.</span><span class="at">auth</span><span class="op">.</span><span class="at">uid</span>))<span class="op">.</span><span class="at">data</span><span class="op">.</span><span class="at">roles</span><span class="op">.</span><span class="fu">hasAny</span>([<span class="st">&#39;admin&#39;</span>]))<span class="op">;</span></span>
+<span id="cb14-30"><a href="#cb14-30" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb14-31"><a href="#cb14-31" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb14-32"><a href="#cb14-32" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Similar rules for other collections...</span></span>
+<span id="cb14-33"><a href="#cb14-33" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb14-34"><a href="#cb14-34" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h4 id="storage-rules">Storage Rules</h4>
+<div class="sourceCode" id="cb15"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a>rules_version <span class="op">=</span> <span class="st">&#39;2&#39;</span><span class="op">;</span></span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>service firebase<span class="op">.</span><span class="at">storage</span> {</span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a>  match <span class="op">/</span>b<span class="op">/</span>{bucket}<span class="ss">/o {</span></span>
+<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a><span class="ss">    match /</span>{allPaths<span class="op">=**</span>} {</span>
+<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a>      allow <span class="dt">read</span><span class="op">:</span> <span class="cf">if</span> <span class="kw">true</span><span class="op">;</span></span>
+<span id="cb15-6"><a href="#cb15-6" aria-hidden="true" tabindex="-1"></a>      allow <span class="dt">write</span><span class="op">:</span> <span class="cf">if</span> request<span class="op">.</span><span class="at">auth</span> <span class="op">!=</span> <span class="kw">null</span> <span class="op">&amp;&amp;</span> </span>
+<span id="cb15-7"><a href="#cb15-7" aria-hidden="true" tabindex="-1"></a>        request<span class="op">.</span><span class="at">resource</span><span class="op">.</span><span class="at">size</span> <span class="op">&lt;</span> <span class="dv">5</span> <span class="op">*</span> <span class="dv">1024</span> <span class="op">*</span> <span class="dv">1024</span><span class="op">;</span> <span class="co">// 5MB limit</span></span>
+<span id="cb15-8"><a href="#cb15-8" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb15-9"><a href="#cb15-9" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb15-10"><a href="#cb15-10" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<hr />
+<h2 id="api-integration">4. API Integration</h2>
+<h3 id="firebase-apis">4.1 Firebase APIs</h3>
+<h4 id="authentication-api">Authentication API</h4>
+<ul>
+<li><code>signInWithEmailAndPassword()</code>: Email/password login</li>
+<li><code>createUserWithEmailAndPassword()</code>: User
+registration</li>
+<li><code>signInWithPopup()</code>: Google sign-in</li>
+<li><code>sendPasswordResetEmail()</code>: Password reset</li>
+<li><code>onAuthStateChanged()</code>: Auth state listener</li>
+</ul>
+<h4 id="firestore-api">Firestore API</h4>
+<ul>
+<li><code>collection()</code>: Reference to collection</li>
+<li><code>doc()</code>: Reference to document</li>
+<li><code>getDoc()</code>: Read document</li>
+<li><code>setDoc()</code>: Create/update document</li>
+<li><code>updateDoc()</code>: Update document fields</li>
+<li><code>addDoc()</code>: Add document to collection</li>
+<li><code>deleteDoc()</code>: Delete document</li>
+<li><code>query()</code>: Create query</li>
+<li><code>where()</code>: Filter query</li>
+<li><code>orderBy()</code>: Sort query</li>
+<li><code>onSnapshot()</code>: Real-time listener</li>
+</ul>
+<h4 id="storage-api">Storage API</h4>
+<ul>
+<li><code>ref()</code>: Reference to storage path</li>
+<li><code>uploadBytes()</code>: Upload file</li>
+<li><code>getDownloadURL()</code>: Get file URL</li>
+<li><code>deleteObject()</code>: Delete file</li>
+</ul>
+<h3 id="emailjs-api">4.2 EmailJS API</h3>
+<h4 id="configuration">Configuration</h4>
+<div class="sourceCode" id="cb16"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> EMAILJS_AUTH_SERVICE_ID <span class="op">=</span> <span class="st">&#39;service_m3bzszx&#39;</span><span class="op">;</span></span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> EMAILJS_BOOKING_SERVICE_ID <span class="op">=</span> <span class="st">&#39;service_i17lsmg&#39;</span><span class="op">;</span></span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> EMAILJS_AUTH_PUBLIC_KEY <span class="op">=</span> <span class="st">&#39;1bELJwUeoejy0Q4cQ&#39;</span><span class="op">;</span></span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> EMAILJS_BOOKING_PUBLIC_KEY <span class="op">=</span> <span class="st">&#39;Vy3E5HLPceR3d0Pmy&#39;</span><span class="op">;</span></span></code></pre></div>
+<h4 id="email-templates">Email Templates</h4>
+<ul>
+<li>Verification Email: <code>template_qo9q8de</code></li>
+<li>Password Reset: <code>template_btqnqws</code></li>
+<li>Booking Confirmation: <code>template_sl3wzej</code></li>
+<li>Cancellation: <code>template_v7z3kcj</code></li>
+<li>Subscription Success:
+<code>template_subscription_success</code></li>
+</ul>
+<h4 id="email-functions">Email Functions</h4>
+<ul>
+<li><code>sendVerificationEmail()</code>: Send verification email</li>
+<li><code>sendPasswordResetEmail()</code>: Send password reset</li>
+<li><code>sendBookingConfirmationEmail()</code>: Send booking
+confirmation</li>
+<li><code>sendCancellationEmail()</code>: Send cancellation email</li>
+<li><code>sendSubscriptionConfirmationEmail()</code>: Send subscription
+confirmation</li>
+</ul>
+<h3 id="paypal-api">4.3 PayPal API</h3>
+<h4 id="configuration-1">Configuration</h4>
+<div class="sourceCode" id="cb17"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> PAYPAL_CLIENT_ID <span class="op">=</span> <span class="im">import</span><span class="op">.</span><span class="at">meta</span><span class="op">.</span><span class="at">env</span><span class="op">.</span><span class="at">VITE_PAYPAL_CLIENT_ID</span><span class="op">;</span></span></code></pre></div>
+<h4 id="paypal-integration">PayPal Integration</h4>
+<ul>
+<li>PayPal Buttons component for payments</li>
+<li>Order creation and capture</li>
+<li>Payment verification</li>
+<li>Refund processing</li>
+</ul>
+<h3 id="external-apis">4.4 External APIs</h3>
+<h4 id="nominatim-openstreetmap">Nominatim (OpenStreetMap)</h4>
+<ul>
+<li>Geocoding service for address lookup</li>
+<li>Reverse geocoding for coordinates</li>
+<li>Used for location search and map features</li>
+</ul>
+<hr />
+<h2 id="authentication-authorization">5. Authentication &amp;
+Authorization</h2>
+<h3 id="authentication-flow">5.1 Authentication Flow</h3>
+<h4 id="registration-flow">Registration Flow</h4>
+<ol type="1">
+<li>User submits registration form</li>
+<li>Firebase creates user account</li>
+<li>Verification token generated</li>
+<li>Verification email sent via EmailJS</li>
+<li>User clicks verification link</li>
+<li>Token validated</li>
+<li>User document created in Firestore</li>
+<li>User redirected to appropriate dashboard</li>
+</ol>
+<h4 id="login-flow">Login Flow</h4>
+<ol type="1">
+<li>User submits credentials</li>
+<li>Firebase authenticates</li>
+<li>User document fetched from Firestore</li>
+<li>Roles checked</li>
+<li>Email verification status checked</li>
+<li>User redirected based on role</li>
+</ol>
+<h4 id="google-sign-in-flow">Google Sign-In Flow</h4>
+<ol type="1">
+<li>User clicks “Continue with Google”</li>
+<li>Firebase handles OAuth flow</li>
+<li>User document created/updated</li>
+<li>Roles assigned</li>
+<li>User redirected</li>
+</ol>
+<h3 id="authorization">5.2 Authorization</h3>
+<h4 id="role-based-access-control">Role-Based Access Control</h4>
+<ul>
+<li><strong>Guest</strong>: Can browse, book, review</li>
+<li><strong>Host</strong>: Can create listings, manage bookings,
+earn</li>
+<li><strong>Admin</strong>: Full platform access</li>
+</ul>
+<h4 id="route-protection">Route Protection</h4>
+<div class="sourceCode" id="cb18"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Protected routes check authentication</span></span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> ProtectedRoute <span class="op">=</span> ({ children<span class="op">,</span> requiredRole }) <span class="kw">=&gt;</span> {</span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> { user<span class="op">,</span> roles } <span class="op">=</span> <span class="fu">useAuth</span>()<span class="op">;</span></span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="op">!</span>user) <span class="cf">return</span> <span class="op">&lt;</span>Navigate to<span class="op">=</span><span class="st">&quot;/login&quot;</span> <span class="op">/&gt;;</span></span>
+<span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (requiredRole <span class="op">&amp;&amp;</span> <span class="op">!</span>roles<span class="op">.</span><span class="fu">includes</span>(requiredRole)) {</span>
+<span id="cb18-7"><a href="#cb18-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="op">&lt;</span>Navigate to<span class="op">=</span><span class="st">&quot;/&quot;</span> <span class="op">/&gt;;</span></span>
+<span id="cb18-8"><a href="#cb18-8" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb18-9"><a href="#cb18-9" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> children<span class="op">;</span></span>
+<span id="cb18-10"><a href="#cb18-10" aria-hidden="true" tabindex="-1"></a>}<span class="op">;</span></span></code></pre></div>
+<h3 id="email-verification">5.3 Email Verification</h3>
+<ul>
+<li>Required for all non-admin users</li>
+<li>Token-based verification</li>
+<li>24-hour token expiration</li>
+<li>EmailJS integration for sending emails</li>
+</ul>
+<hr />
+<h2 id="payment-system">6. Payment System</h2>
+<h3 id="getpay-wallet">6.1 GetPay Wallet</h3>
+<h4 id="wallet-structure">Wallet Structure</h4>
+<ul>
+<li>Stored in Firestore user document</li>
+<li>Balance tracked as number</li>
+<li>Transaction history maintained</li>
+<li>Real-time balance updates</li>
+</ul>
+<h4 id="wallet-operations">Wallet Operations</h4>
+<ul>
+<li><strong>Cash In</strong>: Add funds via PayPal</li>
+<li><strong>Cash Out</strong>: Transfer to PayPal</li>
+<li><strong>Deduct</strong>: Payment for bookings</li>
+<li><strong>Credit</strong>: Refunds, earnings</li>
+</ul>
+<h4 id="transaction-types">Transaction Types</h4>
+<ul>
+<li><code>credit</code>: Money added</li>
+<li><code>debit</code>: Money deducted</li>
+<li><code>subscription</code>: Subscription payment</li>
+<li><code>earnings</code>: Host earnings</li>
+<li><code>refund</code>: Refund received</li>
+</ul>
+<h3 id="paypal-integration-1">6.2 PayPal Integration</h3>
+<h4 id="payment-flow">Payment Flow</h4>
+<ol type="1">
+<li>User initiates payment</li>
+<li>PayPal order created</li>
+<li>User approves payment</li>
+<li>Order captured</li>
+<li>Transaction ID stored</li>
+<li>Payment status updated</li>
+</ol>
+<h4 id="subscription-payment">Subscription Payment</h4>
+<ul>
+<li>Monthly: ₱999/month</li>
+<li>Yearly: ₱9,999/year</li>
+<li>Required for hosts to publish listings</li>
+<li>PayPal or GetPay wallet payment</li>
+</ul>
+<h3 id="booking-payment-flow">6.3 Booking Payment Flow</h3>
+<h4 id="payment-processing-1">Payment Processing</h4>
+<ol type="1">
+<li>Guest creates booking request</li>
+<li>Host accepts booking</li>
+<li>Payment processed:
+<ul>
+<li>GetPay: Deducted from wallet</li>
+<li>PayPal: Guest completes payment</li>
+</ul></li>
+<li>Payment status updated to “paid”</li>
+<li>Earnings held until booking completion</li>
+<li>Admin releases earnings to host</li>
+</ol>
+<h3 id="refund-processing">6.4 Refund Processing</h3>
+<h4 id="cancellation-refunds">Cancellation Refunds</h4>
+<ol type="1">
+<li>Guest cancels booking</li>
+<li>Refund amount calculated based on policy</li>
+<li>Refund processed:
+<ul>
+<li>GetPay: Credited to wallet</li>
+<li>PayPal: Refunded via PayPal</li>
+</ul></li>
+<li>Refund status updated</li>
+<li>Email notification sent</li>
+</ol>
+<hr />
+<h2 id="email-system">7. Email System</h2>
+<h3 id="emailjs-configuration">7.1 EmailJS Configuration</h3>
+<h4 id="services">Services</h4>
+<ul>
+<li><strong>Auth Service</strong>: Verification and password reset
+emails</li>
+<li><strong>Booking Service</strong>: Booking and cancellation
+emails</li>
+</ul>
+<h4 id="email-templates-1">Email Templates</h4>
+<p>All templates use EmailJS template variables: -
+<code>{{to_email}}</code>: Recipient email - <code>{{to_name}}</code>:
+Recipient name - <code>{{user_name}}</code>: Full name -
+<code>{{app_name}}</code>: “Getaways” - <code>{{support_email}}</code>:
+Support email - <code>{{logo_url}}</code>: Logo URL</p>
+<h3 id="email-types">7.2 Email Types</h3>
+<h4 id="verification-email">Verification Email</h4>
+<ul>
+<li>Sent after registration</li>
+<li>Contains verification link</li>
+<li>24-hour expiration</li>
+</ul>
+<h4 id="password-reset-email">Password Reset Email</h4>
+<ul>
+<li>Sent when user requests reset</li>
+<li>Contains reset link</li>
+<li>1-hour expiration</li>
+</ul>
+<h4 id="booking-confirmation">Booking Confirmation</h4>
+<ul>
+<li>Sent to guest after booking</li>
+<li>Contains booking details</li>
+<li>Payment information</li>
+</ul>
+<h4 id="cancellation-email">Cancellation Email</h4>
+<ul>
+<li>Sent when booking cancelled</li>
+<li>Refund information</li>
+<li>Cancellation details</li>
+</ul>
+<h4 id="subscription-confirmation">Subscription Confirmation</h4>
+<ul>
+<li>Sent to host after subscription</li>
+<li>Payment confirmation</li>
+<li>Subscription details</li>
+</ul>
+<hr />
+<h2 id="file-storage">8. File Storage</h2>
+<h3 id="firebase-storage">8.1 Firebase Storage</h3>
+<h4 id="storage-structure">Storage Structure</h4>
+<pre><code>storage/
+├── users/
+│   └── {userId}/
+│       └── profile.jpg
+├── listings/
+│   └── {listingId}/
+│       ├── photo1.jpg
+│       ├── photo2.jpg
+│       └── ...
+└── documents/
+    └── {documentId}.pdf</code></pre>
+<h4 id="file-upload-process">File Upload Process</h4>
+<ol type="1">
+<li>User selects file</li>
+<li>File validated (size, type)</li>
+<li>Image compressed (if image)</li>
+<li>File uploaded to Storage</li>
+<li>Download URL obtained</li>
+<li>URL stored in Firestore</li>
+</ol>
+<h4 id="file-limits">File Limits</h4>
+<ul>
+<li>Maximum file size: 5MB</li>
+<li>Supported image formats: JPG, PNG, WebP</li>
+<li>Image compression: Automatic</li>
+</ul>
+<hr />
+<h2 id="security">9. Security</h2>
+<h3 id="authentication-security">9.1 Authentication Security</h3>
+<ul>
+<li>Firebase Authentication handles password hashing</li>
+<li>Email verification required</li>
+<li>Password reset tokens expire</li>
+<li>Session management</li>
+</ul>
+<h3 id="data-security">9.2 Data Security</h3>
+<ul>
+<li>Firestore security rules</li>
+<li>Storage security rules</li>
+<li>Input validation</li>
+<li>XSS prevention</li>
+<li>CSRF protection</li>
+</ul>
+<h3 id="payment-security">9.3 Payment Security</h3>
+<ul>
+<li>PayPal handles payment processing</li>
+<li>No credit card data stored</li>
+<li>Transaction verification</li>
+<li>Secure API communication</li>
+</ul>
+<h3 id="best-practices">9.4 Best Practices</h3>
+<ul>
+<li>Environment variables for secrets</li>
+<li>HTTPS only</li>
+<li>Input sanitization</li>
+<li>Error handling without exposing details</li>
+<li>Regular security updates</li>
+</ul>
+<hr />
+<h2 id="deployment">10. Deployment</h2>
+<h3 id="build-process">10.1 Build Process</h3>
+<div class="sourceCode" id="cb20"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> run build</span></code></pre></div>
+<ul>
+<li>Vite builds production bundle</li>
+<li>Output in <code>dist/</code> directory</li>
+<li>Optimized and minified</li>
+</ul>
+<h3 id="firebase-hosting">10.2 Firebase Hosting</h3>
+<h4 id="configuration-firebase.json">Configuration
+(<code>firebase.json</code>)</h4>
+<div class="sourceCode" id="cb21"><pre
+class="sourceCode json"><code class="sourceCode json"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;hosting&quot;</span><span class="fu">:</span> <span class="fu">{</span></span>
+<span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a>    <span class="dt">&quot;public&quot;</span><span class="fu">:</span> <span class="st">&quot;dist&quot;</span><span class="fu">,</span></span>
+<span id="cb21-4"><a href="#cb21-4" aria-hidden="true" tabindex="-1"></a>    <span class="dt">&quot;ignore&quot;</span><span class="fu">:</span> <span class="ot">[</span><span class="st">&quot;firebase.json&quot;</span><span class="ot">,</span> <span class="st">&quot;**/.*&quot;</span><span class="ot">,</span> <span class="st">&quot;**/node_modules/**&quot;</span><span class="ot">]</span><span class="fu">,</span></span>
+<span id="cb21-5"><a href="#cb21-5" aria-hidden="true" tabindex="-1"></a>    <span class="dt">&quot;rewrites&quot;</span><span class="fu">:</span> <span class="ot">[</span></span>
+<span id="cb21-6"><a href="#cb21-6" aria-hidden="true" tabindex="-1"></a>      <span class="fu">{</span></span>
+<span id="cb21-7"><a href="#cb21-7" aria-hidden="true" tabindex="-1"></a>        <span class="dt">&quot;source&quot;</span><span class="fu">:</span> <span class="st">&quot;**&quot;</span><span class="fu">,</span></span>
+<span id="cb21-8"><a href="#cb21-8" aria-hidden="true" tabindex="-1"></a>        <span class="dt">&quot;destination&quot;</span><span class="fu">:</span> <span class="st">&quot;/index.html&quot;</span></span>
+<span id="cb21-9"><a href="#cb21-9" aria-hidden="true" tabindex="-1"></a>      <span class="fu">}</span></span>
+<span id="cb21-10"><a href="#cb21-10" aria-hidden="true" tabindex="-1"></a>    <span class="ot">]</span></span>
+<span id="cb21-11"><a href="#cb21-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">}</span></span>
+<span id="cb21-12"><a href="#cb21-12" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
+<h4 id="deployment-steps">Deployment Steps</h4>
+<ol type="1">
+<li>Build project: <code>npm run build</code></li>
+<li>Deploy to Firebase: <code>firebase deploy --only hosting</code></li>
+<li>Verify deployment</li>
+</ol>
+<h3 id="environment-variables">10.3 Environment Variables</h3>
+<h4 id="required-variables">Required Variables</h4>
+<pre class="env"><code>VITE_FIREBASE_API_KEY=
+VITE_FIREBASE_AUTH_DOMAIN=
+VITE_FIREBASE_PROJECT_ID=
+VITE_FIREBASE_STORAGE_BUCKET=
+VITE_FIREBASE_MESSAGING_SENDER_ID=
+VITE_FIREBASE_APP_ID=
+VITE_EMAILJS_AUTH_SERVICE_ID=
+VITE_EMAILJS_BOOKING_SERVICE_ID=
+VITE_EMAILJS_AUTH_PUBLIC_KEY=
+VITE_EMAILJS_BOOKING_PUBLIC_KEY=
+VITE_EMAILJS_VERIFY_TEMPLATE_ID=
+VITE_EMAILJS_RESET_TEMPLATE_ID=
+VITE_EMAILJS_BOOKING_SUCCESS_TEMPLATE_ID=
+VITE_EMAILJS_CANCELLATION_TEMPLATE_ID=
+VITE_PAYPAL_CLIENT_ID=
+VITE_SUPPORT_EMAIL=
+VITE_LOGO_URL=</code></pre>
+<h3 id="monitoring">10.4 Monitoring</h3>
+<ul>
+<li>Firebase Analytics</li>
+<li>Error tracking</li>
+<li>Performance monitoring</li>
+<li>User analytics</li>
+</ul>
+<hr />
+<p><strong>Document Version</strong>: 1.0<br />
+<strong>Last Updated</strong>: 2024<br />
+<strong>Platform Version</strong>: Getaways v1.0</p>
+</body>
+</html>

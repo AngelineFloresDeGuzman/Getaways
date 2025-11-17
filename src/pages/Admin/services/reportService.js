@@ -57,6 +57,15 @@ export const exportToPDF = async (data, headers, filename, title = 'Report') => 
   try {
     const { jsPDF: pdf, autoTable: autoTablePlugin } = await loadPDFLibrary();
     
+    // Validate data
+    if (!data || !Array.isArray(data) || data.length === 0) {
+      throw new Error('No data to export');
+    }
+
+    if (!headers || !Array.isArray(headers) || headers.length === 0) {
+      throw new Error('No headers provided for export');
+    }
+    
     const doc = new pdf({
       orientation: 'landscape',
       unit: 'mm',
@@ -68,7 +77,7 @@ export const exportToPDF = async (data, headers, filename, title = 'Report') => 
     doc.setFont(undefined, 'bold');
     doc.text(title, 14, 15);
     
-    // Add date
+    // Add date and record count
     doc.setFontSize(10);
     doc.setFont(undefined, 'normal');
     const dateStr = new Date().toLocaleDateString('en-US', {
@@ -77,33 +86,63 @@ export const exportToPDF = async (data, headers, filename, title = 'Report') => 
       day: 'numeric'
     });
     doc.text(`Generated on: ${dateStr}`, 14, 22);
+    doc.text(`Total Records: ${data.length}`, 14, 28);
 
-    // Prepare table data
+    // Prepare table data - ensure all data is included
     const tableHeaders = headers.map(h => h.label);
     const tableRows = data.map(row => 
       headers.map(h => formatValueForPDF(row[h.key]))
     );
 
-    // Add table
+    // Add table with proper pagination support - ensure ALL data is included
     autoTablePlugin(doc, {
       head: [tableHeaders],
-      body: tableRows,
-      startY: 28,
+      body: tableRows, // Include ALL rows - no slicing
+      startY: 35,
       styles: {
-        fontSize: 8,
-        cellPadding: 2,
+        fontSize: 7,
+        cellPadding: 1.5,
         overflow: 'linebreak',
-        cellWidth: 'wrap'
+        cellWidth: 'auto',
+        halign: 'left',
+        valign: 'middle',
+        textColor: [0, 0, 0]
       },
       headStyles: {
         fillColor: [59, 130, 246], // Blue color
         textColor: 255,
-        fontStyle: 'bold'
+        fontStyle: 'bold',
+        fontSize: 8
       },
       alternateRowStyles: {
         fillColor: [245, 247, 250]
       },
-      margin: { top: 28, left: 14, right: 14 }
+      margin: { top: 35, left: 14, right: 14, bottom: 20 },
+      // Enable pagination - ensure all pages are created
+      didDrawPage: (data) => {
+        // Add page numbers
+        doc.setFontSize(8);
+        doc.setTextColor(100);
+        const pageCount = doc.internal.getNumberOfPages();
+        doc.text(
+          `Page ${data.pageNumber} of ${pageCount}`,
+          doc.internal.pageSize.getWidth() / 2,
+          doc.internal.pageSize.getHeight() - 10,
+          { align: 'center' }
+        );
+      },
+      // Ensure all rows are included and headers repeat on each page
+      showHead: 'everyPage',
+      // Handle long content - wrap text properly
+      columnStyles: {},
+      // Prevent cutting off - use full width
+      tableWidth: 'auto',
+      // Ensure all data is processed
+      includeHiddenHtml: false,
+      // Add horizontal scroll for wide tables if needed
+      horizontalPageBreak: false,
+      // Ensure proper row rendering
+      rowPageBreak: 'auto'
     });
 
     // Save PDF
@@ -168,7 +207,7 @@ export const generateComprehensiveReport = async () => {
  * @param {Object} dateFilter - Optional date filter {startDate, endDate}
  * @returns {Promise<Array>}
  */
-export const generateBookingsReport = async (dateFilter = null) => {
+export const generateBookingsReport = async (dateFilter = null, filters = null) => {
   try {
     // First, get all terminated host IDs
     const usersSnapshotForBookings = await getDocs(collection(db, 'users'));
@@ -195,12 +234,24 @@ export const generateBookingsReport = async (dateFilter = null) => {
         continue;
       }
       
-      // Apply date filter if provided
-      if (dateFilter && !isDateInRange(createdAt, dateFilter)) {
-        continue;
+      // Apply date filter if provided (check first to avoid unnecessary data fetching)
+      if (dateFilter) {
+        // Try multiple date fields for booking date filtering
+        let bookingDate = createdAt;
+        // Also check checkInDate, updatedAt as alternatives for date filtering
+        const checkInDateForFilter = booking.checkInDate?.toDate ? booking.checkInDate.toDate() : null;
+        const updatedAtForFilter = booking.updatedAt?.toDate ? booking.updatedAt.toDate() : null;
+        
+        // Use the most relevant date for filtering
+        // Prefer checkInDate if available, otherwise createdAt
+        const dateToCheck = checkInDateForFilter || bookingDate || updatedAtForFilter;
+        
+        if (!isDateInRange(dateToCheck, dateFilter)) {
+          continue;
+        }
       }
       
-      // Get guest and host info
+      // Get guest, host, and listing info (needed for filters)
       const [guestDoc, hostDoc, listingDoc] = await Promise.all([
         getDoc(doc(db, 'users', booking.guestId)),
         getDoc(doc(db, 'users', booking.ownerId)),
@@ -210,6 +261,49 @@ export const generateBookingsReport = async (dateFilter = null) => {
       const guestData = guestDoc.exists() ? guestDoc.data() : {};
       const hostData = hostDoc.exists() ? hostDoc.data() : {};
       const listingData = listingDoc.exists() ? listingDoc.data() : {};
+      
+      // Apply filters if provided - ALL filters must pass for booking to be included
+      if (filters) {
+        // Booking status filter - must match exactly
+        if (filters.bookingStatus && filters.bookingStatus !== 'all') {
+          // Normalize status values for comparison (case-insensitive)
+          const bookingStatus = (booking.status || '').toLowerCase().trim();
+          const filterStatus = (filters.bookingStatus || '').toLowerCase().trim();
+          if (bookingStatus !== filterStatus) {
+            filteredOut++;
+            continue; // Skip this booking - status doesn't match
+          }
+        }
+        
+        // Payment status filter
+        if (filters.paymentStatus && filters.paymentStatus !== 'all') {
+          const paymentStatus = (booking.paymentStatus || '').toLowerCase().trim();
+          const isPaid = booking.isPaid === true || 
+                         paymentStatus === 'paid' || 
+                         paymentStatus === 'completed' ||
+                         paymentStatus === 'success';
+          if (filters.paymentStatus === 'paid' && !isPaid) {
+            filteredOut++;
+            continue; // Skip - not paid
+          }
+          if (filters.paymentStatus === 'unpaid' && isPaid) {
+            filteredOut++;
+            continue; // Skip - is paid
+          }
+        }
+        
+        // Category filter - check listing category
+        if (filters.category && filters.category !== 'all') {
+          const listingCategory = (listingData.category || '').toLowerCase().trim();
+          const filterCategory = (filters.category || '').toLowerCase().trim();
+          if (listingCategory !== filterCategory) {
+            filteredOut++;
+            continue; // Skip - category doesn't match
+          }
+        }
+      }
+      
+      // If we get here, all filters passed - include this booking
 
       // Format dates
       const checkInDate = booking.checkInDate?.toDate ? booking.checkInDate.toDate() : (booking.checkIn?.toDate ? booking.checkIn.toDate() : null);
@@ -250,6 +344,14 @@ export const generateBookingsReport = async (dateFilter = null) => {
       });
     }
 
+    // Debug logging
+    console.log('generateBookingsReport - Results:', {
+      totalProcessed,
+      filteredOut,
+      included: bookingsData.length,
+      filtersApplied: filters
+    });
+
     return bookingsData;
   } catch (error) {
     console.error('Error generating bookings report:', error);
@@ -260,9 +362,10 @@ export const generateBookingsReport = async (dateFilter = null) => {
 /**
  * Generate service fees report
  * @param {Object} dateFilter - Optional date filter {startDate, endDate}
+ * @param {Object} filters - Optional filters {hostStatus, subscriptionType}
  * @returns {Promise<Array>}
  */
-export const generateServiceFeesReport = async (dateFilter = null) => {
+export const generateServiceFeesReport = async (dateFilter = null, filters = null) => {
   try {
     const usersSnapshot = await getDocs(collection(db, 'users'));
     const hostsData = [];
@@ -271,12 +374,21 @@ export const generateServiceFeesReport = async (dateFilter = null) => {
       const userData = userDoc.data();
       const roles = Array.isArray(userData.roles) ? userData.roles : [userData.role || 'guest'];
 
-      // Skip terminated hosts
-      if (userData.isTerminated) {
-        continue;
-      }
-
       if (roles.includes('host')) {
+        // Apply host status filter
+        if (filters && filters.hostStatus && filters.hostStatus !== 'all') {
+          if (filters.hostStatus === 'active' && userData.isTerminated) {
+            continue;
+          }
+          if (filters.hostStatus === 'terminated' && !userData.isTerminated) {
+            continue;
+          }
+        } else {
+          // Default: skip terminated hosts if no filter specified
+          if (userData.isTerminated) {
+            continue;
+          }
+        }
         // Get host's bookings
         const bookingsSnapshot = await getDocs(
           query(collection(db, 'bookings'), where('ownerId', '==', userDoc.id))
@@ -303,6 +415,20 @@ export const generateServiceFeesReport = async (dateFilter = null) => {
         // If date filter is applied, only include hosts with bookings/earnings in that range
         if (dateFilter && totalBookings === 0 && totalEarnings === 0) {
           return; // Skip this host - no bookings/earnings in the date range
+        }
+
+        // Apply subscription type filter
+        if (filters && filters.subscriptionType && filters.subscriptionType !== 'all') {
+          const paymentData = userData.payment || {};
+          const subscriptionPlan = paymentData.plan || paymentData.subscriptionPlan || '';
+          const planLower = subscriptionPlan.toLowerCase();
+          
+          if (filters.subscriptionType === 'monthly' && !planLower.includes('monthly') && !planLower.includes('month')) {
+            continue;
+          }
+          if (filters.subscriptionType === 'yearly' && !planLower.includes('yearly') && !planLower.includes('year') && !planLower.includes('annual')) {
+            continue;
+          }
         }
 
         const serviceFee = Math.round((totalEarnings * 0.10) * 100) / 100; // 10% commission
@@ -340,9 +466,10 @@ export const generateServiceFeesReport = async (dateFilter = null) => {
 /**
  * Generate payments report
  * @param {Object} dateFilter - Optional date filter {startDate, endDate}
+ * @param {Object} filters - Optional filters {transactionType}
  * @returns {Promise<Array>}
  */
-export const generatePaymentsReport = async (dateFilter = null) => {
+export const generatePaymentsReport = async (dateFilter = null, filters = null) => {
   try {
     const usersSnapshot = await getDocs(collection(db, 'users'));
     const paymentsData = [];
@@ -361,6 +488,25 @@ export const generatePaymentsReport = async (dateFilter = null) => {
       // Apply date filter if provided
       if (dateFilter && !isDateInRange(lastPaymentDate, dateFilter)) {
         return;
+      }
+
+      // Apply transaction type filter
+      if (filters && filters.transactionType && filters.transactionType !== 'all') {
+        const paymentType = paymentData.type || '';
+        const paymentTypeLower = paymentType.toLowerCase();
+        
+        if (filters.transactionType === 'commission') {
+          // Commission payments are typically booking-related, not subscription
+          // Skip subscription payments
+          if (paymentTypeLower.includes('subscription') || paymentData.plan) {
+            return;
+          }
+        } else if (filters.transactionType === 'subscription') {
+          // Only include subscription payments
+          if (!paymentTypeLower.includes('subscription') && !paymentData.plan) {
+            return;
+          }
+        }
       }
 
       if (paymentData.status === 'active' || paymentData.lastPayPalTransactionId || paymentData.type) {
@@ -489,9 +635,10 @@ export const generateAnalyticsReport = async () => {
 /**
  * Generate compliance/violations report
  * @param {Object} dateFilter - Optional date filter {startDate, endDate}
+ * @param {Object} filters - Optional filters {violationType, complianceStatus}
  * @returns {Promise<Array>}
  */
-export const generateComplianceReport = async (dateFilter = null) => {
+export const generateComplianceReport = async (dateFilter = null, filters = null) => {
   try {
     // First, get all terminated host IDs and their listings
     const usersSnapshotForCompliance = await getDocs(collection(db, 'users'));
@@ -532,6 +679,11 @@ export const generateComplianceReport = async (dateFilter = null) => {
       }
       
       if (booking.status === 'cancelled' && booking.cancelledBy === 'host') {
+        // Apply violation type filter
+        if (filters && filters.violationType && filters.violationType !== 'all' && filters.violationType !== 'host_cancellation') {
+          return;
+        }
+        
         // Apply date filter if provided
         if (dateFilter && !isDateInRange(cancelledAt, dateFilter)) {
           return;
@@ -544,7 +696,8 @@ export const generateComplianceReport = async (dateFilter = null) => {
           guestId: booking.guestId,
           hostId: booking.ownerId,
           cancelledAt: cancelledAt,
-          reason: booking.cancellationReason || 'No reason provided'
+          reason: booking.cancellationReason || 'No reason provided',
+          status: 'pending' // Host cancellations are typically pending review
         });
       }
     });
@@ -560,6 +713,11 @@ export const generateComplianceReport = async (dateFilter = null) => {
       }
       
       if (review.rating <= 2) {
+        // Apply violation type filter
+        if (filters && filters.violationType && filters.violationType !== 'all' && filters.violationType !== 'low_rating') {
+          return;
+        }
+        
         // Apply date filter if provided
         if (dateFilter && !isDateInRange(createdAt, dateFilter)) {
           return;
@@ -572,7 +730,8 @@ export const generateComplianceReport = async (dateFilter = null) => {
           rating: review.rating,
           comment: review.comment || '',
           reviewerName: review.reviewerName || 'Anonymous',
-          createdAt: createdAt
+          createdAt: createdAt,
+          status: 'pending' // Low ratings are typically pending review
         });
       }
     });
@@ -581,6 +740,23 @@ export const generateComplianceReport = async (dateFilter = null) => {
     appealsSnapshot.forEach(appealDoc => {
       const appeal = appealDoc.data();
       const submittedAt = appeal.submittedAt?.toDate ? appeal.submittedAt.toDate() : null;
+      const appealStatus = appeal.status || 'pending';
+      
+      // Apply violation type filter
+      if (filters && filters.violationType && filters.violationType !== 'all' && filters.violationType !== 'host_appeal') {
+        return;
+      }
+      
+      // Apply compliance status filter
+      if (filters && filters.complianceStatus && filters.complianceStatus !== 'all') {
+        const isReviewed = appealStatus === 'reviewed' || appealStatus === 'approved' || appealStatus === 'rejected';
+        if (filters.complianceStatus === 'pending' && isReviewed) {
+          return;
+        }
+        if (filters.complianceStatus === 'reviewed' && !isReviewed) {
+          return;
+        }
+      }
       
       // Apply date filter if provided
       if (dateFilter && !isDateInRange(submittedAt, dateFilter)) {
@@ -595,7 +771,7 @@ export const generateComplianceReport = async (dateFilter = null) => {
         hostEmail: appeal.hostEmail || 'Unknown',
         reason: appeal.reason || 'No reason provided',
         additionalInfo: appeal.additionalInfo || '',
-        status: appeal.status || 'pending',
+        status: appealStatus,
         submittedAt: submittedAt,
         reviewedAt: appeal.reviewedAt?.toDate ? appeal.reviewedAt.toDate() : null,
         reviewedBy: appeal.reviewedBy || null,
@@ -603,7 +779,23 @@ export const generateComplianceReport = async (dateFilter = null) => {
       });
     });
 
-    return violations;
+    // Apply compliance status filter to all violations if needed
+    let filteredViolations = violations;
+    if (filters && filters.complianceStatus && filters.complianceStatus !== 'all') {
+      filteredViolations = violations.filter(violation => {
+        const isReviewed = violation.status === 'reviewed' || violation.reviewedAt !== null || 
+                          violation.status === 'approved' || violation.status === 'rejected';
+        if (filters.complianceStatus === 'pending') {
+          return !isReviewed;
+        }
+        if (filters.complianceStatus === 'reviewed') {
+          return isReviewed;
+        }
+        return true;
+      });
+    }
+
+    return filteredViolations;
   } catch (error) {
     console.error('Error generating compliance report:', error);
     throw error;
@@ -618,16 +810,50 @@ export const generateComplianceReport = async (dateFilter = null) => {
  * @returns {boolean}
  */
 const isDateInRange = (date, dateFilter) => {
-  if (!dateFilter || !date) return true;
+  // If no date filter provided, include all dates
+  if (!dateFilter) return true;
+  
+  // If no date provided, exclude from results
+  if (!date) return false;
+  
+  // Convert to Date object if needed
   if (!(date instanceof Date)) {
-    date = date?.toDate ? date.toDate() : new Date(date);
+    if (date?.toDate) {
+      date = date.toDate();
+    } else {
+      try {
+        date = new Date(date);
+        // Check if date is valid
+        if (isNaN(date.getTime())) return false;
+      } catch {
+        return false;
+      }
+    }
   }
   
-  const startDate = new Date(dateFilter.startDate);
-  startDate.setHours(0, 0, 0, 0);
+  // Validate date
+  if (isNaN(date.getTime())) return false;
   
-  const endDate = new Date(dateFilter.endDate);
-  endDate.setHours(23, 59, 59, 999);
+  // Convert filter dates to Date objects if needed
+  let startDate, endDate;
+  try {
+    startDate = dateFilter.startDate instanceof Date 
+      ? new Date(dateFilter.startDate) 
+      : new Date(dateFilter.startDate);
+    startDate.setHours(0, 0, 0, 0);
+    
+    endDate = dateFilter.endDate instanceof Date 
+      ? new Date(dateFilter.endDate) 
+      : new Date(dateFilter.endDate);
+    endDate.setHours(23, 59, 59, 999);
+    
+    // Validate filter dates
+    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+      return false;
+    }
+  } catch {
+    return false;
+  }
   
   return date >= startDate && date <= endDate;
 };
@@ -638,13 +864,13 @@ const isDateInRange = (date, dateFilter) => {
  * @param {Object} dateFilter - Optional date filter {startDate, endDate}
  * @returns {Promise<{data: Array, headers: Array}>}
  */
-export const getReportData = async (reportType, dateFilter = null) => {
+export const getReportData = async (reportType, dateFilter = null, filters = null) => {
   try {
     let data, headers;
 
     switch (reportType) {
       case 'bookings':
-        data = await generateBookingsReport(dateFilter);
+        data = await generateBookingsReport(dateFilter, filters);
         headers = [
           { key: 'bookingId', label: 'Booking ID' },
           { key: 'status', label: 'Status' },
@@ -679,7 +905,8 @@ export const getReportData = async (reportType, dateFilter = null) => {
         break;
 
       case 'service-fees':
-        data = await generateServiceFeesReport(dateFilter);
+      case 'hosts':
+        data = await generateServiceFeesReport(dateFilter, filters);
         headers = [
           { key: 'hostId', label: 'Host ID' },
           { key: 'hostName', label: 'Host Name' },
@@ -698,7 +925,8 @@ export const getReportData = async (reportType, dateFilter = null) => {
         break;
 
       case 'payments':
-        data = await generatePaymentsReport(dateFilter);
+      case 'financial':
+        data = await generatePaymentsReport(dateFilter, filters);
         headers = [
           { key: 'userId', label: 'User ID' },
           { key: 'userName', label: 'User Name' },
@@ -721,7 +949,7 @@ export const getReportData = async (reportType, dateFilter = null) => {
 
       case 'compliance':
       case 'violations':
-        data = await generateComplianceReport(dateFilter);
+        data = await generateComplianceReport(dateFilter, filters);
         headers = [
           { key: 'type', label: 'Type' },
           { key: 'bookingId', label: 'Booking ID' },
@@ -762,20 +990,39 @@ export const getReportData = async (reportType, dateFilter = null) => {
               roles: roles.join(', '),
               isHost: roles.includes('host'),
               isGuest: roles.includes('guest'),
+              isAdmin: roles.includes('admin'),
               emailVerified: userData.emailVerified || false,
               createdAt: userData.createdAt?.toDate ? userData.createdAt.toDate() : null,
               updatedAt: userData.updatedAt?.toDate ? userData.updatedAt.toDate() : null,
               lastLogin: userData.lastLogin?.toDate ? userData.lastLogin.toDate() : null,
               isTerminated: userData.isTerminated || false,
+              isBlocked: userData.isBlocked || false,
               terminatedAt: userData.terminatedAt?.toDate ? userData.terminatedAt.toDate() : null
             };
           })
           .filter(user => {
-            // Users report shows all users including terminated ones for admin reference
-            // But we still apply date filter if provided
-            if (dateFilter) {
-              return isDateInRange(user.createdAt, dateFilter);
+            // Apply date filter if provided
+            if (dateFilter && !isDateInRange(user.createdAt, dateFilter)) {
+              return false;
             }
+            
+            // Apply filters if provided
+            if (filters) {
+              // User role filter
+              if (filters.userRole && filters.userRole !== 'all') {
+                if (filters.userRole === 'host' && !user.isHost) return false;
+                if (filters.userRole === 'guest' && !user.isGuest) return false;
+                if (filters.userRole === 'admin' && !user.isAdmin) return false;
+              }
+              
+              // Account status filter
+              if (filters.accountStatus && filters.accountStatus !== 'all') {
+                if (filters.accountStatus === 'active' && (user.isTerminated || user.isBlocked)) return false;
+                if (filters.accountStatus === 'terminated' && !user.isTerminated) return false;
+                if (filters.accountStatus === 'blocked' && !user.isBlocked) return false;
+              }
+            }
+            
             return true;
           });
         headers = [
@@ -844,10 +1091,26 @@ export const getReportData = async (reportType, dateFilter = null) => {
             if (terminatedListingIdsForReviews.has(review.listingId)) {
               return false;
             }
+            
             // Apply date filter if provided
-            if (dateFilter) {
-              return isDateInRange(review.createdAt, dateFilter);
+            if (dateFilter && !isDateInRange(review.createdAt, dateFilter)) {
+              return false;
             }
+            
+            // Apply filters if provided
+            if (filters) {
+              // Rating filter
+              if (filters.rating && filters.rating !== 'all' && review.rating !== filters.rating) {
+                return false;
+              }
+              
+              // Verified filter
+              if (filters.verified !== undefined && filters.verified !== null) {
+                if (filters.verified && !review.isVerified) return false;
+                if (!filters.verified && review.isVerified) return false;
+              }
+            }
+            
             return true;
           });
         headers = [
@@ -868,7 +1131,7 @@ export const getReportData = async (reportType, dateFilter = null) => {
         break;
 
       case 'hosts':
-        const hostsReportData = await generateServiceFeesReport(dateFilter);
+        const hostsReportData = await generateServiceFeesReport(dateFilter, filters);
         const hostsWithDetails = await Promise.all(
           hostsReportData.map(async (host) => {
             const hostDoc = await getDoc(doc(db, 'users', host.hostId));
@@ -926,7 +1189,7 @@ export const getReportData = async (reportType, dateFilter = null) => {
 
       case 'financial':
         // For financial, return service fees data (main part)
-        data = await generateServiceFeesReport(dateFilter);
+        data = await generateServiceFeesReport(dateFilter, filters);
         headers = [
           { key: 'hostId', label: 'Host ID' },
           { key: 'hostName', label: 'Host Name' },
@@ -965,8 +1228,18 @@ export const getReportData = async (reportType, dateFilter = null) => {
  * @param {Object} dateFilter - Optional date filter {startDate, endDate}
  * @returns {Promise<void>}
  */
-export const generateReport = async (reportType, dateFilter = null) => {
+export const generateReport = async (reportType, dateFilter = null, filters = null) => {
   try {
+    // Debug logging
+    console.log('generateReport - Called with:', {
+      reportType,
+      dateFilter: dateFilter ? {
+        startDate: dateFilter.startDate?.toISOString(),
+        endDate: dateFilter.endDate?.toISOString()
+      } : null,
+      filters: filters
+    });
+    
     let data, headers, filename;
 
     switch (reportType) {
@@ -1002,7 +1275,19 @@ export const generateReport = async (reportType, dateFilter = null) => {
         return;
 
       case 'bookings':
-        data = await generateBookingsReport(dateFilter);
+        data = await generateBookingsReport(dateFilter, filters);
+        
+        // Debug logging to verify filters
+        console.log('Export Bookings Report - Data Summary:', {
+          filtersApplied: filters,
+          totalRecords: data.length,
+          statusBreakdown: data.reduce((acc, d) => {
+            acc[d.status] = (acc[d.status] || 0) + 1;
+            return acc;
+          }, {}),
+          firstFewStatuses: data.slice(0, 5).map(d => ({ id: d.bookingId, status: d.status }))
+        });
+        
         headers = [
           { key: 'bookingId', label: 'Booking ID' },
           { key: 'status', label: 'Status' },
@@ -1025,7 +1310,7 @@ export const generateReport = async (reportType, dateFilter = null) => {
         break;
 
       case 'service-fees':
-        data = await generateServiceFeesReport(dateFilter);
+        data = await generateServiceFeesReport(dateFilter, filters);
         headers = [
           { key: 'hostId', label: 'Host ID' },
           { key: 'hostName', label: 'Host Name' },
@@ -1039,7 +1324,7 @@ export const generateReport = async (reportType, dateFilter = null) => {
         break;
 
       case 'payments':
-        data = await generatePaymentsReport(dateFilter);
+        data = await generatePaymentsReport(dateFilter, filters);
         headers = [
           { key: 'userId', label: 'User ID' },
           { key: 'userName', label: 'User Name' },
@@ -1116,7 +1401,7 @@ export const generateReport = async (reportType, dateFilter = null) => {
 
       case 'compliance':
       case 'violations':
-        data = await generateComplianceReport(dateFilter);
+        data = await generateComplianceReport(dateFilter, filters);
         headers = [
           { key: 'type', label: 'Type' },
           { key: 'bookingId', label: 'Booking ID' },
@@ -1146,8 +1431,8 @@ export const generateReport = async (reportType, dateFilter = null) => {
       case 'financial':
         // Financial report combines service fees and payments
         const [serviceFeesData, paymentsData] = await Promise.all([
-          generateServiceFeesReport(dateFilter),
-          generatePaymentsReport(dateFilter)
+          generateServiceFeesReport(dateFilter, filters),
+          generatePaymentsReport(dateFilter, filters)
         ]);
         
         // Export service fees
@@ -1323,9 +1608,22 @@ export const generateReport = async (reportType, dateFilter = null) => {
     }
 
     if (data && headers && filename) {
+      // Validate data before export - ensure ALL data is included (no slicing)
+      if (!data || !Array.isArray(data)) {
+        throw new Error(`Invalid data for ${reportType} report: data must be an array`);
+      }
+      
+      if (data.length === 0) {
+        throw new Error(`No data available for ${reportType} report with the selected filters`);
+      }
+      
+      console.log(`generateReport - Exporting ${data.length} records for ${reportType} (ALL data included, no slicing)`);
+      
       const reportTitle = filename.split('_').map(word => 
         word.charAt(0).toUpperCase() + word.slice(1)
       ).join(' ');
+      
+      // Export ALL data - ensure no data is cut off
       await exportToPDF(data, headers, filename, reportTitle);
     }
   } catch (error) {
