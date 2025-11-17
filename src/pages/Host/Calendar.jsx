@@ -797,20 +797,21 @@ const CalendarPage = () => {
           {/* Calendar Container */}
           <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
             {/* Header */}
-            <div className="flex items-center justify-between mb-6">
-              {/* Left: Month/Year with navigation arrows */}
-              <div className="flex items-center gap-4">
+            <div className="flex items-center justify-between mb-6 gap-4">
+              {/* Search bar style navigation: Left icon, Center month/year, Right icon */}
+              <div className="flex items-center justify-between flex-1 max-w-md mx-auto bg-gray-50 border border-gray-200 rounded-lg px-4 py-2 relative">
                 <button
                   onClick={goToPrevious}
-                  className="p-1.5 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+                  className="p-1.5 text-gray-600 hover:text-gray-900 hover:bg-gray-200 rounded transition-colors flex-shrink-0 z-10"
                   aria-label="Previous"
                 >
                   <ChevronLeft className="w-5 h-5" />
                 </button>
-                <div className="flex items-center gap-2">
+                
+                <div className="absolute left-1/2 transform -translate-x-1/2">
                   <Popover open={monthYearPickerOpen} onOpenChange={setMonthYearPickerOpen}>
                     <PopoverTrigger asChild>
-                      <button className="flex items-center gap-2 text-lg font-semibold text-gray-800 hover:text-gray-900">
+                      <button className="flex items-center gap-2 text-lg font-semibold text-gray-800 hover:text-gray-900 px-4 py-1 whitespace-nowrap">
                         {calendarView === 'day' 
                           ? `${currentDate.toLocaleString('default', { weekday: 'short' })} ${currentDate.getDate()}`
                           : calendarView === 'week'
@@ -830,18 +831,19 @@ const CalendarPage = () => {
                       />
                     </PopoverContent>
                   </Popover>
-                  <button
-                    onClick={goToNext}
-                    className="p-1.5 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
-                    aria-label="Next"
-                  >
-                    <ChevronRight className="w-5 h-5" />
-                  </button>
                 </div>
+                
+                <button
+                  onClick={goToNext}
+                  className="p-1.5 text-gray-600 hover:text-gray-900 hover:bg-gray-200 rounded transition-colors flex-shrink-0 z-10"
+                  aria-label="Next"
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
               </div>
 
               {/* Right: Controls */}
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-4 flex-shrink-0">
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <button className="flex items-center gap-1 text-sm text-gray-700 hover:text-gray-900 px-3 py-1.5 rounded border border-gray-300 hover:border-gray-400">

@@ -143,7 +143,9 @@ const PrivacyModal = ({ isOpen, onClose, onAgree }) => {
                             <div>
                                 <p className="text-muted-foreground">
                                     {policy.updatedAt?.toDate 
-                                        ? `Last updated: ${policy.updatedAt.toDate().toLocaleDateString()}`
+                                        ? `Effective Date: ${policy.updatedAt.toDate().toLocaleDateString()}`
+                                        : policy.createdAt?.toDate
+                                        ? `Effective Date: ${policy.createdAt.toDate().toLocaleDateString()}`
                                         : 'Privacy Policy'}
                                     {policy.version && ` • Version ${policy.version}`}
                                 </p>
@@ -153,25 +155,15 @@ const PrivacyModal = ({ isOpen, onClose, onAgree }) => {
                             </div>
                         </div>
                     ) : (
-                        <div className="space-y-6">
-                            <div>
-                                <p className="text-muted-foreground">Effective Date: October 21, 2025</p>
-                                <p className="mt-4">
-                                    Getaways values your privacy and commits to protecting your data.
+                        <div className="space-y-6 text-center py-8">
+                            <div className="p-6 bg-yellow-50 border border-yellow-200 rounded-lg">
+                                <h3 className="font-semibold text-lg mb-2 text-yellow-900">Privacy Policy Unavailable</h3>
+                                <p className="text-sm text-yellow-800 mb-4">
+                                    The Privacy Policy is currently being updated. Please check back later or contact support for assistance.
                                 </p>
-                            </div>
-                            <div>
-                                <p className="text-sm text-muted-foreground italic mb-4">
+                                <p className="text-xs text-yellow-700 italic">
                                     Note: Privacy Policy is managed in the Admin Dashboard under Policy & Compliance.
                                 </p>
-                            </div>
-                            <div>
-                                <h3 className="font-semibold text-lg mb-3">Information We Collect</h3>
-                                <ul className="space-y-2 list-disc list-inside">
-                                    <li><strong>Personal Data:</strong> Name, email, password, contact info, profile details.</li>
-                                    <li><strong>Booking Data:</strong> Listings viewed, bookings made, reviews posted.</li>
-                                    <li><strong>Device & Usage Data:</strong> IP address, browser type, device info, activity logs.</li>
-                                </ul>
                             </div>
                         </div>
                     )}
@@ -181,13 +173,13 @@ const PrivacyModal = ({ isOpen, onClose, onAgree }) => {
                 <div className="p-6 border-t">
                     <button
                         onClick={onAgree}
-                        className={`w-full py-3 px-4 rounded-xl font-medium transition-all ${hasScrolledToBottom
+                        className={`w-full py-3 px-4 rounded-xl font-medium transition-all ${hasScrolledToBottom && policy
                                 ? "bg-primary text-white hover:bg-primary/90"
                                 : "bg-muted text-muted-foreground cursor-not-allowed"
                             }`}
-                        disabled={!hasScrolledToBottom}
+                        disabled={!hasScrolledToBottom || !policy}
                     >
-                        I Agree
+                        {policy ? 'I Agree' : 'Policy Unavailable'}
                     </button>
                 </div>
             </div>

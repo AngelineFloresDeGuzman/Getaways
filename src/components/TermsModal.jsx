@@ -143,7 +143,9 @@ const TermsModal = ({ isOpen, onClose, onAgree }) => {
                             <div>
                                 <p className="text-muted-foreground">
                                     {policy.updatedAt?.toDate 
-                                        ? `Last updated: ${policy.updatedAt.toDate().toLocaleDateString()}`
+                                        ? `Effective Date: ${policy.updatedAt.toDate().toLocaleDateString()}`
+                                        : policy.createdAt?.toDate
+                                        ? `Effective Date: ${policy.createdAt.toDate().toLocaleDateString()}`
                                         : 'Terms & Conditions'}
                                     {policy.version && ` • Version ${policy.version}`}
                                 </p>
@@ -153,31 +155,15 @@ const TermsModal = ({ isOpen, onClose, onAgree }) => {
                             </div>
                         </div>
                     ) : (
-                        <div className="space-y-6">
-                            <div>
-                                <p className="text-muted-foreground">Effective Date: October 21, 2025</p>
-                                <p className="mt-4">
-                                    Welcome to Getaways! By using our platform, you agree to the following terms:
+                        <div className="space-y-6 text-center py-8">
+                            <div className="p-6 bg-yellow-50 border border-yellow-200 rounded-lg">
+                                <h3 className="font-semibold text-lg mb-2 text-yellow-900">Terms & Conditions Unavailable</h3>
+                                <p className="text-sm text-yellow-800 mb-4">
+                                    The Terms & Conditions are currently being updated. Please check back later or contact support for assistance.
                                 </p>
-                            </div>
-                            <div>
-                                <p className="text-sm text-muted-foreground italic mb-4">
+                                <p className="text-xs text-yellow-700 italic">
                                     Note: Terms & Conditions are managed in the Admin Dashboard under Policy & Compliance.
                                 </p>
-                            </div>
-                            <div>
-                                <h3 className="font-semibold text-lg mb-3">Account Responsibility</h3>
-                                <ul className="space-y-2 list-disc list-inside">
-                                    <li>Users must provide accurate and up-to-date information during registration.</li>
-                                    <li>Each account is for personal use only and must not be shared.</li>
-                                </ul>
-                            </div>
-                            <div>
-                                <h3 className="font-semibold text-lg mb-3">Bookings & Payments</h3>
-                                <ul className="space-y-2 list-disc list-inside">
-                                    <li>Guests are responsible for completing payments for bookings.</li>
-                                    <li>Hosts must provide truthful information about listings, including rates, amenities, and availability.</li>
-                                </ul>
                             </div>
                         </div>
                     )}
@@ -187,13 +173,13 @@ const TermsModal = ({ isOpen, onClose, onAgree }) => {
                 <div className="p-6 border-t">
                     <button
                         onClick={onAgree}
-                        className={`w-full py-3 px-4 rounded-xl font-medium transition-all ${hasScrolledToBottom
+                        className={`w-full py-3 px-4 rounded-xl font-medium transition-all ${hasScrolledToBottom && policy
                                 ? "bg-primary text-white hover:bg-primary/90"
                                 : "bg-muted text-muted-foreground cursor-not-allowed"
                             }`}
-                        disabled={!hasScrolledToBottom}
+                        disabled={!hasScrolledToBottom || !policy}
                     >
-                        I Agree
+                        {policy ? 'I Agree' : 'Policy Unavailable'}
                     </button>
                 </div>
             </div>

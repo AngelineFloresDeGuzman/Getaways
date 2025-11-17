@@ -203,11 +203,12 @@ const Navigation = () => {
         // Fetch user roles from Firestore first to check if admin
         let isAdmin = false;
         let isEmailVerified = false;
+        let userData = null;
         try {
           const userDocRef = doc(db, "users", user.uid);
           const userDoc = await getDoc(userDocRef);
           if (userDoc.exists()) {
-            const userData = userDoc.data();
+            userData = userDoc.data();
             let roles = userData.roles || [userData.role]; // Handle both old and new role structure
             // Ensure roles is always an array
             if (!Array.isArray(roles)) {
@@ -228,6 +229,14 @@ const Navigation = () => {
         } catch (error) {
           console.error("Error fetching user roles:", error);
           setUserRoles(['guest']); // Default to guest on error
+        }
+        
+        // Check if account is terminated
+        if (userData && userData.isTerminated === true) {
+          await signOut(auth);
+          setCurrentUser(null);
+          setUserRoles([]);
+          return;
         }
         
         // Allow admin users even if email not verified, otherwise require email verification
@@ -513,8 +522,8 @@ const Navigation = () => {
                 }}
                 className={`flex items-center gap-2 px-4 py-2 rounded-full border transition-colors ${
                   darkMode
-                    ? "border-red-600/50 text-red-400 hover:bg-red-600/20 hover:border-red-600"
-                    : "border-red-300 text-red-600 hover:bg-red-50 hover:border-red-400"
+                    ? "border-primary/50 text-primary hover:bg-primary/20 hover:border-primary"
+                    : "border-primary text-primary hover:bg-primary/10 hover:border-primary"
                 }`}
                 title="Log out"
               >

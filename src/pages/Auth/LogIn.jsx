@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import { Eye, EyeOff, X } from "lucide-react";
-import { signInWithEmailAndPassword, setPersistence, browserLocalPersistence, browserSessionPersistence, GoogleAuthProvider, signInWithRedirect, getRedirectResult, onAuthStateChanged } from "firebase/auth";
+import { signInWithEmailAndPassword, setPersistence, browserLocalPersistence, browserSessionPersistence, GoogleAuthProvider, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc, updateDoc, setDoc, serverTimestamp, collection, query, where, getDocs } from "firebase/firestore";
 import { generatePasswordResetToken, sendPasswordResetEmail } from "@/lib/emailService";
@@ -70,6 +70,14 @@ const LogIn = ({ isModal = false, onClose, onLoginSuccess, setUserData, onSwitch
       const userData = userDoc.data();
       if (!userData.favorites) userData.favorites = [];
       const userRoles = Array.isArray(userData.roles) ? userData.roles.flat() : ["guest"];
+
+      // Check if account is terminated
+      if (userData.isTerminated === true) {
+        await signOut(auth);
+        showToast("Your account has been terminated. Please contact support for assistance.", "error", 5000);
+        setIsLoading(false);
+        return; // STOP here, do NOT navigate or close modal
+      }
 
       // For admin users, ensure emailVerified is true in Firestore
       try {

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Search, MapPin, Calendar, Users, X, Plus, Minus, Sparkles, Camera, ChefHat, UtensilsCrossed, Heart, Dumbbell, Scissors, Waves, Circle } from 'lucide-react';
+import { Search, MapPin, Calendar as CalendarIcon, Users, X, Plus, Minus, Sparkles, Camera, ChefHat, UtensilsCrossed, Heart, Dumbbell, Scissors, Waves, Circle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { format } from 'date-fns';
+import { Calendar } from '@/components/ui/calendar';
 import { db } from '@/lib/firebase';
 import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
 
@@ -12,16 +13,27 @@ const SearchBar = ({ category = 'accommodation', onSearch }) => {
   const [showLocationSuggestions, setShowLocationSuggestions] = useState(false);
   const [topListingLocations, setTopListingLocations] = useState([]);
   const [loadingLocations, setLoadingLocations] = useState(false);
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+
+  // Initialize search data with proper guest calculation
+  const initialAdults = parseInt(searchParams.get('adults') || '1', 10);
+  const initialChildren = parseInt(searchParams.get('children') || '0', 10);
+  const initialInfants = parseInt(searchParams.get('infants') || '0', 10);
+  const initialUrlGuests = parseInt(searchParams.get('guests') || '0', 10);
+  const calculatedInitialGuests = initialAdults + initialChildren + initialInfants;
+  const initialGuests = (initialAdults > 1 || initialChildren > 0 || initialInfants > 0) 
+    ? calculatedInitialGuests 
+    : (initialUrlGuests || 1);
 
   const [searchData, setSearchData] = useState({
     location: searchParams.get('location') || '',
     checkIn: searchParams.get('checkIn') || '',
     checkOut: searchParams.get('checkOut') || '',
     when: searchParams.get('when') || '',
-    guests: parseInt(searchParams.get('guests') || '1', 10),
-    adults: parseInt(searchParams.get('adults') || '1', 10),
-    children: parseInt(searchParams.get('children') || '0', 10),
-    infants: parseInt(searchParams.get('infants') || '0', 10),
+    guests: initialGuests,
+    adults: initialAdults,
+    children: initialChildren,
+    infants: initialInfants,
     pets: parseInt(searchParams.get('pets') || '0', 10),
     serviceType: searchParams.get('serviceType') || '',
   });
@@ -131,12 +143,17 @@ const SearchBar = ({ category = 'accommodation', onSearch }) => {
     const checkIn = searchParams.get('checkIn') || '';
     const checkOut = searchParams.get('checkOut') || '';
     const when = searchParams.get('when') || '';
-    const guests = parseInt(searchParams.get('guests') || '1', 10);
     const adults = parseInt(searchParams.get('adults') || '1', 10);
     const children = parseInt(searchParams.get('children') || '0', 10);
     const infants = parseInt(searchParams.get('infants') || '0', 10);
     const pets = parseInt(searchParams.get('pets') || '0', 10);
     const serviceType = searchParams.get('serviceType') || '';
+    
+    // Calculate guests from breakdown, fallback to URL param if breakdown not available
+    const calculatedGuests = adults + children + infants;
+    const urlGuests = parseInt(searchParams.get('guests') || '0', 10);
+    // Use calculated guests if breakdown exists, otherwise use URL param
+    const guests = (adults > 1 || children > 0 || infants > 0) ? calculatedGuests : (urlGuests || 1);
 
     setSearchData({
       location,
@@ -150,18 +167,38 @@ const SearchBar = ({ category = 'accommodation', onSearch }) => {
       pets,
       serviceType,
     });
+
+    // Update currentMonth when checkIn date changes
+    if (checkIn) {
+      setCurrentMonth(new Date(checkIn));
+    }
   }, [searchParams]);
+
+  // Initialize currentMonth when dates modal opens
+  useEffect(() => {
+    if (activeModal === 'dates') {
+      if (searchData.checkIn) {
+        setCurrentMonth(new Date(searchData.checkIn));
+      } else {
+        setCurrentMonth(new Date());
+      }
+    }
+  }, [activeModal, searchData.checkIn]);
 
   const totalGuests = searchData.adults + searchData.children + searchData.infants;
 
   const handleSearch = () => {
     const params = new URLSearchParams();
     
+    // Calculate total guests from breakdown
+    const calculatedTotalGuests = searchData.adults + searchData.children + searchData.infants;
+    
     if (searchData.location) params.set('location', searchData.location);
     if (searchData.checkIn) params.set('checkIn', searchData.checkIn);
     if (searchData.checkOut) params.set('checkOut', searchData.checkOut);
     if (searchData.when) params.set('when', searchData.when);
-    if (searchData.guests > 1) params.set('guests', searchData.guests.toString());
+    // Use calculated total instead of potentially stale guests field
+    if (calculatedTotalGuests > 1) params.set('guests', calculatedTotalGuests.toString());
     if (searchData.adults > 1) params.set('adults', searchData.adults.toString());
     if (searchData.children > 0) params.set('children', searchData.children.toString());
     if (searchData.infants > 0) params.set('infants', searchData.infants.toString());
@@ -206,7 +243,7 @@ const SearchBar = ({ category = 'accommodation', onSearch }) => {
               className="flex items-center gap-2 p-2.5 rounded-xl hover:bg-muted/50 transition-colors cursor-pointer border-l border-border"
               onClick={() => setActiveModal('dates')}
             >
-              <Calendar className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+              <CalendarIcon className="w-4 h-4 text-muted-foreground flex-shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="font-medium text-xs text-foreground">Check-in</p>
                 <p className="text-muted-foreground text-xs truncate">
@@ -220,7 +257,7 @@ const SearchBar = ({ category = 'accommodation', onSearch }) => {
               className="flex items-center gap-2 p-2.5 rounded-xl hover:bg-muted/50 transition-colors cursor-pointer border-l border-border"
               onClick={() => setActiveModal('dates')}
             >
-              <Calendar className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+              <CalendarIcon className="w-4 h-4 text-muted-foreground flex-shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="font-medium text-xs text-foreground">Check-out</p>
                 <p className="text-muted-foreground text-xs truncate">
@@ -238,7 +275,7 @@ const SearchBar = ({ category = 'accommodation', onSearch }) => {
               className="flex items-center gap-2 p-2.5 rounded-xl hover:bg-muted/50 transition-colors cursor-pointer border-l border-border"
               onClick={() => setActiveModal('dates')}
             >
-              <Calendar className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+              <CalendarIcon className="w-4 h-4 text-muted-foreground flex-shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="font-medium text-xs text-foreground">Check-in</p>
                 <p className="text-muted-foreground text-xs truncate">
@@ -252,7 +289,7 @@ const SearchBar = ({ category = 'accommodation', onSearch }) => {
               className="flex items-center gap-2 p-2.5 rounded-xl hover:bg-muted/50 transition-colors cursor-pointer border-l border-border"
               onClick={() => setActiveModal('dates')}
             >
-              <Calendar className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+              <CalendarIcon className="w-4 h-4 text-muted-foreground flex-shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="font-medium text-xs text-foreground">Check-out</p>
                 <p className="text-muted-foreground text-xs truncate">
@@ -429,7 +466,7 @@ const SearchBar = ({ category = 'accommodation', onSearch }) => {
             {/* Header */}
             <div className="flex items-center justify-between p-4 border-b border-border">
               <h2 className="text-lg font-heading font-semibold text-foreground flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-primary" />
+                <CalendarIcon className="w-4 h-4 text-primary" />
                 When?
               </h2>
               <button
@@ -442,52 +479,92 @@ const SearchBar = ({ category = 'accommodation', onSearch }) => {
 
             {/* Content */}
             <div className="p-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-foreground mb-1.5">Check-in</label>
-                  <input
-                    type="date"
-                    value={searchData.checkIn}
-                    onChange={(e) => {
-                      const newCheckIn = e.target.value;
-                      setSearchData({ ...searchData, checkIn: newCheckIn });
-                      // Auto-close modal and search when both dates are selected
-                      if (searchData.checkOut && newCheckIn) {
-                        setTimeout(() => {
-                          setActiveModal(null);
-                          handleSearch();
-                        }, 300);
+              <div className="flex justify-center w-full">
+                <div className="bg-white rounded-xl p-6 w-full max-w-sm mx-auto">
+                  <Calendar
+                    mode="range"
+                    selected={{
+                      from: searchData.checkIn ? new Date(searchData.checkIn) : undefined,
+                      to: searchData.checkOut ? new Date(searchData.checkOut) : undefined
+                    }}
+                    onSelect={(range) => {
+                      if (range) {
+                        const newCheckIn = range.from ? format(range.from, 'yyyy-MM-dd') : '';
+                        const newCheckOut = range.to ? format(range.to, 'yyyy-MM-dd') : '';
+                        setSearchData({ ...searchData, checkIn: newCheckIn, checkOut: newCheckOut });
+                        
+                        // Don't auto-close - let user manually close the calendar
+                        // User can select check-in, then check-out, and close when ready
+                      } else {
+                        setSearchData({ ...searchData, checkIn: '', checkOut: '' });
                       }
                     }}
-                    min={new Date().toISOString().split('T')[0]}
-                    className="w-full p-2.5 border border-border rounded-lg bg-background text-foreground focus:ring-2 focus:ring-primary focus:border-transparent"
-                    autoFocus
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-foreground mb-1.5">Check-out</label>
-                  <input
-                    type="date"
-                    value={searchData.checkOut}
-                    onChange={(e) => {
-                      const newCheckOut = e.target.value;
-                      setSearchData({ ...searchData, checkOut: newCheckOut });
-                      // Auto-close modal and search when both dates are selected
-                      if (searchData.checkIn && newCheckOut) {
-                        setTimeout(() => {
-                          setActiveModal(null);
-                          handleSearch();
-                        }, 300);
+                    numberOfMonths={1}
+                    showOutsideDays={true}
+                    fromDate={new Date()}
+                    defaultMonth={searchData.checkIn ? new Date(searchData.checkIn) : new Date()}
+                    month={currentMonth}
+                    onMonthChange={setCurrentMonth}
+                    className="w-full"
+                    classNames={{
+                      months: "flex flex-col",
+                      month: "space-y-4",
+                      caption: "flex justify-between items-center pt-1 relative mb-4 px-1 min-h-[2.5rem] w-full",
+                      caption_label: "!text-lg !font-bold !text-foreground !flex-1 !text-center !mx-auto !block !visible !opacity-100",
+                      nav: "flex items-center justify-between w-full",
+                      nav_button: "h-8 w-8 bg-transparent p-0 hover:bg-muted border-0 rounded-md flex items-center justify-center transition-colors [&>svg]:hidden",
+                      nav_button_previous: "order-first",
+                      nav_button_next: "order-last",
+                      table: "w-full border-collapse space-y-1",
+                      head_row: "flex mb-2",
+                      head_cell: "text-muted-foreground rounded-md w-9 font-normal text-[0.8rem] text-center",
+                      row: "flex w-full mt-1",
+                      cell: "h-9 w-9 text-center text-sm p-0 relative [&:has([aria-selected].day-range-end)]:rounded-r-md [&:has([aria-selected].day-outside)]:bg-accent/50 [&:has([aria-selected])]:bg-accent first:[&:has([aria-selected])]:rounded-l-md last:[&:has([aria-selected])]:rounded-r-md focus-within:relative focus-within:z-20",
+                      day: "h-9 w-9 p-0 font-normal aria-selected:opacity-100 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors",
+                      day_range_end: "day-range-end rounded-md",
+                      day_selected: "bg-primary text-white hover:bg-primary hover:text-white focus:bg-primary focus:text-white rounded-md",
+                      day_today: "bg-transparent text-foreground font-semibold",
+                      day_outside: "day-outside text-muted-foreground opacity-50 aria-selected:bg-accent/50 aria-selected:text-muted-foreground aria-selected:opacity-30",
+                      day_disabled: "text-muted-foreground opacity-50 cursor-not-allowed",
+                      day_range_middle: "aria-selected:bg-primary/20 aria-selected:text-foreground rounded-none",
+                      day_hidden: "invisible"
+                    }}
+                    components={{
+                      IconLeft: () => (
+                        <ChevronLeft className="h-4 w-4 text-primary" />
+                      ),
+                      IconRight: () => (
+                        <ChevronRight className="h-4 w-4 text-primary" />
+                      ),
+                      CaptionLabel: ({ displayMonth }) => {
+                        // Use displayMonth if available, otherwise use currentMonth state
+                        const monthToDisplay = displayMonth || currentMonth;
+                        if (!monthToDisplay) {
+                          const today = new Date();
+                          const month = today.toLocaleString('default', { month: 'long' });
+                          const year = today.getFullYear();
+                          return (
+                            <div className="text-lg font-bold text-foreground text-center w-full block">
+                              {month} {year}
+                            </div>
+                          );
+                        }
+                        const month = monthToDisplay.toLocaleString('default', { month: 'long' });
+                        const year = monthToDisplay.getFullYear();
+                        return (
+                          <div className="text-lg font-bold text-foreground text-center w-full block">
+                            {month} {year}
+                          </div>
+                        );
                       }
                     }}
-                    min={searchData.checkIn || new Date().toISOString().split('T')[0]}
-                    className="w-full p-2.5 border border-border rounded-lg bg-background text-foreground focus:ring-2 focus:ring-primary focus:border-transparent"
+                    disabled={{ before: new Date() }}
                   />
                 </div>
               </div>
 
               {/* Actions */}
-              <div className="flex items-center justify-end gap-3 mt-4 pt-4 border-t border-border">
+              <div className="flex items-center justify-between gap-3 mt-4 pt-4 border-t border-border">
                 <button
                   type="button"
                   onClick={() => {
@@ -496,6 +573,16 @@ const SearchBar = ({ category = 'accommodation', onSearch }) => {
                   className="px-4 py-2 text-sm border border-border rounded-lg text-foreground hover:bg-muted transition-colors"
                 >
                   Clear
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveModal(null);
+                    handleSearch();
+                  }}
+                  className="px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors font-medium"
+                >
+                  Done
                 </button>
               </div>
             </div>

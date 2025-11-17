@@ -40,14 +40,11 @@ const Loading = ({ message = "Loading...", fullScreen = false, size = "default" 
           {/* Loading message */}
           {message && (
             <div className="flex items-center gap-2">
-              <div className="flex gap-1">
-                <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0s' }}></div>
-                <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
-              </div>
+              <span className="text-primary text-lg font-bold">...</span>
               <p className="text-sm text-muted-foreground font-medium">
                 {message}
               </p>
+              <span className="text-primary text-lg font-bold">...</span>
             </div>
           )}
         </div>

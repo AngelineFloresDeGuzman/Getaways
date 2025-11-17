@@ -6,8 +6,10 @@ import Loading from '@/components/Loading';
 import { auth, db } from '@/lib/firebase';
 import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
-import { Wallet, ArrowUpRight, ArrowDownLeft, RefreshCw, ExternalLink, Calendar, Filter, Search, Plus, X, CheckCircle, AlertCircle, Clock } from 'lucide-react';
+import { Wallet, ArrowUpRight, ArrowDownLeft, RefreshCw, ExternalLink, Calendar as CalendarIcon, Filter, Search, Plus, X, CheckCircle, AlertCircle, Clock, ChevronLeft, ChevronRight } from 'lucide-react';
 import { toast } from '@/components/ui/sonner';
+import { Calendar } from '@/components/ui/calendar';
+import { format } from 'date-fns';
 import { PayPalScriptProvider, PayPalButtons, usePayPalScriptReducer } from '@paypal/react-paypal-js';
 import {
   getWalletBalance,
@@ -175,6 +177,10 @@ const EWallet = () => {
   const [isMerchantAccount, setIsMerchantAccount] = useState(false);
   const [cashOutRequests, setCashOutRequests] = useState([]);
   const [showCashOutRequests, setShowCashOutRequests] = useState(true); // Expanded by default
+  const [dateRange, setDateRange] = useState({ from: undefined, to: undefined });
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const datePickerRef = React.useRef(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -293,6 +299,23 @@ const EWallet = () => {
       loadWalletData(user.uid);
     }
   }, [user]);
+
+  // Close date picker when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (datePickerRef.current && !datePickerRef.current.contains(event.target)) {
+        setShowDatePicker(false);
+      }
+    };
+
+    if (showDatePicker) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showDatePicker]);
 
   const loadWalletData = async (userId) => {
     try {
@@ -509,8 +532,35 @@ const EWallet = () => {
       }
     }
     
+    // Apply date range filter
+    if (dateRange.from || dateRange.to) {
+      filtered = filtered.filter(t => {
+        if (!t.date) return false;
+        const transactionDate = t.date instanceof Date ? t.date : new Date(t.date);
+        // Reset time to start of day for accurate comparison
+        transactionDate.setHours(0, 0, 0, 0);
+        
+        if (dateRange.from && dateRange.to) {
+          const fromDate = new Date(dateRange.from);
+          fromDate.setHours(0, 0, 0, 0);
+          const toDate = new Date(dateRange.to);
+          toDate.setHours(23, 59, 59, 999);
+          return transactionDate >= fromDate && transactionDate <= toDate;
+        } else if (dateRange.from) {
+          const fromDate = new Date(dateRange.from);
+          fromDate.setHours(0, 0, 0, 0);
+          return transactionDate >= fromDate;
+        } else if (dateRange.to) {
+          const toDate = new Date(dateRange.to);
+          toDate.setHours(23, 59, 59, 999);
+          return transactionDate <= toDate;
+        }
+        return true;
+      });
+    }
+    
     setFilteredTransactions(filtered);
-  }, [searchTerm, filterType, transactions]);
+  }, [searchTerm, filterType, transactions, dateRange]);
 
   const formatCurrency = (amount) => {
     return `₱${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -687,53 +737,162 @@ const EWallet = () => {
 
         {/* Filters and Search */}
         <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
-          <div className="flex flex-col md:flex-row gap-4">
-            {/* Search */}
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-              <input
-                type="text"
-                placeholder="Search transactions..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
-              />
-            </div>
-            
-            {/* Type Filter */}
-            <div className="flex gap-2">
-              <button
-                onClick={() => setFilterType('all')}
-                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                  filterType === 'all'
-                    ? 'bg-primary text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                All
-              </button>
-              <button
-                onClick={() => setFilterType('income')}
-                className={`px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 ${
-                  filterType === 'income'
-                    ? 'bg-primary/20 text-primary'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                <ArrowDownLeft className="w-4 h-4" />
-                Income
-              </button>
-              <button
-                onClick={() => setFilterType('expense')}
-                className={`px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 ${
-                  filterType === 'expense'
-                    ? 'bg-primary/20 text-primary'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                <ArrowUpRight className="w-4 h-4" />
-                Expenses
-              </button>
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col md:flex-row gap-4">
+              {/* Search */}
+              <div className="flex-1 relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                <input
+                  type="text"
+                  placeholder="Search transactions..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                />
+              </div>
+              
+              {/* Date Range Picker Button */}
+              <div className="relative" ref={datePickerRef}>
+                <button
+                  onClick={() => setShowDatePicker(!showDatePicker)}
+                  className={`px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${
+                    dateRange.from || dateRange.to
+                      ? 'bg-primary/20 text-primary border border-primary/30'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300'
+                  }`}
+                >
+                  <CalendarIcon className="w-4 h-4" />
+                  {dateRange.from && dateRange.to
+                    ? `${format(dateRange.from, 'MMM dd')} - ${format(dateRange.to, 'MMM dd')}`
+                    : dateRange.from
+                    ? `From ${format(dateRange.from, 'MMM dd')}`
+                    : 'Date Range'}
+                  {(dateRange.from || dateRange.to) && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDateRange({ from: undefined, to: undefined });
+                      }}
+                      className="ml-2 hover:bg-primary/20 rounded p-0.5"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </button>
+
+                {/* Date Picker Dropdown */}
+                {showDatePicker && (
+                  <div className="absolute top-full right-0 md:right-0 left-0 md:left-auto mt-2 bg-white border border-gray-300 rounded-xl shadow-xl z-50 p-4" style={{ minWidth: '300px', maxWidth: '100%' }}>
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-lg font-semibold text-gray-900">Select Date Range</h3>
+                      <button
+                        onClick={() => setShowDatePicker(false)}
+                        className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
+                      >
+                        <X className="w-4 h-4 text-gray-600" />
+                      </button>
+                    </div>
+                    <Calendar
+                      mode="range"
+                      selected={dateRange}
+                      onSelect={(range) => {
+                        setDateRange(range || { from: undefined, to: undefined });
+                      }}
+                      numberOfMonths={1}
+                      showOutsideDays={true}
+                      defaultMonth={dateRange.from || new Date()}
+                      month={currentMonth}
+                      onMonthChange={setCurrentMonth}
+                      className="w-full"
+                      classNames={{
+                        months: "flex flex-col",
+                        month: "space-y-4",
+                        caption: "flex justify-between items-center pt-1 relative mb-4 px-1 min-h-[2.5rem] w-full",
+                        caption_label: "!text-lg !font-bold !text-gray-900 !flex-1 !text-center !mx-auto !block !visible !opacity-100",
+                        nav: "flex items-center justify-between w-full",
+                        nav_button: "h-8 w-8 bg-transparent p-0 hover:bg-gray-100 border-0 rounded-md flex items-center justify-center transition-colors [&>svg]:hidden",
+                        nav_button_previous: "order-first",
+                        nav_button_next: "order-last",
+                        table: "w-full border-collapse space-y-1",
+                        head_row: "flex mb-2",
+                        head_cell: "text-gray-500 rounded-md w-9 font-normal text-[0.8rem] text-center",
+                        row: "flex w-full mt-1",
+                        cell: "h-9 w-9 text-center text-sm p-0 relative [&:has([aria-selected].day-range-end)]:rounded-r-md [&:has([aria-selected].day-outside)]:bg-accent/50 [&:has([aria-selected])]:bg-accent first:[&:has([aria-selected])]:rounded-l-md last:[&:has([aria-selected])]:rounded-r-md focus-within:relative focus-within:z-20",
+                        day: "h-9 w-9 p-0 font-normal aria-selected:opacity-100 rounded-md hover:bg-primary/10 hover:text-primary transition-colors",
+                        day_range_end: "day-range-end rounded-md",
+                        day_selected: "bg-primary text-white hover:bg-primary hover:text-white focus:bg-primary focus:text-white rounded-md",
+                        day_today: "bg-transparent text-gray-900 font-semibold",
+                        day_outside: "day-outside text-gray-400 opacity-50 aria-selected:bg-accent/50 aria-selected:text-gray-400 aria-selected:opacity-30",
+                        day_disabled: "text-gray-400 opacity-50 cursor-not-allowed",
+                        day_range_middle: "aria-selected:bg-primary/20 aria-selected:text-gray-900 rounded-none",
+                        day_hidden: "invisible"
+                      }}
+                      components={{
+                        IconLeft: () => (
+                          <ChevronLeft className="h-4 w-4 text-primary" />
+                        ),
+                        IconRight: () => (
+                          <ChevronRight className="h-4 w-4 text-primary" />
+                        ),
+                      }}
+                    />
+                    <div className="flex items-center justify-end gap-3 mt-4 pt-4 border-t border-gray-200">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDateRange({ from: undefined, to: undefined });
+                        }}
+                        className="px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+                      >
+                        Clear
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowDatePicker(false)}
+                        className="px-4 py-2 text-sm bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors font-medium"
+                      >
+                        Done
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              {/* Type Filter */}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setFilterType('all')}
+                  className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                    filterType === 'all'
+                      ? 'bg-primary text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  All
+                </button>
+                <button
+                  onClick={() => setFilterType('income')}
+                  className={`px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 ${
+                    filterType === 'income'
+                      ? 'bg-primary/20 text-primary'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  <ArrowDownLeft className="w-4 h-4" />
+                  Income
+                </button>
+                <button
+                  onClick={() => setFilterType('expense')}
+                  className={`px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 ${
+                    filterType === 'expense'
+                      ? 'bg-primary/20 text-primary'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  <ArrowUpRight className="w-4 h-4" />
+                  Expenses
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -863,7 +1022,7 @@ const EWallet = () => {
               <Wallet className="w-16 h-16 text-gray-300 mx-auto mb-4" />
               <p className="text-gray-500 text-lg">No transactions found</p>
               <p className="text-gray-400 text-sm mt-2">
-                {searchTerm || filterType !== 'all' 
+                {searchTerm || filterType !== 'all' || dateRange.from || dateRange.to
                   ? 'Try adjusting your filters' 
                   : 'Your transaction history will appear here'}
               </p>
@@ -900,7 +1059,7 @@ const EWallet = () => {
                         </p>
                         <div className="flex items-center gap-3 mt-1">
                           <span className="text-sm text-gray-500 flex items-center gap-1">
-                            <Calendar className="w-3 h-3" />
+                            <CalendarIcon className="w-3 h-3" />
                             {formatDate(transaction.date)}
                           </span>
                           <span className={`text-xs px-2 py-1 rounded-full ${getStatusColor(transaction.status)}`}>

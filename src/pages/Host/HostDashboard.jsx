@@ -13,7 +13,7 @@ import { doc, getDoc, setDoc, collection, addDoc, query, where, getDocs, orderBy
 import {
   Home, Calendar as CalendarIcon, MessageSquare, DollarSign, Plus,
   TrendingUp, Eye, Star, Users, Clock, MapPin, Camera,
-  Bed, Bath, Edit, Check, X, EyeOff, Trash2, User, Award, Send, Wallet, Shield, FileText, AlertTriangle, FileX
+  Bed, Bath, Edit, Check, X, EyeOff, Trash2, User, Award, Send, Wallet, FileText, AlertTriangle, FileX
 } from 'lucide-react';
 
 import { Home as HomeIcon, Grid, List } from 'lucide-react';
@@ -1557,31 +1557,6 @@ const HostDashboard = () => {
             ))}
           </div>
           
-          {/* Policies & Guidelines Section */}
-          <div className="mt-6 card-listing p-6 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-blue-500 rounded-xl flex items-center justify-center">
-                  <Shield className="w-6 h-6 text-white" />
-                </div>
-                <div>
-                  <h3 className="font-heading text-lg font-bold text-foreground mb-1">
-                    Policies & Guidelines
-                  </h3>
-                  <p className="text-sm text-muted-foreground">
-                    Review host rules, cancellation policies, and platform guidelines
-                  </p>
-                </div>
-              </div>
-              <Link
-                to="/host/policies"
-                className="btn-primary flex items-center gap-2 whitespace-nowrap"
-              >
-                <FileText className="w-4 h-4" />
-                View Policies
-              </Link>
-            </div>
-          </div>
         </div>
 
         {/* Draft Success Message replaced by toast */}

@@ -5,7 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, useNavigate, useLocation } from "react-router-dom";
 import { auth, db } from "@/lib/firebase";
-import { getRedirectResult, onAuthStateChanged } from "firebase/auth";
+import { getRedirectResult, onAuthStateChanged, signOut } from "firebase/auth";
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { OnboardingProvider } from "./pages/Host/contexts/OnboardingContext";
 import Index from "./pages/Index.jsx";
@@ -165,6 +165,13 @@ const GoogleRedirectHandler = () => {
             // User already exists
             const userData = userDoc.data();
             const userRoles = Array.isArray(userData.roles) ? userData.roles.flat() : ["guest"];
+            
+            // Check if account is terminated
+            if (userData.isTerminated === true) {
+              await signOut(auth);
+              console.log("❌ [Global] Account terminated - signed out");
+              return;
+            }
             
             try {
               if (!userRoles.includes("admin")) {

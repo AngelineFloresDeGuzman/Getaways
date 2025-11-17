@@ -31,18 +31,41 @@ const loadPDFLibrary = async () => {
  */
 const formatValueForPDF = (value) => {
   if (value === null || value === undefined) return 'N/A';
+  
+  // Handle Firestore Timestamp objects
+  if (value && typeof value === 'object' && value.toDate && typeof value.toDate === 'function') {
+    try {
+      value = value.toDate();
+    } catch (e) {
+      console.warn('Error converting Firestore timestamp:', e);
+      return 'N/A';
+    }
+  }
+  
   if (value instanceof Date) {
-    return value.toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'short', 
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    try {
+      // Match preview format exactly: month: 'short', day: 'numeric', year: '2-digit', hour: '2-digit', minute: '2-digit'
+      return value.toLocaleDateString('en-US', { 
+        month: 'short', 
+        day: 'numeric',
+        year: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (e) {
+      console.warn('Error formatting date:', e);
+      return 'N/A';
+    }
   }
+  
   if (typeof value === 'object') {
-    return JSON.stringify(value);
+    try {
+      return JSON.stringify(value);
+    } catch (e) {
+      return '[Object]';
+    }
   }
+  
   return String(value);
 };
 
@@ -66,68 +89,164 @@ export const exportToPDF = async (data, headers, filename, title = 'Report') => 
       throw new Error('No headers provided for export');
     }
     
+    // Detect if table is wide (more than 6 columns) - use landscape for wide tables
+    const isWideTable = headers.length > 6;
+    
     const doc = new pdf({
-      orientation: 'landscape',
+      orientation: isWideTable ? 'landscape' : 'portrait',
       unit: 'mm',
       format: 'a4'
     });
 
-    // Add title
-    doc.setFontSize(16);
-    doc.setFont(undefined, 'bold');
-    doc.text(title, 14, 15);
+    // Ultra-compact header matching preview exactly
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const headerHeight = 12; // Compact header height
     
-    // Add date and record count
-    doc.setFontSize(10);
+    // Primary color RGB - Same as logo color (#D4A373 / HSL 25 47% 63% = RGB 212, 163, 115) - Warm Golden Tan
+    const primaryR = 212;  // #D4
+    const primaryG = 163;  // #A3
+    const primaryB = 115;  // #73
+    
+    // Draw compact header background
+    doc.setFillColor(primaryR, primaryG, primaryB);
+    doc.rect(0, 0, pageWidth, headerHeight, 'F');
+    
+    // Try to add logo image if available
+    let logoAdded = false;
+    try {
+      const logoResponse = await fetch('/logo.jpg');
+      if (logoResponse.ok) {
+        const logoBlob = await logoResponse.blob();
+        const logoDataUrl = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.readAsDataURL(logoBlob);
+        });
+        // Small logo matching preview
+        doc.addImage(logoDataUrl, 'JPEG', 8, 3, 6, 6);
+        logoAdded = true;
+      }
+    } catch (err) {
+      // Logo image failed, continue without it
+      console.log('Logo image not available, using text only');
+    }
+    
+    // Compact header text matching preview
+    doc.setFontSize(9);
+    doc.setFont(undefined, 'bold');
+    doc.setTextColor(255, 255, 255);
+    doc.text('Getaways', logoAdded ? 16 : 8, 6);
+    
+    // Report title on same line
+    doc.setFontSize(7);
     doc.setFont(undefined, 'normal');
+    doc.setTextColor(255, 255, 255);
+    doc.text(title, logoAdded ? 16 : 8, 9);
+    
+    // Date range and record count on right side
     const dateStr = new Date().toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
+      month: 'short',
+      day: 'numeric',
+      year: '2-digit'
     });
-    doc.text(`Generated on: ${dateStr}`, 14, 22);
-    doc.text(`Total Records: ${data.length}`, 14, 28);
+    doc.setFontSize(7);
+    doc.text(`${dateStr} • ${data.length.toLocaleString()} records`, pageWidth - 8, 7.5, { align: 'right' });
 
-    // Prepare table data - ensure all data is included
-    const tableHeaders = headers.map(h => h.label);
-    const tableRows = data.map(row => 
-      headers.map(h => formatValueForPDF(row[h.key]))
-    );
+    // Prepare table data - ensure ALL data is included without cutting
+    const tableHeaders = headers.map(h => h.label || h.key);
+    const tableRows = data.map((row, rowIndex) => {
+      const rowData = headers.map(h => {
+        const key = h.key || h.label;
+        const value = row[key];
+        // Format value ensuring no data is lost
+        return formatValueForPDF(value);
+      });
+      return rowData;
+    });
+    
+    // Validate that all rows are included
+    if (tableRows.length !== data.length) {
+      console.warn(`Row count mismatch: expected ${data.length} rows, got ${tableRows.length} rows`);
+    }
+    
+    // Store data length for use in didDrawPage callback
+    const totalRecords = data.length;
 
-    // Add table with proper pagination support - ensure ALL data is included
+    // Add table with ultra-compact styling matching preview exactly
     autoTablePlugin(doc, {
       head: [tableHeaders],
       body: tableRows, // Include ALL rows - no slicing
-      startY: 35,
+      startY: headerHeight + 3,
       styles: {
-        fontSize: 7,
-        cellPadding: 1.5,
+        fontSize: 6.5, // Ultra-compact matching preview text-[9px]
+        cellPadding: 1.5, // Compact padding matching preview
         overflow: 'linebreak',
         cellWidth: 'auto',
         halign: 'left',
         valign: 'middle',
-        textColor: [0, 0, 0]
+        textColor: [31, 41, 55],
+        lineWidth: 0.1,
+        lineColor: [229, 231, 235]
       },
       headStyles: {
-        fillColor: [59, 130, 246], // Blue color
+        fillColor: [primaryR, primaryG, primaryB], // Primary color
         textColor: 255,
         fontStyle: 'bold',
-        fontSize: 8
+        fontSize: 6.5, // Matching preview
+        halign: 'left',
+        valign: 'middle',
+        cellPadding: 1.5
       },
       alternateRowStyles: {
-        fillColor: [245, 247, 250]
+        fillColor: [249, 250, 251]
       },
-      margin: { top: 35, left: 14, right: 14, bottom: 20 },
+      margin: { top: headerHeight + 3, left: 8, right: 8, bottom: 12 },
       // Enable pagination - ensure all pages are created
-      didDrawPage: (data) => {
-        // Add page numbers
-        doc.setFontSize(8);
-        doc.setTextColor(100);
+      didDrawPage: (tableData) => {
+        // Add compact header on each page matching preview
+        if (tableData.pageNumber > 1) {
+          const pageWidth = doc.internal.pageSize.getWidth();
+          doc.setFillColor(primaryR, primaryG, primaryB);
+          doc.rect(0, 0, pageWidth, headerHeight, 'F');
+          
+          doc.setFontSize(9);
+          doc.setFont(undefined, 'bold');
+          doc.setTextColor(255, 255, 255);
+          doc.text('Getaways', 8, 6);
+          
+          doc.setFontSize(7);
+          doc.setFont(undefined, 'normal');
+          doc.setTextColor(255, 255, 255);
+          doc.text(title, 8, 9);
+        }
+        
+        // Add compact footer matching preview
+        doc.setFontSize(6.5);
+        doc.setTextColor(107, 114, 128);
         const pageCount = doc.internal.getNumberOfPages();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        
+        // Footer matching preview style
+        doc.setFont(undefined, 'bold');
         doc.text(
-          `Page ${data.pageNumber} of ${pageCount}`,
-          doc.internal.pageSize.getWidth() / 2,
-          doc.internal.pageSize.getHeight() - 10,
+          `Total: ${totalRecords.toLocaleString()} records`,
+          8,
+          pageHeight - 5
+        );
+        
+        doc.setFont(undefined, 'normal');
+        doc.text(
+          'Getaways Platform Report',
+          pageWidth - 8,
+          pageHeight - 5,
+          { align: 'right' }
+        );
+        
+        // Page number
+        doc.text(
+          `Page ${tableData.pageNumber} of ${pageCount}`,
+          pageWidth / 2,
+          pageHeight - 5,
           { align: 'center' }
         );
       },
@@ -137,12 +256,22 @@ export const exportToPDF = async (data, headers, filename, title = 'Report') => 
       columnStyles: {},
       // Prevent cutting off - use full width
       tableWidth: 'auto',
-      // Ensure all data is processed
+      // Ensure all data is processed - include ALL rows without cutting
       includeHiddenHtml: false,
-      // Add horizontal scroll for wide tables if needed
+      // Disable horizontal page break to ensure complete columns
       horizontalPageBreak: false,
-      // Ensure proper row rendering
-      rowPageBreak: 'auto'
+      // Ensure proper row rendering - split rows across pages if needed but keep them complete
+      rowPageBreak: 'auto',
+      // Prevent truncation - ensure all content is visible
+      truncateCellContent: false,
+      // Set column widths to ensure all columns are visible
+      columnWidth: 'auto',
+      // Ensure text wrapping within cells
+      wrap: true,
+      // Don't limit column widths - let them expand as needed
+      minCellHeight: 10,
+      // Ensure all rows are rendered
+      addPageContent: null
     });
 
     // Save PDF
@@ -224,8 +353,11 @@ export const generateBookingsReport = async (dateFilter = null, filters = null) 
     );
 
     const bookingsData = [];
+    let totalProcessed = 0;
+    let filteredOut = 0;
     
     for (const bookingDoc of bookingsSnapshot.docs) {
+      totalProcessed++;
       const booking = bookingDoc.data();
       const createdAt = booking.createdAt?.toDate ? booking.createdAt.toDate() : null;
       
@@ -871,108 +1003,96 @@ export const getReportData = async (reportType, dateFilter = null, filters = nul
     switch (reportType) {
       case 'bookings':
         data = await generateBookingsReport(dateFilter, filters);
+        // Essential fields only - keep reports concise like transactions page
         headers = [
-          { key: 'bookingId', label: 'Booking ID' },
           { key: 'status', label: 'Status' },
           { key: 'guestName', label: 'Guest Name' },
-          { key: 'guestEmail', label: 'Guest Email' },
-          { key: 'guestId', label: 'Guest ID' },
           { key: 'hostName', label: 'Host Name' },
-          { key: 'hostEmail', label: 'Host Email' },
-          { key: 'hostId', label: 'Host ID' },
           { key: 'listingTitle', label: 'Listing Title' },
-          { key: 'listingId', label: 'Listing ID' },
-          { key: 'listingCategory', label: 'Category' },
-          { key: 'listingLocation', label: 'Location' },
           { key: 'checkIn', label: 'Check In' },
           { key: 'checkOut', label: 'Check Out' },
-          { key: 'guests', label: 'Number of Guests' },
           { key: 'totalPrice', label: 'Total Price' },
-          { key: 'bookingAmount', label: 'Booking Amount' },
-          { key: 'guestFee', label: 'Guest Fee' },
           { key: 'adminCommission', label: 'Admin Commission (10%)' },
           { key: 'hostEarnings', label: 'Host Earnings (90%)' },
-          { key: 'paymentMethod', label: 'Payment Method' },
-          { key: 'paymentProvider', label: 'Payment Provider' },
           { key: 'paymentStatus', label: 'Payment Status' },
-          { key: 'isPaid', label: 'Is Paid' },
-          { key: 'earningsReleased', label: 'Earnings Released' },
-          { key: 'earningsReleasedAt', label: 'Earnings Released At' },
-          { key: 'createdAt', label: 'Created At' },
-          { key: 'updatedAt', label: 'Updated At' },
-          { key: 'completedAt', label: 'Completed At' }
+          { key: 'createdAt', label: 'Created At' }
         ];
+        // Filter to essential fields only
+        data = data.map(record => {
+          const essential = {};
+          headers.forEach(h => {
+            essential[h.key] = record[h.key];
+          });
+          return essential;
+        });
         break;
 
       case 'service-fees':
       case 'hosts':
         data = await generateServiceFeesReport(dateFilter, filters);
+        // Essential fields only - keep reports concise like transactions page
         headers = [
-          { key: 'hostId', label: 'Host ID' },
           { key: 'hostName', label: 'Host Name' },
           { key: 'hostEmail', label: 'Host Email' },
           { key: 'hostPhone', label: 'Host Phone' },
           { key: 'totalBookings', label: 'Total Bookings' },
           { key: 'totalEarnings', label: 'Total Earnings' },
           { key: 'serviceFee', label: 'Commission (10%)' },
-          { key: 'hostEarnings', label: 'Host Earnings (90%)' },
-          { key: 'serviceFeePercentage', label: 'Service Fee %' },
-          { key: 'hostCreatedAt', label: 'Host Created At' },
-          { key: 'hostUpdatedAt', label: 'Host Updated At' },
-          { key: 'isTerminated', label: 'Is Terminated' },
-          { key: 'terminatedAt', label: 'Terminated At' }
+          { key: 'hostEarnings', label: 'Host Earnings (90%)' }
         ];
+        // Filter to essential fields only
+        data = data.map(record => {
+          const essential = {};
+          headers.forEach(h => {
+            essential[h.key] = record[h.key];
+          });
+          return essential;
+        });
         break;
 
       case 'payments':
       case 'financial':
         data = await generatePaymentsReport(dateFilter, filters);
+        // Essential fields only - keep reports concise like transactions page
         headers = [
-          { key: 'userId', label: 'User ID' },
           { key: 'userName', label: 'User Name' },
           { key: 'email', label: 'Email' },
-          { key: 'phone', label: 'Phone' },
           { key: 'paymentType', label: 'Payment Type' },
           { key: 'paymentStatus', label: 'Payment Status' },
           { key: 'subscriptionPlan', label: 'Subscription Plan' },
-          { key: 'subscriptionStartDate', label: 'Subscription Start Date' },
-          { key: 'subscriptionEndDate', label: 'Subscription End Date' },
-          { key: 'transactionId', label: 'Transaction ID' },
           { key: 'lastPaymentDate', label: 'Last Payment Date' },
-          { key: 'lastPaymentAmount', label: 'Last Payment Amount' },
-          { key: 'paypalEmail', label: 'PayPal Email' },
-          { key: 'paypalAccountName', label: 'PayPal Account Name' },
-          { key: 'paypalPayerId', label: 'PayPal Payer ID' },
-          { key: 'userCreatedAt', label: 'User Created At' }
+          { key: 'lastPaymentAmount', label: 'Last Payment Amount' }
         ];
+        // Filter to essential fields only
+        data = data.map(record => {
+          const essential = {};
+          headers.forEach(h => {
+            essential[h.key] = record[h.key];
+          });
+          return essential;
+        });
         break;
 
       case 'compliance':
       case 'violations':
         data = await generateComplianceReport(dateFilter, filters);
+        // Essential fields only - keep reports concise like transactions page
         headers = [
           { key: 'type', label: 'Type' },
-          { key: 'bookingId', label: 'Booking ID' },
-          { key: 'reviewId', label: 'Review ID' },
-          { key: 'appealId', label: 'Appeal ID' },
-          { key: 'hostId', label: 'Host ID' },
           { key: 'hostName', label: 'Host Name' },
-          { key: 'hostEmail', label: 'Host Email' },
-          { key: 'guestId', label: 'Guest ID' },
-          { key: 'listingId', label: 'Listing ID' },
-          { key: 'rating', label: 'Rating' },
-          { key: 'comment', label: 'Comment' },
-          { key: 'reviewerName', label: 'Reviewer Name' },
-          { key: 'reason', label: 'Reason' },
-          { key: 'additionalInfo', label: 'Additional Info' },
           { key: 'status', label: 'Status' },
-          { key: 'cancelledAt', label: 'Cancelled At' },
-          { key: 'submittedAt', label: 'Submitted At' },
-          { key: 'reviewedAt', label: 'Reviewed At' },
-          { key: 'reviewedBy', label: 'Reviewed By' },
-          { key: 'adminNotes', label: 'Admin Notes' },
-          { key: 'createdAt', label: 'Created At' }
+          { key: 'reason', label: 'Reason' },
+          { key: 'createdAt', label: 'Created At' },
+          { key: 'reviewedAt', label: 'Reviewed At' }
         ];
+        // Filter to essential fields only
+        data = data.map(record => {
+          const essential = {};
+          headers.forEach(h => {
+            essential[h.key] = record[h.key];
+          });
+          return essential;
+        });
         break;
 
       case 'users':
@@ -986,18 +1106,11 @@ export const getReportData = async (reportType, dateFilter = null, filters = nul
               firstName: userData.firstName || '',
               lastName: userData.lastName || '',
               email: userData.email || 'N/A',
-              phone: userData.phone || 'N/A',
               roles: roles.join(', '),
-              isHost: roles.includes('host'),
-              isGuest: roles.includes('guest'),
-              isAdmin: roles.includes('admin'),
               emailVerified: userData.emailVerified || false,
               createdAt: userData.createdAt?.toDate ? userData.createdAt.toDate() : null,
-              updatedAt: userData.updatedAt?.toDate ? userData.updatedAt.toDate() : null,
-              lastLogin: userData.lastLogin?.toDate ? userData.lastLogin.toDate() : null,
               isTerminated: userData.isTerminated || false,
-              isBlocked: userData.isBlocked || false,
-              terminatedAt: userData.terminatedAt?.toDate ? userData.terminatedAt.toDate() : null
+              isBlocked: userData.isBlocked || false
             };
           })
           .filter(user => {
@@ -1025,22 +1138,25 @@ export const getReportData = async (reportType, dateFilter = null, filters = nul
             
             return true;
           });
+        // Essential fields only - keep reports concise like transactions page
         headers = [
-          { key: 'userId', label: 'User ID' },
           { key: 'firstName', label: 'First Name' },
           { key: 'lastName', label: 'Last Name' },
           { key: 'email', label: 'Email' },
-          { key: 'phone', label: 'Phone' },
           { key: 'roles', label: 'Roles' },
-          { key: 'isHost', label: 'Is Host' },
-          { key: 'isGuest', label: 'Is Guest' },
           { key: 'emailVerified', label: 'Email Verified' },
           { key: 'createdAt', label: 'Created At' },
-          { key: 'updatedAt', label: 'Updated At' },
-          { key: 'lastLogin', label: 'Last Login' },
           { key: 'isTerminated', label: 'Is Terminated' },
-          { key: 'terminatedAt', label: 'Terminated At' }
+          { key: 'isBlocked', label: 'Is Blocked' }
         ];
+        // Filter to essential fields only
+        data = data.map(record => {
+          const essential = {};
+          headers.forEach(h => {
+            essential[h.key] = record[h.key];
+          });
+          return essential;
+        });
         break;
 
       case 'reviews':
@@ -1072,18 +1188,12 @@ export const getReportData = async (reportType, dateFilter = null, filters = nul
             const review = doc.data();
             return {
               reviewId: doc.id,
-              listingId: review.listingId || 'N/A',
+              listingId: review.listingId || 'N/A', // Keep for filtering
               listingTitle: review.listingTitle || 'N/A',
-              listingCategory: review.category || 'N/A',
               reviewerName: review.reviewerName || 'Anonymous',
-              reviewerId: review.reviewerId || 'N/A',
-              reviewerEmail: review.reviewerEmail || 'N/A',
               rating: review.rating || 0,
               comment: review.comment || '',
-              isVerified: review.isVerified || false,
-              helpfulCount: review.helpfulCount || 0,
-              createdAt: review.createdAt?.toDate ? review.createdAt.toDate() : null,
-              updatedAt: review.updatedAt?.toDate ? review.updatedAt.toDate() : null
+              createdAt: review.createdAt?.toDate ? review.createdAt.toDate() : null
             };
           })
           .filter(review => {
@@ -1113,21 +1223,22 @@ export const getReportData = async (reportType, dateFilter = null, filters = nul
             
             return true;
           });
+        // Essential fields only - keep reports concise like transactions page
         headers = [
-          { key: 'reviewId', label: 'Review ID' },
-          { key: 'listingId', label: 'Listing ID' },
           { key: 'listingTitle', label: 'Listing Title' },
-          { key: 'listingCategory', label: 'Listing Category' },
           { key: 'reviewerName', label: 'Reviewer Name' },
-          { key: 'reviewerId', label: 'Reviewer ID' },
-          { key: 'reviewerEmail', label: 'Reviewer Email' },
           { key: 'rating', label: 'Rating' },
           { key: 'comment', label: 'Comment' },
-          { key: 'isVerified', label: 'Is Verified' },
-          { key: 'helpfulCount', label: 'Helpful Count' },
-          { key: 'createdAt', label: 'Created At' },
-          { key: 'updatedAt', label: 'Updated At' }
+          { key: 'createdAt', label: 'Created At' }
         ];
+        // Filter to essential fields only
+        data = data.map(record => {
+          const essential = {};
+          headers.forEach(h => {
+            essential[h.key] = record[h.key];
+          });
+          return essential;
+        });
         break;
 
       case 'hosts':
@@ -1168,41 +1279,49 @@ export const getReportData = async (reportType, dateFilter = null, filters = nul
         );
         // Filter out null values (terminated hosts - shouldn't happen but safety check)
         data = hostsWithDetails.filter(h => h !== null);
+        // Essential fields only - keep reports concise like transactions page
         headers = [
-          { key: 'hostId', label: 'Host ID' },
           { key: 'hostName', label: 'Host Name' },
           { key: 'hostEmail', label: 'Host Email' },
           { key: 'hostPhone', label: 'Host Phone' },
           { key: 'totalBookings', label: 'Total Bookings' },
           { key: 'totalEarnings', label: 'Total Earnings' },
-          { key: 'serviceFee', label: 'Service Fee (10%)' },
+          { key: 'serviceFee', label: 'Commission (10%)' },
           { key: 'hostEarnings', label: 'Host Earnings (90%)' },
           { key: 'listingsCount', label: 'Listings Count' },
-          { key: 'averageRating', label: 'Average Rating' },
-          { key: 'totalReviews', label: 'Total Reviews' },
-          { key: 'joinedDate', label: 'Joined Date' },
-          { key: 'hostCreatedAt', label: 'Host Created At' },
-          { key: 'isTerminated', label: 'Is Terminated' },
-          { key: 'terminatedAt', label: 'Terminated At' }
+          { key: 'averageRating', label: 'Average Rating' }
         ];
+        // Filter to essential fields only
+        data = data.map(record => {
+          const essential = {};
+          headers.forEach(h => {
+            essential[h.key] = record[h.key];
+          });
+          return essential;
+        });
         break;
 
       case 'financial':
         // For financial, return service fees data (main part)
         data = await generateServiceFeesReport(dateFilter, filters);
+        // Essential fields only - keep reports concise like transactions page
         headers = [
-          { key: 'hostId', label: 'Host ID' },
           { key: 'hostName', label: 'Host Name' },
           { key: 'hostEmail', label: 'Host Email' },
           { key: 'hostPhone', label: 'Host Phone' },
           { key: 'totalBookings', label: 'Total Bookings' },
           { key: 'totalEarnings', label: 'Total Earnings' },
-          { key: 'serviceFee', label: 'Service Fee (10%)' },
-          { key: 'hostEarnings', label: 'Host Earnings (90%)' },
-          { key: 'serviceFeePercentage', label: 'Service Fee %' },
-          { key: 'hostCreatedAt', label: 'Host Created At' },
-          { key: 'isTerminated', label: 'Is Terminated' }
+          { key: 'serviceFee', label: 'Commission (10%)' },
+          { key: 'hostEarnings', label: 'Host Earnings (90%)' }
         ];
+        // Filter to essential fields only
+        data = data.map(record => {
+          const essential = {};
+          headers.forEach(h => {
+            essential[h.key] = record[h.key];
+          });
+          return essential;
+        });
         break;
 
       default:
