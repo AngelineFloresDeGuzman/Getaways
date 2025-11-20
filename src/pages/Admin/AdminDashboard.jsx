@@ -204,6 +204,21 @@ const AdminDashboard = () => {
   });
   const [serviceFeesView, setServiceFeesView] = useState('overview'); // 'overview', 'hosts', 'transactions'
   const [expandedHosts, setExpandedHosts] = useState(new Set());
+  
+  // Service fees export modal state
+  const [showServiceFeesExportModal, setShowServiceFeesExportModal] = useState(false);
+  const [serviceFeesExportFilter, setServiceFeesExportFilter] = useState({
+    search: '',
+    dateRange: { startDate: '', endDate: '' },
+    hostStatus: 'all', // 'all', 'active', 'terminated'
+    subscriptionType: 'all', // 'all', 'monthly', 'yearly'
+    sortBy: 'earnings', // 'earnings', 'bookings', 'name'
+    sortOrder: 'desc' // 'asc', 'desc'
+  });
+  const [serviceFeesExportDateRange, setServiceFeesExportDateRange] = useState({ from: undefined, to: undefined });
+  const [showServiceFeesExportCalendar, setShowServiceFeesExportCalendar] = useState(false);
+  const serviceFeesExportCalendarRef = useRef(null);
+  const serviceFeesExportCalendarPopupRef = useRef(null);
 
   // Filter states for other pages
   const [transactionsFilter, setTransactionsFilter] = useState({
@@ -7652,7 +7667,7 @@ const AdminDashboard = () => {
                     <p className="text-muted-foreground text-base">Comprehensive view of all platform fees and commissions</p>
                   </div>
                   <div className="flex gap-2">
-                    <button onClick={() => handleExportServiceFees()} className="btn-outline flex items-center gap-2" disabled={generatingReport}>
+                    <button onClick={() => setShowServiceFeesExportModal(true)} className="btn-outline flex items-center gap-2" disabled={generatingReport}>
                       <Download className="w-4 h-4" />
                       Export Report
                     </button>
