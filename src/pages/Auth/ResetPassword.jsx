@@ -65,7 +65,7 @@ const ResetPassword = () => {
       // If custom token exists (from EmailJS), verify it and trigger Firebase reset
       if (customToken) {
         try {
-          console.log("🔑 Verifying custom token from EmailJS...");
+        // Verifying custom token from EmailJS...
           const result = await verifyPasswordResetToken(customToken);
           
           if (!result.valid) {
@@ -75,22 +75,22 @@ const ResetPassword = () => {
             return;
           }
 
-          console.log("✅ Custom token verified, email:", result.email);
+          // Custom token verified, email:
           setUserEmail(result.email);
 
           // Trigger Firebase's password reset to get a secure reset link
-          console.log("📧 Triggering Firebase password reset email...");
+          // Triggering Firebase password reset email...
           await sendPasswordResetEmail(auth, result.email, {
             url: `${window.location.origin}/reset-password`,
             handleCodeInApp: true,
           });
 
-          console.log("✅ Firebase reset email sent!");
+          // Firebase reset email sent!
           setFirebaseEmailSent(true);
           showToast("A secure password reset link has been sent to your email. Please check your inbox.", "success");
           
         } catch (error) {
-          console.error("❌ Error processing reset:", error);
+          // Error processing reset
           setTokenValid(false);
           if (error.code === "auth/user-not-found") {
             showToast("No account found with this email.", "error");
@@ -139,12 +139,12 @@ const ResetPassword = () => {
     setIsLoading(true);
 
     try {
-      console.log("🔑 Resetting password with Firebase action code...");
+      // Resetting password with Firebase action code...
       
       // Use Firebase Auth's confirmPasswordReset - works without Cloud Functions!
       await confirmPasswordReset(auth, actionCode, password);
       
-      console.log("✅ Password reset successfully!");
+      // Password reset successfully!
       showToast("Password reset successfully! Redirecting to login...", "success");
       
       // Redirect to login after 2 seconds

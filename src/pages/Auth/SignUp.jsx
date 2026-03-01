@@ -255,14 +255,14 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
                     throw new Error("Invalid user credential - user ID is missing");
                 }
                 
-                console.log("✅ Proceeding with write - auth.currentUser:", auth.currentUser?.uid);
+                // Proceeding with user document creation
                 
                 // Get ID token to ensure authentication is ready
                 try {
                     const idToken = await users.getIdToken();
-                    console.log("✅ ID token obtained, length:", idToken?.length || 0);
+                    // ID token obtained successfully
                 } catch (tokenError) {
-                    console.warn("⚠️ Could not get ID token:", tokenError);
+                    // Could not get ID token
                 }
                 
                 const setDocPromise = setDoc(userDocRef, userDataToSave);
@@ -284,57 +284,33 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
                     }
                     throw raceError;
                 }
-                
                 // Small delay to ensure write is propagated
                 await new Promise(resolve => setTimeout(resolve, 500));
-                
-                console.log("🔍 Verifying document was saved...");
-                // Verify the document was saved
+
+                // Verify the document was actually saved
                 const verifyDoc = await getDoc(userDocRef);
                 if (verifyDoc.exists()) {
-                    console.log("✅ Verified: User document exists in Firestore");
                     const savedData = verifyDoc.data();
-                    console.log("📋 Saved user data:", {
-                        uid: users.uid,
-                        email: savedData.email,
-                        roles: savedData.roles,
-                        firstName: savedData.firstName,
-                        lastName: savedData.lastName
-                    });
+                    // User document verified successfully
                 } else {
-                    console.error("❌ Warning: User document not found after save");
+                    // User document not found after save
                     throw new Error("Failed to verify user document creation");
                 }
             } catch (firestoreError) {
-                console.error("❌ Firestore save error:", firestoreError);
-                console.error("❌ Error details:", {
-                    code: firestoreError?.code,
-                    message: firestoreError?.message,
-                    name: firestoreError?.name,
-                    stack: firestoreError?.stack
-                });
-                
-                // Check if it's a permission error
-                if (firestoreError?.code === 'permission-denied' || firestoreError?.message?.includes('permission')) {
-                    console.error("🚫 PERMISSION DENIED: Check Firestore security rules!");
-                    console.error("Required rule: allow create: if request.auth != null && request.auth.uid == userId;");
-                }
+// ... (rest of the code remains the same)
+                // Firestore save error occurred
                 
                 throw firestoreError; // Re-throw to be caught by outer catch
             }
 
             // Generate verification token and send email using EmailJS
-            console.log("🟡 Sending verification email...");
-            console.log("📧 Email to send to:", email);
+            // Sending verification email
             try {
                 const token = await generateVerificationToken(users.uid, email);
-                console.log("🔑 Token generated, sending email to:", email);
                 await sendVerificationEmail(email, firstName, lastName, token);
-                console.log("📩 Verification email sent");
+                // Verification email sent successfully
                 setShowVerifyPopup(true);
             } catch (emailError) {
-                console.error("Error sending verification email:", emailError);
-                console.error("Email that failed:", email);
                 showToast("Account created but failed to send verification email. Please contact support.", "warning");
                 // Still show the popup so user can proceed
                 setShowVerifyPopup(true);

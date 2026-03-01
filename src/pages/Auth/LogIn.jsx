@@ -162,7 +162,7 @@ const LogIn = ({ isModal = false, onClose, onLoginSuccess, setUserData, onSwitch
     setIsForgotPasswordLoading(true);
 
     try {
-      console.log("🔑 Starting password reset for:", email.trim());
+      // Starting password reset
       
       // Find user by email in Firestore to get userId and firstName
       const usersRef = collection(db, 'users');
@@ -170,7 +170,7 @@ const LogIn = ({ isModal = false, onClose, onLoginSuccess, setUserData, onSwitch
       const querySnapshot = await getDocs(q);
 
       if (querySnapshot.empty) {
-        console.error("❌ No user found with email:", email.trim());
+        // No user found with email
         showToast("No account found with this email.", "error");
         setIsForgotPasswordLoading(false);
         return;
@@ -181,27 +181,15 @@ const LogIn = ({ isModal = false, onClose, onLoginSuccess, setUserData, onSwitch
       const userId = userDoc.id;
       const firstName = userData.firstName || 'User';
 
-      console.log("✅ User found:", userId, "Name:", firstName);
-
       // Generate custom password reset token
-      console.log("🔑 Generating password reset token...");
       const token = await generatePasswordResetToken(userId, email.trim());
-      console.log("✅ Token generated:", token);
       
       // Send password reset email via EmailJS (custom branded email!)
-      console.log("📧 Sending password reset email via EmailJS...");
       await sendPasswordResetEmail(email.trim(), firstName, token);
       
-      console.log("✅ Password reset email sent successfully");
       showToast("Password reset email sent! Check your inbox and click the link to reset your password.", "success");
     } catch (error) {
-      console.error("❌ Password reset error:", error);
-      console.error("Error details:", {
-        message: error.message,
-        code: error.code,
-        status: error.status,
-        text: error.text
-      });
+      // Password reset error occurred
       
       // More specific error messages
       if (error.message?.includes("No account found") || error.message?.includes("email")) {
@@ -228,12 +216,12 @@ const LogIn = ({ isModal = false, onClose, onLoginSuccess, setUserData, onSwitch
       }
       
       try {
-        console.log("🔍 [LogIn] Checking for Google redirect result...");
+        // Checking for Google redirect result
         const result = await getRedirectResult(auth);
         
         if (result) {
           sessionStorage.setItem('processingGoogleRedirect', 'true');
-          console.log("✅ [LogIn] Google redirect result found:", result.user.email);
+          // Google redirect result found
           // User signed in via redirect
           const user = result.user;
           
@@ -260,7 +248,7 @@ const LogIn = ({ isModal = false, onClose, onLoginSuccess, setUserData, onSwitch
               updatedAt: serverTimestamp(),
             });
             
-            console.log("✅ New user document created");
+            // New user document created
           } else {
             // Update existing user document
             const userData = userDoc.data();
@@ -278,7 +266,7 @@ const LogIn = ({ isModal = false, onClose, onLoginSuccess, setUserData, onSwitch
               console.warn("⚠️ Could not update emailVerified in Firestore:", err.code);
             }
             
-            console.log("✅ Existing user signed in");
+            // Existing user signed in
           }
 
           // Get updated user data
@@ -303,7 +291,7 @@ const LogIn = ({ isModal = false, onClose, onLoginSuccess, setUserData, onSwitch
               redirectPath = "/admin/admindashboard";
             }
             
-            console.log("🚀 Navigating user to:", redirectPath);
+            // Navigating user to:
             
             // Use setTimeout to ensure navigation happens after state updates
             setTimeout(() => {
@@ -317,15 +305,10 @@ const LogIn = ({ isModal = false, onClose, onLoginSuccess, setUserData, onSwitch
             }, 2000);
           }
         } else {
-          console.log("ℹ️ [LogIn] No redirect result found (user may not have come from Google auth)");
+          // No redirect result found
         }
       } catch (error) {
-        console.error("❌ [LogIn] Google redirect error:", error);
-        console.error("Error details:", {
-          code: error.code,
-          message: error.message,
-          stack: error.stack
-        });
+        // Google redirect error occurred
         sessionStorage.removeItem('processingGoogleRedirect');
         setIsGoogleLoading(false);
         showToast(`Failed to complete Google sign-in: ${error.message || "Please try again."}`, "error");
@@ -338,7 +321,7 @@ const LogIn = ({ isModal = false, onClose, onLoginSuccess, setUserData, onSwitch
         // Check if user just signed in (might be from redirect)
         const currentUser = auth.currentUser;
         if (currentUser && currentUser.providerData.some(provider => provider.providerId === 'google.com')) {
-          console.log("🔄 Auth state changed - Google user detected, processing...");
+          // Auth state changed - Google user detected
           // Small delay to ensure redirect result is available
           setTimeout(() => {
             handleRedirectResult();

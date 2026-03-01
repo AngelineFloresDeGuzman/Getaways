@@ -67,7 +67,7 @@ export const validateEmailJSConfig = () => {
   }
   
   if (issues.length > 0) {
-    console.warn('⚠️ EmailJS Configuration Issues:', issues);
+    // EmailJS Configuration Issues:
     return { valid: false, issues };
   }
   
@@ -96,7 +96,7 @@ export const generateVerificationToken = async (userId, email) => {
 
     return token;
   } catch (error) {
-    console.error('Error generating verification token:', error);
+    // Error generating verification token
     throw error;
   }
 };
@@ -122,7 +122,7 @@ export const generatePasswordResetToken = async (userId, email) => {
 
     return token;
   } catch (error) {
-    console.error('Error generating password reset token:', error);
+    // Error generating password reset token
     throw error;
   }
 };
@@ -158,7 +158,7 @@ export const verifyToken = async (token) => {
       email: tokenData.email,
     };
   } catch (error) {
-    console.error('Error verifying token:', error);
+    // Error verifying token
     return { valid: false, error: 'Error verifying token' };
   }
 };
@@ -192,7 +192,7 @@ export const verifyPasswordResetToken = async (token) => {
       tokenDocRef: tokenDoc.ref,
     };
   } catch (error) {
-    console.error('Error verifying password reset token:', error);
+    // Error verifying password reset token
     return { valid: false, error: 'Error verifying token' };
   }
 };
@@ -205,7 +205,7 @@ export const sendVerificationEmail = async (email, firstName, lastName, token) =
     // Validate configuration first
     const configValidation = validateEmailJSConfig();
     if (!configValidation.valid) {
-      console.error('❌ EmailJS configuration invalid:', configValidation.issues);
+      // EmailJS configuration invalid
       throw new Error(`EmailJS configuration error: ${configValidation.issues.join(', ')}`);
     }
 
@@ -218,20 +218,6 @@ export const sendVerificationEmail = async (email, firstName, lastName, token) =
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email.trim())) {
       throw new Error('Invalid email address format');
-    }
-
-    // Log configuration values for debugging
-    console.log('📧 EmailJS Configuration (Auth):', {
-      serviceId: EMAILJS_AUTH_SERVICE_ID,
-      templateId: EMAILJS_VERIFY_TEMPLATE_ID,
-      publicKey: EMAILJS_AUTH_PUBLIC_KEY ? `${EMAILJS_AUTH_PUBLIC_KEY.substring(0, 10)}...` : 'MISSING',
-      publicKeyLength: EMAILJS_AUTH_PUBLIC_KEY?.length || 0,
-      email: email.trim(),
-    });
-
-    // Re-initialize EmailJS to ensure it's properly set up
-    if (EMAILJS_AUTH_PUBLIC_KEY) {
-      emailjs.init(EMAILJS_AUTH_PUBLIC_KEY);
     }
 
     const verificationLink = `${window.location.origin}/verify-email?token=${token}`;
@@ -252,15 +238,11 @@ export const sendVerificationEmail = async (email, firstName, lastName, token) =
       logo_url: logoUrl, // Absolute URL for logo image - use {{logo_url}} in template
       reply_to: email.trim(), // Also set reply_to
     };
-    
-    console.log('📤 Sending verification email with params:', { 
-      serviceId: EMAILJS_AUTH_SERVICE_ID, 
-      templateId: EMAILJS_VERIFY_TEMPLATE_ID,
-      to_email: email.trim(),
-      email_length: email.trim().length,
-      logo_url: logoUrl,
-      templateParamsKeys: Object.keys(templateParams)
-    });
+
+    // Re-initialize EmailJS to ensure it's properly set up
+    if (EMAILJS_AUTH_PUBLIC_KEY) {
+      emailjs.init(EMAILJS_AUTH_PUBLIC_KEY);
+    }
 
     const response = await emailjs.send(
       EMAILJS_AUTH_SERVICE_ID,
@@ -268,34 +250,20 @@ export const sendVerificationEmail = async (email, firstName, lastName, token) =
       templateParams
     );
 
-    console.log('✅ Verification email sent successfully:', response);
     return { success: true };
   } catch (error) {
-    // Enhanced error logging
-    console.error('❌ Error sending verification email:', error);
-    console.error('❌ Error object:', JSON.stringify(error, null, 2));
-    console.error('❌ Error details:', {
-      status: error?.status,
-      statusText: error?.statusText,
-      text: error?.text,
-      message: error?.message,
-      name: error?.name,
-      stack: error?.stack,
-      email_provided: email,
-      serviceId: EMAILJS_AUTH_SERVICE_ID,
-      templateId: EMAILJS_VERIFY_TEMPLATE_ID,
-    });
-    
+    // Error sending verification email
+
     // Try to extract more details from EmailJS error
     if (error?.text) {
       try {
         const errorData = typeof error.text === 'string' ? JSON.parse(error.text) : error.text;
-        console.error('❌ EmailJS error response:', errorData);
+      // EmailJS error response
       } catch (e) {
-        console.error('❌ EmailJS error text (raw):', error.text);
+      // EmailJS error text (raw)
       }
     }
-    
+
     throw error;
   }
 };
@@ -335,13 +303,6 @@ export const sendPasswordResetEmail = async (email, firstName, token) => {
       logo_url: logoUrl, // Absolute URL for logo image - use {{logo_url}} in template
       reply_to: email.trim(), // Also set reply_to
     };
-    console.log('Sending password reset email with params:', { 
-      serviceId: EMAILJS_AUTH_SERVICE_ID, 
-      templateId: EMAILJS_RESET_TEMPLATE_ID,
-      to_email: email.trim(),
-      email_length: email.trim().length,
-      logo_url: logoUrl // Log the logo URL being sent
-    });
 
     const response = await emailjs.send(
       EMAILJS_AUTH_SERVICE_ID,
@@ -349,16 +310,9 @@ export const sendPasswordResetEmail = async (email, firstName, token) => {
       templateParams
     );
 
-    console.log('Password reset email sent successfully:', response);
     return { success: true };
   } catch (error) {
-    console.error('Error sending password reset email:', error);
-    console.error('Error details:', {
-      status: error.status,
-      text: error.text,
-      message: error.message,
-      email_provided: email
-    });
+    // Error sending password reset email
     throw error;
   }
 };
@@ -373,13 +327,13 @@ export const sendPasswordResetEmail = async (email, firstName, token) => {
 export const sendBookingConfirmationEmail = async (email, firstName, lastName, bookingData) => {
   try {
     if (!email || !email.trim()) {
-      console.warn('⚠️ Cannot send booking confirmation email: Recipient email address is required');
+      // Cannot send booking confirmation email: Recipient email address is required
       return { success: false, error: 'Recipient email address is required' };
     }
 
     // Check if EmailJS is properly configured
     if (!EMAILJS_BOOKING_PUBLIC_KEY || !EMAILJS_BOOKING_SERVICE_ID || !EMAILJS_BOOKING_SUCCESS_TEMPLATE_ID) {
-      console.warn('⚠️ EmailJS is not configured for booking emails. Skipping email send.');
+      // EmailJS is not configured for booking emails. Skipping email send.
       return { success: false, error: 'EmailJS not configured', skipped: true };
     }
 
@@ -410,12 +364,7 @@ export const sendBookingConfirmationEmail = async (email, firstName, lastName, b
       emailjs.init(EMAILJS_BOOKING_PUBLIC_KEY);
     }
 
-    console.log('Sending booking confirmation email with params:', {
-      serviceId: EMAILJS_BOOKING_SERVICE_ID,
-      templateId: EMAILJS_BOOKING_SUCCESS_TEMPLATE_ID,
-      to_email: email.trim(),
-      publicKey: EMAILJS_BOOKING_PUBLIC_KEY ? 'configured' : 'missing'
-    });
+    // Sending booking confirmation email with params
 
     const response = await emailjs.send(
       EMAILJS_BOOKING_SERVICE_ID,
@@ -423,7 +372,7 @@ export const sendBookingConfirmationEmail = async (email, firstName, lastName, b
       templateParams
     );
 
-    console.log('✅ Booking confirmation email sent successfully:', response);
+    // Booking confirmation email sent successfully
     return { success: true };
   } catch (error) {
     // Check if it's a configuration error (service not found, etc.)
@@ -432,16 +381,12 @@ export const sendBookingConfirmationEmail = async (email, firstName, lastName, b
                          error?.status === 400;
     
     if (isConfigError) {
-      console.warn('⚠️ EmailJS is not properly configured for booking emails. Email sending skipped.', {
-        serviceId: EMAILJS_BOOKING_SERVICE_ID,
-        templateId: EMAILJS_BOOKING_SUCCESS_TEMPLATE_ID,
-        error: error.text || error.message
-      });
+      // EmailJS is not properly configured for booking emails. Email sending skipped.
       return { success: false, error: 'EmailJS not configured', skipped: true };
     }
     
     // For other errors, log but don't break the booking flow
-    console.warn('⚠️ Failed to send booking confirmation email (non-critical):', error.message || error.text);
+    // Failed to send booking confirmation email (non-critical)
     return { success: false, error: error.message || error.text };
   }
 };
@@ -482,11 +427,7 @@ export const sendSubscriptionConfirmationEmail = async (email, firstName, lastNa
       reply_to: email.trim(),
     };
 
-    console.log('Sending subscription confirmation email with params:', {
-      serviceId: EMAILJS_BOOKING_SERVICE_ID,
-      templateId: EMAILJS_SUBSCRIPTION_SUCCESS_TEMPLATE_ID,
-      to_email: email.trim(),
-    });
+    // Sending subscription confirmation email with params
 
     const response = await emailjs.send(
       EMAILJS_BOOKING_SERVICE_ID,
@@ -494,10 +435,10 @@ export const sendSubscriptionConfirmationEmail = async (email, firstName, lastNa
       templateParams
     );
 
-    console.log('Subscription confirmation email sent successfully:', response);
+    // Subscription confirmation email sent successfully
     return { success: true };
   } catch (error) {
-    console.error('Error sending subscription confirmation email:', error);
+    // Error sending subscription confirmation email
     // Don't throw - email failure shouldn't break subscription
     return { success: false, error: error.message };
   }
@@ -513,13 +454,13 @@ export const sendSubscriptionConfirmationEmail = async (email, firstName, lastNa
 export const sendCancellationEmail = async (email, firstName, lastName, cancellationData) => {
   try {
     if (!email || !email.trim()) {
-      console.warn('⚠️ Cannot send cancellation email: Recipient email address is required');
+      // Cannot send cancellation email: Recipient email address is required
       return { success: false, error: 'Recipient email address is required' };
     }
 
     // Check if EmailJS is properly configured
     if (!EMAILJS_BOOKING_PUBLIC_KEY || !EMAILJS_BOOKING_SERVICE_ID || !EMAILJS_CANCELLATION_TEMPLATE_ID) {
-      console.warn('⚠️ EmailJS is not configured for cancellation emails. Skipping email send.');
+      // EmailJS is not configured for cancellation emails. Skipping email send.
       return { success: false, error: 'EmailJS not configured', skipped: true };
     }
 
@@ -539,7 +480,7 @@ export const sendCancellationEmail = async (email, firstName, lastName, cancella
         // EmailJS uses {{variable}} so we need to be careful
         return str.trim();
       } catch (e) {
-        console.warn('Error sanitizing string for EmailJS:', e);
+        // Error sanitizing string for EmailJS
         return '';
       }
     };
