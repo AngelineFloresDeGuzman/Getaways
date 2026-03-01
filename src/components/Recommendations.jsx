@@ -36,16 +36,16 @@ const Recommendations = ({ title = "Recommended for You", showTitle = true, limi
 
       if (user) {
         // Get personalized recommendations based on booking history
-        console.log('🔍 Loading personalized recommendations for user:', user.uid, category ? `for category: ${category}` : '');
+        // Loading personalized recommendations
         recommendationsData = await getRecommendations(user.uid, limit, category);
-        console.log('✅ Personalized recommendations:', recommendationsData.length);
+        // Personalized recommendations loaded
       }
 
       // If no personalized recommendations or user not logged in, get popular ones
       if (recommendationsData.length === 0) {
-        console.log('📊 Loading popular recommendations (fallback)', category ? `for category: ${category}` : '');
+        // Loading popular recommendations (fallback)
         recommendationsData = await getPopularRecommendations(limit, category);
-        console.log('✅ Popular recommendations:', recommendationsData.length);
+        // Popular recommendations loaded
       }
 
       // Format listings for display
@@ -76,7 +76,7 @@ const Recommendations = ({ title = "Recommended for You", showTitle = true, limi
         );
       }
 
-      console.log('📦 Final formatted recommendations:', formattedRecommendations.length);
+      // Final formatted recommendations
       setRecommendations(formattedRecommendations);
     } catch (error) {
       console.error('❌ Error loading recommendations:', error);

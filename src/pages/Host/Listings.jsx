@@ -128,7 +128,7 @@ const HostListings = () => {
         );
         querySnapshot = await getDocs(q);
       } catch (indexError) {
-        console.warn('⚠️ Index error, trying without orderBy:', indexError.message);
+        // Index error, trying without orderBy
         try {
           const q = query(
             listingsRef,
@@ -137,7 +137,7 @@ const HostListings = () => {
           );
           querySnapshot = await getDocs(q);
         } catch (indexError2) {
-          console.warn('⚠️ Index error for status filter, querying by ownerId only:', indexError2.message);
+          // Index error for status filter, querying by ownerId only
           const q = query(
             listingsRef,
             where('ownerId', '==', auth.currentUser.uid)

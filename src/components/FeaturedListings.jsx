@@ -44,7 +44,7 @@ const FeaturedListings = () => {
                 );
                 querySnapshot = await getDocs(q);
             } catch (indexError) {
-                console.warn('⚠️ Index error, trying without orderBy:', indexError.message);
+                // Index error, trying without orderBy
                 try {
                     const q = query(
                         listingsRef,
@@ -53,7 +53,7 @@ const FeaturedListings = () => {
                     );
                     querySnapshot = await getDocs(q);
                 } catch (error2) {
-                    console.warn('⚠️ Index error for status filter, querying all:', error2.message);
+                    // Index error for status filter, querying all
                     const q = query(listingsRef, limit(8));
                     querySnapshot = await getDocs(q);
                 }

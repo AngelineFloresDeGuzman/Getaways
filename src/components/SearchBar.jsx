@@ -57,7 +57,7 @@ const SearchBar = ({ category = 'accommodation', onSearch }) => {
           );
           querySnapshot = await getDocs(q);
         } catch (indexError) {
-          console.warn('⚠️ Index error, trying without orderBy:', indexError.message);
+          // Index error, trying without orderBy
           try {
             // Fallback: query without orderBy, limit to 8
             const q = query(
@@ -68,7 +68,7 @@ const SearchBar = ({ category = 'accommodation', onSearch }) => {
             );
             querySnapshot = await getDocs(q);
           } catch (error2) {
-            console.warn('⚠️ Index error for status, querying by category only:', error2.message);
+            // Index error for status, querying by category only
             // Final fallback: query by category only, filter status in JavaScript
             const q = query(
               listingsRef,

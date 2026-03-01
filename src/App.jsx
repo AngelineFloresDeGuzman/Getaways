@@ -116,13 +116,13 @@ const GoogleRedirectHandler = () => {
       }
 
       try {
-        console.log("🔍 [Global] Checking for Google redirect result...");
+        // Checking for Google redirect result
         const result = await getRedirectResult(auth);
         
         if (result) {
           sessionStorage.setItem('processingGoogleRedirect', 'true');
           setIsProcessing(true);
-          console.log("✅ [Global] Google redirect result found:", result.user.email);
+          // Google redirect result found
           
           const user = result.user;
           await user.reload();

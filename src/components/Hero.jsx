@@ -67,7 +67,7 @@ const Hero = ({ darkMode }) => {
                     );
                     querySnapshot = await getDocs(q);
                 } catch (indexError) {
-                    console.warn('⚠️ Index error, trying without orderBy:', indexError.message);
+                    // Index error, trying without orderBy
                     try {
                         const q = query(
                             listingsRef,
@@ -77,7 +77,7 @@ const Hero = ({ darkMode }) => {
                         );
                         querySnapshot = await getDocs(q);
                     } catch (error2) {
-                        console.warn('⚠️ Index error for status, querying by category only:', error2.message);
+                        // Index error for status, querying by category only
                         const q = query(
                             listingsRef,
                             where('category', '==', searchData.category),

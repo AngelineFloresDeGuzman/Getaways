@@ -46,23 +46,23 @@ const HostTypeModal = ({ isOpen, onClose, currentUser, forceHostTypeSelection, f
   }, [isOpen]);
 
   useEffect(() => {
-    console.log('🔄 useEffect: Triggered', { isOpen, currentUser: currentUser?.email, explicitLoginSwitch: explicitLoginSwitch.current });
+    // useEffect: Triggered
     if (!isOpen) return;
     
     // Don't override if we're explicitly switching to login
     if (explicitLoginSwitch.current) {
-      console.log('⏭️ useEffect: Skipping - explicitLoginSwitch is true');
+      // useEffect: Skipping - explicitLoginSwitch is true
       return;
     }
     
-    console.log('🔄 useEffect: Resetting modal states');
+    // useEffect: Resetting modal states
     setShowLoginModal(false);
     setShowSignUpModal(false);
     setSelectedHostType(null);
 
     if (!currentUser) {
       // Always show signup modal first for logged out users
-      console.log('👤 useEffect: No user - showing signup modal');
+      // No user - showing signup modal
       setShowHostTypeSelection(false);
       setShowSignUpModal(true);
     } else if (forceHostTypeSelection || cameFromSignup) {
