@@ -1,6 +1,10 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
+    // SECURITY NOTE: Current rules allow public read access for listings and service photos
+    // This is intentional for a public-facing marketplace where guests need to view properties
+    // If you need to restrict access, change 'allow read: if true;' to 'allow read: if request.auth != null;'
+    
     // Allow authenticated users to upload files to messages folder
     match /messages/{conversationId}/{fileName} {
       // Allow read access to authenticated users

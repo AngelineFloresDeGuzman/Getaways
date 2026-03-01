@@ -7,23 +7,22 @@ import { v4 as uuidv4 } from 'uuid';
 // Get these from https://dashboard.emailjs.com/admin/integration
 
 // Two separate services:
-// - service_m3bzszx: for verification and password reset emails
-// - service_i17lsmg: for booking confirmation and cancellation emails
-const EMAILJS_AUTH_SERVICE_ID = import.meta.env.VITE_EMAILJS_AUTH_SERVICE_ID || 'service_m3bzszx';
-const EMAILJS_BOOKING_SERVICE_ID = import.meta.env.VITE_EMAILJS_BOOKING_SERVICE_ID || 'service_i17lsmg'; // <-- Replace 'service_i17lsmg' with your actual EmailJS booking service ID from dashboard if needed
+// - Configured in environment variables for security
+const EMAILJS_AUTH_SERVICE_ID = import.meta.env.VITE_EMAILJS_AUTH_SERVICE_ID;
+const EMAILJS_BOOKING_SERVICE_ID = import.meta.env.VITE_EMAILJS_BOOKING_SERVICE_ID;
 
 // Public keys for EmailJS
-const EMAILJS_AUTH_PUBLIC_KEY = import.meta.env.VITE_EMAILJS_AUTH_PUBLIC_KEY || '1bELJwUeoejy0Q4cQ'; // For auth emails
-const EMAILJS_BOOKING_PUBLIC_KEY = import.meta.env.VITE_EMAILJS_BOOKING_PUBLIC_KEY || 'Vy3E5HLPceR3d0Pmy'; // For guest emails
+const EMAILJS_AUTH_PUBLIC_KEY = import.meta.env.VITE_EMAILJS_AUTH_PUBLIC_KEY;
+const EMAILJS_BOOKING_PUBLIC_KEY = import.meta.env.VITE_EMAILJS_BOOKING_PUBLIC_KEY;
 
 // Template IDs for authentication emails (verification, password reset)
-const EMAILJS_VERIFY_TEMPLATE_ID = import.meta.env.VITE_EMAILJS_VERIFY_TEMPLATE_ID || 'template_qo9q8de';
-const EMAILJS_RESET_TEMPLATE_ID = import.meta.env.VITE_EMAILJS_RESET_TEMPLATE_ID || 'template_btqnqws';
+const EMAILJS_VERIFY_TEMPLATE_ID = import.meta.env.VITE_EMAILJS_VERIFY_TEMPLATE_ID;
+const EMAILJS_RESET_TEMPLATE_ID = import.meta.env.VITE_EMAILJS_RESET_TEMPLATE_ID;
 
 // Template IDs for booking emails
-const EMAILJS_BOOKING_SUCCESS_TEMPLATE_ID = import.meta.env.VITE_EMAILJS_BOOKING_SUCCESS_TEMPLATE_ID || 'template_sl3wzej';
-const EMAILJS_CANCELLATION_TEMPLATE_ID = import.meta.env.VITE_EMAILJS_CANCELLATION_TEMPLATE_ID || 'template_v7z3kcj';
-const EMAILJS_SUBSCRIPTION_SUCCESS_TEMPLATE_ID = import.meta.env.VITE_EMAILJS_SUBSCRIPTION_SUCCESS_TEMPLATE_ID || 'template_subscription_success';
+const EMAILJS_BOOKING_SUCCESS_TEMPLATE_ID = import.meta.env.VITE_EMAILJS_BOOKING_SUCCESS_TEMPLATE_ID;
+const EMAILJS_CANCELLATION_TEMPLATE_ID = import.meta.env.VITE_EMAILJS_CANCELLATION_TEMPLATE_ID;
+const EMAILJS_SUBSCRIPTION_SUCCESS_TEMPLATE_ID = import.meta.env.VITE_EMAILJS_SUBSCRIPTION_SUCCESS_TEMPLATE_ID;
 
 const SUPPORT_EMAIL = import.meta.env.VITE_SUPPORT_EMAIL || 'support@getaways.com';
 // Logo URL - must be absolute URL for emails (hosted on your domain or CDN)

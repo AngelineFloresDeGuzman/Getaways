@@ -18,7 +18,26 @@ dist-ssr
 .env.local
 .env.*.local
 
-# Editor directories and files
+# Documentation and sensitive files
+*.docx
+*.pdf
+*.doc
+DOCUMENTATION_INDEX.*
+FEATURE_DOCUMENTATION.*
+GETAWAYS_COMPLETE_DOCUMENTATION.*
+INSTALLATION_GUIDE.*
+QUICK_REFERENCE.*
+TECHNICAL_DOCUMENTATION.*
+USER_MANUAL.*
+TEST_SUMMARY_REPORT.*
+CONVERT_COMPLETE_DOCS_GUIDE.*
+CONVERT_TO_PRINT.*
+
+# Firebase and deployment
+firebase-debug.log
+.firebase/
+
+# IDE and editor files
 .vscode/*
 !.vscode/extensions.json
 .idea

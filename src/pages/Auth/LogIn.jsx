@@ -20,13 +20,11 @@ const LogIn = ({ isModal = false, onClose, onLoginSuccess, setUserData, onSwitch
   const [isForgotPasswordLoading, setIsForgotPasswordLoading] = useState(false);
   const toastTimeoutRef = useRef();
 
-  // Load saved credentials from localStorage on mount
+  // Load saved email from localStorage on mount (password storage removed for security)
   useEffect(() => {
     const savedEmail = localStorage.getItem("rememberedEmail");
-    const savedPassword = localStorage.getItem("rememberedPassword");
-    if (savedEmail && savedPassword) {
+    if (savedEmail) {
       setEmail(savedEmail);
-      setPassword(savedPassword);
       setRememberMe(true);
     }
   }, []);
@@ -104,13 +102,11 @@ const LogIn = ({ isModal = false, onClose, onLoginSuccess, setUserData, onSwitch
       // Store user data
       setUserData?.(userData);
 
-      // Save credentials if rememberMe
+      // Save only email if rememberMe (password storage removed for security)
       if (rememberMe) {
         localStorage.setItem("rememberedEmail", email);
-        localStorage.setItem("rememberedPassword", password);
       } else {
         localStorage.removeItem("rememberedEmail");
-        localStorage.removeItem("rememberedPassword");
       }
 
       // Only close modal if login successful - use Firestore emailVerified (set by EmailJS)
