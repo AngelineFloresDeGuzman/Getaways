@@ -1,5 +1,6 @@
 {
   "hosting": {
+    "site": "getaways-official",
     "public": "dist",
     "ignore": [
       "firebase.json",
