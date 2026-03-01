@@ -72,7 +72,6 @@ const Discounts = () => {
     
     // If draftId is temp, reset it to find/create a real one
     if (draftIdToUse && draftIdToUse.startsWith('temp_')) {
-      console.log('📍 Discounts: Found temp ID, resetting to find/create real draft');
       draftIdToUse = null;
     }
     
@@ -85,13 +84,11 @@ const Discounts = () => {
         if (drafts.length > 0) {
           // Use the most recent draft
           draftIdToUse = drafts[0].id;
-          console.log('📍 Discounts: Using existing draft:', draftIdToUse);
           if (actions.setDraftId) {
             actions.setDraftId(draftIdToUse);
           }
         } else {
           // No drafts exist, create a new one
-          console.log('📍 Discounts: No existing drafts, creating new draft');
           const nextStep = targetRoute === '/pages/safetydetails' ? 'safetydetails' : 'discounts';
           const newDraftData = {
             currentStep: nextStep,
@@ -101,13 +98,11 @@ const Discounts = () => {
             }
           };
           draftIdToUse = await saveDraft(newDraftData, null);
-          console.log('📍 Discounts: ✅ Created new draft:', draftIdToUse);
           if (actions.setDraftId) {
             actions.setDraftId(draftIdToUse);
           }
         }
       } catch (error) {
-        console.error('📍 Discounts: Error finding/creating draft:', error);
         throw error;
       }
     }
@@ -126,10 +121,8 @@ const Discounts = () => {
             currentStep: nextStep,
             lastModified: new Date()
           });
-          console.log('📍 Discounts: ✅ Saved discounts to data.discounts and currentStep to Firebase:', draftIdToUse, '- discounts:', discountsData, ', currentStep:', nextStep);
-        } else {
+          } else {
           // Document doesn't exist, create it
-          console.log('📍 Discounts: Document not found, creating new one');
           const { saveDraft } = await import('@/pages/Host/services/draftService');
           const nextStep = targetRoute === '/pages/safetydetails' ? 'safetydetails' : 'discounts';
           const newDraftData = {
@@ -140,32 +133,24 @@ const Discounts = () => {
             }
           };
           draftIdToUse = await saveDraft(newDraftData, draftIdToUse);
-          console.log('📍 Discounts: ✅ Created new draft with discounts:', draftIdToUse);
           if (actions.setDraftId) {
             actions.setDraftId(draftIdToUse);
           }
         }
         return draftIdToUse;
       } catch (error) {
-        console.error('📍 Discounts: ❌ Error saving to Firebase:', error);
         throw error;
       }
     } else if (state.user?.uid) {
-      console.warn('📍 Discounts: ⚠️ User authenticated but no valid draftId after ensureDraftAndSave');
       throw new Error('Failed to create draft for authenticated user');
     } else {
-      console.warn('📍 Discounts: ⚠️ User not authenticated, cannot save to Firebase');
       return null;
     }
   };
 
   // Save & Exit handler
   const handleSaveAndExitClick = async () => {
-    console.log('Discounts Save & Exit clicked');
-    console.log('Current discounts:', discounts);
-    
     if (!auth.currentUser) {
-      console.error('Discounts: No authenticated user');
       alert('Please log in to save your progress');
       return;
     }
@@ -173,7 +158,6 @@ const Discounts = () => {
     try {
       // Set current step before saving so "Continue Editing" returns to this page
       if (actions.setCurrentStep) {
-        console.log('Discounts: Setting currentStep to discounts');
         actions.setCurrentStep('discounts');
       }
       
@@ -185,9 +169,7 @@ const Discounts = () => {
       let draftIdToUse;
       try {
         draftIdToUse = await ensureDraftAndSave(discountsData, '/pages/discounts');
-        console.log('📍 Discounts: ✅ Saved discounts to Firebase on Save & Exit');
-      } catch (saveError) {
-        console.error('📍 Discounts: Error saving to Firebase on Save & Exit:', saveError);
+        } catch (saveError) {
         // Continue with save & exit even if Firebase save fails
       }
       
@@ -202,7 +184,6 @@ const Discounts = () => {
         }
       });
     } catch (error) {
-      console.error('Error during save and exit:', error);
       alert('Error saving progress: ' + error.message);
     }
   };
@@ -210,7 +191,6 @@ const Discounts = () => {
   // Set current step for progress bar when component mounts or route changes
   useEffect(() => {
     if (actions.setCurrentStep && state.currentStep !== 'discounts') {
-      console.log('📍 Discounts page - Setting currentStep to discounts');
       actions.setCurrentStep('discounts');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -227,27 +207,19 @@ const Discounts = () => {
       
       // Skip if no draftId or temp draftId
       if (!draftIdToUse || draftIdToUse.startsWith('temp_')) {
-        console.log('📍 Discounts: No valid draftId, skipping Firebase load');
         return;
       }
 
       try {
-        console.log('📍 Discounts: Loading discounts from Firebase with draftId:', draftIdToUse);
         const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
         const docSnap = await getDoc(draftRef);
         
         if (docSnap.exists()) {
           const draftData = docSnap.data();
-          console.log('📍 Discounts: Draft data exists');
-          console.log('📍 Discounts: draftData.data:', draftData.data);
-          console.log('📍 Discounts: draftData.data?.discounts:', draftData.data?.discounts);
-          
           // Check nested data.discounts first (where we save it), then context
           const savedDiscounts = draftData.data?.discounts || state.discounts;
           
           if (savedDiscounts) {
-            console.log('📍 Discounts: ✅ Found saved discounts:', savedDiscounts);
-            
             // Convert percentage values back to boolean state
             const restoredDiscounts = {
               'new-listing': savedDiscounts.earlyBird > 0,
@@ -256,26 +228,21 @@ const Discounts = () => {
               'monthly': savedDiscounts.monthly > 0
             };
             
-            console.log('📍 Discounts: Restored discount state:', restoredDiscounts);
             setDiscounts(restoredDiscounts);
             
             // Also update context if it's not set there yet or is different
             if (!state.discounts || JSON.stringify(state.discounts) !== JSON.stringify(savedDiscounts)) {
-              console.log('📍 Discounts: Updating context with saved discounts');
               actions.updateDiscounts(savedDiscounts);
             }
             
             hasInitialized.current = true;
             return; // Exit early if we found it in Firebase
           } else {
-            console.log('📍 Discounts: ⚠️ No discounts found in Firebase draft');
-          }
+            }
         } else {
-          console.log('📍 Discounts: ⚠️ Draft document does not exist for draftId:', draftIdToUse);
-        }
+          }
       } catch (error) {
-        console.error('📍 Discounts: ❌ Error loading discounts from Firebase:', error);
-      }
+        }
     };
 
     loadDiscountsFromFirebase();
@@ -292,8 +259,6 @@ const Discounts = () => {
   const canProceed = true; // Can always proceed regardless of discount selection
 
   // Debug: Log the location state
-  console.log('Discounts - location.state:', location.state);
-
   return (
     <div className="min-h-screen bg-white">
       <OnboardingHeader showProgress={true} customSaveAndExit={handleSaveAndExitClick} />
@@ -393,9 +358,7 @@ const Discounts = () => {
               let draftIdToUse;
               try {
                 draftIdToUse = await ensureDraftAndSave(discountsData, '/pages/safetydetails');
-                console.log('📍 Discounts: ✅ Saved discounts to Firebase on Next click');
-              } catch (saveError) {
-                console.error('📍 Discounts: Error saving to Firebase on Next:', saveError);
+                } catch (saveError) {
                 // Continue navigation even if save fails - data is in context
               }
               
@@ -416,7 +379,6 @@ const Discounts = () => {
                 } 
               });
             } catch (error) {
-              console.error('Error saving discounts:', error);
               alert('Error saving progress. Please try again.');
             }
           }

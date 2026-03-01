@@ -56,8 +56,7 @@ const ServicePhotos = () => {
           setPhotos(loadedPhotos);
           console.log("✅ Loaded", loadedPhotos.length, "photos from subcollection (real-time)");
         }, (error) => {
-          console.error("Error in photos listener:", error);
-        });
+          });
         
         // Also check if there are old photos in the main document (migration) - only once
         const draftRef = doc(db, "onboardingDrafts", draftId);
@@ -65,7 +64,6 @@ const ServicePhotos = () => {
         if (draftSnap.exists()) {
           const data = draftSnap.data().data || {};
           if (data.servicePhotos && Array.isArray(data.servicePhotos) && data.servicePhotos.length > 0) {
-            console.log("⚠️ Found old photos in main document - migrating to subcollection...");
             // Migrate old photos to subcollection
             for (const photo of data.servicePhotos) {
               if (photo.base64) {
@@ -82,13 +80,11 @@ const ServicePhotos = () => {
               "data.servicePhotos": [],
               lastModified: new Date(),
             });
-            console.log("✅ Migrated old photos to subcollection");
             // Real-time listener will automatically update the UI
           }
         }
       } catch (error) {
-        console.error("Error loading photos:", error);
-      }
+        }
     };
     
     loadPhotos();
@@ -198,11 +194,9 @@ const ServicePhotos = () => {
       setPhotos(updatedPhotos);
       // Save to subcollection in background
       savePhotosToFirebase(updatedPhotos).catch(error => {
-        console.error("Error saving photos:", error);
         alert('Error saving photos. Please try again.');
       });
     } catch (error) {
-      console.error('Error processing photos:', error);
       alert('Error processing photos: ' + (error.message || 'Please try again'));
     }
   };
@@ -225,7 +219,6 @@ const ServicePhotos = () => {
 
       setPendingPhotos(prev => [...prev, ...newPhotos]);
     } catch (error) {
-      console.error('Error processing photos:', error);
       alert('Error processing photos: ' + (error.message || 'Please try again'));
     }
   };
@@ -290,7 +283,6 @@ const ServicePhotos = () => {
         const updatedPhotos = photos.filter(photo => photo.id !== photoId);
         setPhotos(updatedPhotos);
       } catch (error) {
-        console.error("Error removing photo:", error);
         // Still remove from local state even if Firestore delete fails
         const updatedPhotos = photos.filter(photo => photo.id !== photoId);
         setPhotos(updatedPhotos);
@@ -309,7 +301,6 @@ const ServicePhotos = () => {
 
   // Open upload modal
   const handleOpenUploadModal = () => {
-    console.log("Opening upload modal");
     setShowUploadModal(true);
     setPendingPhotos([]);
   };
@@ -337,7 +328,6 @@ const ServicePhotos = () => {
       await savePhotosToFirebase(updatedPhotos);
       handleCloseUploadModal();
     } catch (error) {
-      console.error("Error saving photos to Firebase:", error);
       alert('Error saving photos. Please try again.');
       // Don't close modal if save fails so user can retry
     }
@@ -354,7 +344,6 @@ const ServicePhotos = () => {
         const data = draftSnap.data().data || {};
         // Check if photos exist in main document
         if ((data.servicePhotos && data.servicePhotos.length > 0) || (data.photos && data.photos.length > 0)) {
-          console.log("🧹 Cleaning up photos from main document...");
           // Use a batch to ensure atomic update
           const batch = writeBatch(db);
           batch.update(draftRef, {
@@ -364,8 +353,7 @@ const ServicePhotos = () => {
             lastModified: new Date(),
           });
           await batch.commit();
-          console.log("✅ Cleaned up photos from main document");
-        }
+          }
       }
     } catch (error) {
       console.warn("⚠️ Could not clean up photos from main document (non-critical):", error.message);
@@ -396,7 +384,6 @@ const draftId = state.draftId || location.state?.draftId;
           
           // Ensure base64 exists before saving
           if (!photo.base64) {
-            console.warn("⚠️ Photo missing base64 data, skipping:", photo.name);
             return { index, firestoreId: null };
           }
           
@@ -408,14 +395,11 @@ const draftId = state.draftId || location.state?.draftId;
             createdAt: new Date(),
           });
           
-          console.log("✅ Saved photo to Firestore:", docRef.id);
           return { index, firestoreId: docRef.id };
         });
         
         const saveResults = await Promise.all(savePromises);
         const savedCount = saveResults.filter(r => r && r.firestoreId).length;
-        console.log("✅ Saved service photos to Firebase subcollection:", savedCount, "new photos");
-        
         // Note: Real-time listener will automatically update the state with the saved photos
         
         // Update main document to mark that photos exist (but don't store them there)
@@ -429,7 +413,6 @@ const draftId = state.draftId || location.state?.draftId;
         });
         console.log("✅ Cleaned up photos from main document (photos stored in subcollection only)");
       } catch (error) {
-        console.error("Error saving photos to Firebase:", error);
         throw error;
       }
     }
@@ -456,7 +439,6 @@ const draftId = state.draftId || location.state?.draftId;
         });
         console.log("✅ Updated service photos step in draft (photos in subcollection only)");
       } catch (error) {
-        console.error("Error updating draft:", error);
         // If error is due to document size, try to clean up photos first
         if (error.message?.includes('exceeds the maximum allowed size')) {
           try {
@@ -466,7 +448,6 @@ const draftId = state.draftId || location.state?.draftId;
               "data.photos": [],
               lastModified: new Date(),
             });
-            console.log("✅ Cleaned up photos after size error on Next");
             // Retry saving
             await updateDoc(draftRef, {
               "data.hasServicePhotos": photos.length > 0,
@@ -474,8 +455,7 @@ const draftId = state.draftId || location.state?.draftId;
               lastModified: new Date(),
             });
           } catch (cleanupError) {
-            console.error("Error cleaning up photos:", cleanupError);
-          }
+            }
         }
       }
     }
@@ -552,9 +532,7 @@ const draftId = state.draftId || location.state?.draftId;
             "data.photos": [], // Also clear photos field if it exists
             lastModified: new Date(),
           });
-          console.log("✅ Cleaned up photos from main document on Save & Exit");
-        } catch (error) {
-          console.error("Error saving currentStep:", error);
+          } catch (error) {
           // If error is due to document size, try to clean up photos first
           if (error.message?.includes('exceeds the maximum allowed size')) {
             try {
@@ -564,15 +542,13 @@ const draftId = state.draftId || location.state?.draftId;
                 "data.photos": [],
                 lastModified: new Date(),
               });
-              console.log("✅ Cleaned up photos after size error");
               // Retry saving currentStep
               await updateDoc(draftRef, {
                 currentStep: "service-photos",
                 lastModified: new Date(),
               });
             } catch (cleanupError) {
-              console.error("Error cleaning up photos:", cleanupError);
-            }
+              }
           }
         }
       }
@@ -584,15 +560,13 @@ const draftId = state.draftId || location.state?.draftId;
         },
       });
     } catch (error) {
-      console.error("❌ Error saving draft:", error);
       alert("Failed to save. Please try again.");
     }
   };
 
   // Debug: Log state changes
   useEffect(() => {
-    console.log("showUploadModal state:", showUploadModal);
-  }, [showUploadModal]);
+    }, [showUploadModal]);
 
   return (
     <>

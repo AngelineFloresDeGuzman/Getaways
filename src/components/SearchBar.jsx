@@ -127,7 +127,6 @@ const SearchBar = ({ category = 'accommodation', onSearch }) => {
         // Limit to 8 unique locations
         setTopListingLocations(locations.slice(0, 8));
       } catch (error) {
-        console.error('Error loading top listing locations:', error);
         setTopListingLocations([]);
       } finally {
         setLoadingLocations(false);

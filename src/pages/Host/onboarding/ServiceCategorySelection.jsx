@@ -265,8 +265,7 @@ const ServiceCategorySelection = () => {
             setSelectedCategory(draftSnap.data().data.serviceCategory);
           }
         } catch (error) {
-          console.error("Error loading service category from draft:", error);
-        }
+          }
       }
     };
     loadCategory();
@@ -285,7 +284,6 @@ const ServiceCategorySelection = () => {
         const { auth } = await import("@/lib/firebase");
         const currentUser = auth.currentUser;
         if (!currentUser) {
-          console.warn("⚠️ ServiceCategorySelection: User not authenticated, cannot create draft");
           return null;
         }
         
@@ -298,14 +296,11 @@ const ServiceCategorySelection = () => {
           }
         };
         draftId = await saveDraft(newDraftData, null);
-        console.log("✅ ServiceCategorySelection: Created new draft:", draftId);
-        
         // Update state with new draftId
         if (actions?.setDraftId) {
           actions.setDraftId(draftId);
         }
       } catch (error) {
-        console.error("❌ ServiceCategorySelection: Error creating draft:", error);
         throw error;
       }
     }
@@ -318,9 +313,7 @@ const ServiceCategorySelection = () => {
           "data.serviceCategory": selectedCategory,
           lastModified: new Date(),
         });
-        console.log("✅ ServiceCategorySelection: Draft saved successfully");
-      } catch (error) {
-        console.error("❌ ServiceCategorySelection: Error saving qualification data:", error);
+        } catch (error) {
         throw error;
       }
     }
@@ -346,7 +339,6 @@ const ServiceCategorySelection = () => {
         },
       });
     } catch (error) {
-      console.error("❌ Error saving draft:", error);
       alert("Failed to save. Please try again.");
     }
   };
@@ -371,7 +363,6 @@ const ServiceCategorySelection = () => {
         } 
       });
     } catch (error) {
-      console.error("❌ Error in handleNext:", error);
       alert("Failed to save progress. Please try again.");
     }
   };

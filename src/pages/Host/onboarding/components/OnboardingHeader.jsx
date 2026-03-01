@@ -9,7 +9,6 @@ const OnboardingHeader = ({ showProgress = true, currentStepNameOverride, experi
   try {
     contextData = useOnboarding();
   } catch (error) {
-    console.error("❌ OnboardingContext error:", error);
     contextData = {
       state: { isLoading: false, currentStep: 'hostingsteps' },
       actions: { saveAndExit: () => Promise.reject(new Error("Context not available")) },
@@ -25,16 +24,12 @@ const OnboardingHeader = ({ showProgress = true, currentStepNameOverride, experi
   
   // Debug: Log if customSaveAndExit is provided
   if (isExperienceDetails && customSaveAndExit) {
-    console.log("✅ Custom save handler detected for experience details");
-  } else if (isExperienceDetails && !customSaveAndExit) {
-    console.warn("⚠️ Experience details page but no custom save handler provided");
-  }
+    } else if (isExperienceDetails && !customSaveAndExit) {
+    }
   
   if (isServiceDetails && customSaveAndExit) {
-    console.log("✅ Custom save handler detected for service details");
-  } else if (isServiceDetails && !customSaveAndExit) {
-    console.warn("⚠️ Service details page but no custom save handler provided");
-  }
+    } else if (isServiceDetails && !customSaveAndExit) {
+    }
   
   // Experience sidebar steps
   const experienceSteps = [
@@ -108,31 +103,25 @@ const OnboardingHeader = ({ showProgress = true, currentStepNameOverride, experi
     try {
       // For experience details, always use custom handler if provided
       if (isExperienceDetails && customSaveAndExit) {
-        console.log("✅ Using custom save handler for experience details");
         await customSaveAndExit();
         return; // Don't execute context handler after custom handler
       }
       
       // For service details, always use custom handler if provided
       if (isServiceDetails && customSaveAndExit) {
-        console.log("✅ Using custom save handler for service details");
         await customSaveAndExit();
         return; // Don't execute context handler after custom handler
       }
       
       // Use custom save handler if provided (for other cases), otherwise use context handler
       if (customSaveAndExit) {
-        console.log("✅ Using custom save handler");
         await customSaveAndExit();
         return; // Don't execute context handler after custom handler
       }
       
       // Default: use context handler for accommodation onboarding
-      console.log("Using context save handler");
       await actions.saveAndExit();
-      console.log("✅ Save and exit completed successfully!");
-    } catch (error) {
-      console.error("Error in handleSaveAndExit:", error);
+      } catch (error) {
       alert("Failed to save draft: " + error.message);
     }
   };
@@ -716,15 +705,7 @@ const StepProgress = ({ currentStepName = 'hostingsteps' }) => {
       // The previous step's progress bar will naturally reset/hide since currentMainStep changed
       // Then animate smoothly to the target step's progress
       startProgress = 0;
-      console.log('🔙 Moving backward to previous step group - starting from 0%, animating to target', {
-        fromStep: prevStoredStep,
-        toStep: currentMainStep,
-        fromStepName: prevStepName,
-        toStepName: currentStepName,
-        previousStepProgress: prevStoredVal,
-        targetProgress: progressInStep
-      });
-    } else if (prevStoredStep === currentMainStep) {
+      } else if (prevStoredStep === currentMainStep) {
       // Same step group - use existing logic
       if (isForwardByIndex) {
         // Forward navigation: if stored value is higher than calculated (stale data), 
@@ -750,14 +731,7 @@ const StepProgress = ({ currentStepName = 'hostingsteps' }) => {
       startProgress = 0;
       // Update ref immediately to prevent any flash of incorrect progress
       prevProgressRef.current = 0;
-      console.log('✅ Moving forward to new step group - starting from 0%', {
-        fromStep: prevStoredStep,
-        toStep: currentMainStep,
-        fromStepName: prevStepName,
-        toStepName: currentStepName,
-        targetProgress: progressInStep
-      });
-    } else {
+      } else {
       // Different step (uncertain) or first time: start from current displayed or 0
       startProgress = prevProgressRef.current || 0;
     }
@@ -780,25 +754,10 @@ const StepProgress = ({ currentStepName = 'hostingsteps' }) => {
     } else if (isMovingForwardBetweenGroups) {
       // Forward navigation to new step group - animate from 0% to calculated progress
       targetProgress = progressInStep;
-      console.log('✅ Forward navigation to new step group - animating from 0% to', progressInStep + '%', {
-        fromStep: prevStoredStep,
-        toStep: currentMainStep,
-        fromStepName: prevStepName,
-        toStepName: currentStepName,
-        targetProgress: progressInStep
-      });
-    } else if (isMovingBackwardBetweenGroupsInEffect) {
+      } else if (isMovingBackwardBetweenGroupsInEffect) {
       // Backward navigation between step groups (e.g., Step 2 -> Step 1)
       targetProgress = progressInStep;
-      console.log('🔙 Backward navigation between step groups - animating progress backward', {
-        fromStep: prevStoredStep,
-        toStep: currentMainStep,
-        fromStepName: prevStepName,
-        toStepName: currentStepName,
-        fromProgress: prevStoredVal,
-        toProgress: progressInStep
-      });
-    } else if (isNavigatingBackward && prevStoredStep === currentMainStep) {
+      } else if (isNavigatingBackward && prevStoredStep === currentMainStep) {
       // User clicked back button within same step group - allow backward movement
       // Ensure target progress is the calculated progress (which should be lower than previous)
       targetProgress = progressInStep;
@@ -810,12 +769,7 @@ const StepProgress = ({ currentStepName = 'hostingsteps' }) => {
         const recalculatedProgress = ((currentStepInfo.index + 1) / pagesInStep.length) * 100;
         if (recalculatedProgress < prevStoredVal) {
           targetProgress = recalculatedProgress;
-          console.log('⚠️ Corrected target progress for backward navigation', {
-            original: progressInStep,
-            corrected: recalculatedProgress,
-            stored: prevStoredVal
-          });
-        }
+          }
       }
       
       console.log('🔙 Backward navigation detected (same step group) - animating progress backward', {
@@ -831,24 +785,10 @@ const StepProgress = ({ currentStepName = 'hostingsteps' }) => {
       // Progress decreased unexpectedly - might be stale data
       // If stored value is much higher, treat it as stale and use calculated
       if (prevStoredVal > progressInStep + 10) {
-        console.log('⚠️ Detected possible stale progress data - using calculated value', {
-          step: currentStepName,
-          calculated: progressInStep,
-          stored: prevStoredVal,
-          currentIndex: currentStepInfo.index,
-          prevIndex: prevStepInfo.index
-        });
         // Start from a safe point to avoid backward animation
         startProgress = Math.min(startProgress, progressInStep);
       } else {
-        console.warn('⚠️ Progress decreased unexpectedly', {
-        step: currentStepName,
-        calculated: progressInStep,
-        stored: prevStoredVal,
-          currentIndex: currentStepInfo.index,
-          prevIndex: prevStepInfo.index
-      });
-      }
+        }
       targetProgress = progressInStep;
     }
     

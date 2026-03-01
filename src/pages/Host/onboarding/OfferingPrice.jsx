@@ -41,8 +41,7 @@ const OfferingPrice = () => {
               }
             }
           } catch (error) {
-            console.error("Error loading pricing type:", error);
-          }
+            }
         }
       } else if (location.state?.tempOfferingPricingType) {
         setPricingType(location.state.tempOfferingPricingType);

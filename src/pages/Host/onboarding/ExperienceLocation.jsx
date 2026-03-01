@@ -157,8 +157,7 @@ const ExperienceLocation = () => {
               }
             }
           } catch (error) {
-            console.error("Error loading experience category from draft:", error);
-          }
+            }
         }
       }
     };
@@ -169,33 +168,25 @@ const ExperienceLocation = () => {
   useEffect(() => {
     const loadCity = async () => {
       const draftId = state.draftId || location.state?.draftId;
-      console.log("🔍 ExperienceLocation: Loading city from draft, draftId:", draftId);
       if (draftId) {
         try {
           const draftRef = doc(db, "onboardingDrafts", draftId);
           const draftSnap = await getDoc(draftRef);
           if (draftSnap.exists()) {
             const data = draftSnap.data().data || {};
-            console.log("📦 ExperienceLocation: Draft data:", data);
             if (data.experienceCity) {
-              console.log("✅ ExperienceLocation: Setting city:", data.experienceCity);
               setCity(data.experienceCity);
             } else {
-              console.warn("⚠️ ExperienceLocation: No experienceCity in draft data");
-            }
+              }
             // Also load subcategory if not in location state
             if (!location.state?.experienceSubcategory && data.experienceSubcategory) {
-              console.log("✅ ExperienceLocation: Also found subcategory in draft:", data.experienceSubcategory);
-            }
+              }
           } else {
-            console.warn("⚠️ ExperienceLocation: Draft does not exist");
-          }
+            }
         } catch (error) {
-          console.error("❌ Error loading experience city from draft:", error);
-        }
+          }
       } else {
-        console.warn("⚠️ ExperienceLocation: No draftId available");
-      }
+        }
     };
     loadCity();
   }, [state.draftId, location.state?.draftId]);
@@ -211,7 +202,6 @@ const ExperienceLocation = () => {
         const { auth } = await import("@/lib/firebase");
         const currentUser = auth.currentUser;
         if (!currentUser) {
-          console.warn("⚠️ ExperienceLocation: User not authenticated, cannot create draft");
           return;
         }
         
@@ -233,14 +223,11 @@ const ExperienceLocation = () => {
           data: draftData
         };
         draftId = await saveDraft(newDraftData, null);
-        console.log("✅ ExperienceLocation: Created new draft:", draftId);
-        
         // Update state with new draftId
         if (actions?.setDraftId) {
           actions.setDraftId(draftId);
         }
       } catch (error) {
-        console.error("❌ ExperienceLocation: Error creating draft:", error);
         return;
       }
     }
@@ -266,10 +253,8 @@ const ExperienceLocation = () => {
         }
         
         await updateDoc(draftRef, updateData);
-        console.log("✅ Updated experience city in draft");
-      } catch (error) {
-        console.error("Error updating draft:", error);
-      }
+        } catch (error) {
+        }
     }
 
     // Update context for next step
@@ -300,7 +285,6 @@ const ExperienceLocation = () => {
   };
 
   const handleSaveAndExit = async () => {
-    console.log("🚀 ExperienceLocation handleSaveAndExit called");
     try {
       const { auth } = await import("@/lib/firebase");
       const currentUser = auth.currentUser;
@@ -333,14 +317,11 @@ const ExperienceLocation = () => {
           data: draftData
         };
         draftId = await saveDraft(newDraftData, null);
-          console.log("✅ ExperienceLocation: Created new draft:", draftId);
-          
           // Update state with new draftId
           if (actions?.setDraftId) {
             actions.setDraftId(draftId);
           }
         } catch (error) {
-          console.error("❌ ExperienceLocation: Error creating draft:", error);
           alert("Failed to create draft. Please try again.");
           return;
         }
@@ -367,9 +348,7 @@ const ExperienceLocation = () => {
           }
           
           await updateDoc(draftRef, updateData);
-          console.log("✅ ExperienceLocation: Draft saved successfully");
-        } catch (error) {
-          console.error("❌ Error saving draft:", error);
+          } catch (error) {
           alert("Failed to save draft. Please try again.");
           return;
         }
@@ -383,9 +362,7 @@ const ExperienceLocation = () => {
           message: "Draft saved successfully!",
         },
       });
-      console.log("✅ Navigation to listings page initiated");
-    } catch (error) {
-      console.error("❌ Error in handleSaveAndExit:", error);
+      } catch (error) {
       alert("Failed to save. Please try again.");
     }
   };
@@ -424,8 +401,7 @@ const ExperienceLocation = () => {
       if (proxyError.name === 'AbortError') {
         throw proxyError;
       }
-      console.log('Vite proxy failed, trying alternatives...', proxyError.message);
-    }
+      }
     
     // Try direct request (works in some browsers/environments)
     try {
@@ -446,8 +422,7 @@ const ExperienceLocation = () => {
       if (directError.name === 'AbortError') {
         throw directError;
       }
-      console.log('Direct request failed, trying public proxies...', directError.message);
-    }
+      }
     
     // Try AllOrigins proxy as last resort
     const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(nominatimUrl)}`;
@@ -483,10 +458,8 @@ const ExperienceLocation = () => {
       }
     } catch (error) {
       if (error.name === 'AbortError') {
-        console.log('Proxy timed out');
-      } else {
-        console.log('Proxy failed:', error.message);
-      }
+        } else {
+        }
       throw error;
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
@@ -542,7 +515,6 @@ const ExperienceLocation = () => {
           if (error.name === 'AbortError') {
             return; // Request was cancelled, ignore
           }
-          console.error('Error fetching city suggestions:', error);
           results = [];
         }
         
@@ -571,7 +543,6 @@ const ExperienceLocation = () => {
           // Request was cancelled, ignore
           return;
         }
-        console.error('Error fetching city suggestions:', error);
         setCitySuggestions([]);
         setIsSearching(false);
       }
@@ -629,12 +600,10 @@ const ExperienceLocation = () => {
               setShowModal(false);
             }
           } catch (error) {
-            console.error("Error getting location:", error);
             alert("Unable to get your current location. Please enter a city manually.");
           }
         },
         (error) => {
-          console.error("Geolocation error:", error);
           alert("Unable to access your location. Please enter a city manually.");
         }
       );

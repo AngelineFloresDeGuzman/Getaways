@@ -20,7 +20,6 @@ export const getHostPoints = async (userId) => {
     }
     return { points: 0, rewards: [], pointsHistory: [] };
   } catch (error) {
-    console.error('Error getting host points:', error);
     throw error;
   }
 };
@@ -64,7 +63,6 @@ export const awardPointsToHost = async (hostId, points, reason, adminId) => {
 
     return { success: true, newPoints };
   } catch (error) {
-    console.error('Error awarding points:', error);
     throw error;
   }
 };
@@ -108,7 +106,6 @@ export const deductPointsFromHost = async (hostId, points, reason, adminId) => {
 
     return { success: true, newPoints };
   } catch (error) {
-    console.error('Error deducting points:', error);
     throw error;
   }
 };
@@ -132,7 +129,6 @@ export const getAllHostsWithPoints = async () => {
       ...doc.data()
     }));
   } catch (error) {
-    console.error('Error getting hosts with points:', error);
     // Fallback if index doesn't exist
     const usersRef = collection(db, 'users');
     const querySnapshot = await getDocs(usersRef);
@@ -183,7 +179,6 @@ export const awardPointsForFirstListing = async (hostId, listingId = null) => {
       );
       
       if (hasAwardedForThisListing) {
-        console.log(`⚠️ Points already awarded for listing ${listingId}, skipping award`);
         return { success: false, message: 'Points already awarded for this listing' };
       }
     }
@@ -213,7 +208,6 @@ export const awardPointsForFirstListing = async (hostId, listingId = null) => {
     console.log(`✅ Awarded ${points} points for first listing (${listingId})`);
     return { success: true, points, newPoints };
   } catch (error) {
-    console.error('Error awarding points for first listing:', error);
     // Don't throw - this is a bonus feature, shouldn't break listing publication
     return { success: false, message: error.message };
   }
@@ -273,7 +267,6 @@ export const awardPointsForBookingConfirmed = async (hostId, bookingAmount, book
     
     return { success: true, points: finalPoints, newPoints };
   } catch (error) {
-    console.error('Error awarding points for booking:', error);
     // Don't throw - this is a bonus feature
   }
 };
@@ -287,10 +280,7 @@ export const awardPointsForBookingConfirmed = async (hostId, bookingAmount, book
  */
 export const awardPointsForReview = async (hostId, rating, reviewId) => {
   try {
-    console.log('🎯 awardPointsForReview: Starting', { hostId, rating, reviewId });
-    
     if (!hostId) {
-      console.error('❌ awardPointsForReview: No hostId provided');
       return;
     }
     
@@ -298,20 +288,16 @@ export const awardPointsForReview = async (hostId, rating, reviewId) => {
     const userDoc = await getDoc(userRef);
     
     if (!userDoc.exists()) {
-      console.error('❌ awardPointsForReview: User document does not exist for hostId:', hostId);
       return;
     }
     
     const userData = userDoc.data();
-    console.log('✅ awardPointsForReview: User document found, current points:', userData.points || 0);
-    
     // Check if points already awarded for this review
     const alreadyAwarded = userData.pointsHistory?.some(
       entry => entry.reviewId === reviewId && entry.source === 'review_received'
     );
     
     if (alreadyAwarded) {
-      console.log('ℹ️ awardPointsForReview: Points already awarded for this review');
       return { success: false, reason: 'already_awarded' };
     }
     
@@ -323,18 +309,11 @@ export const awardPointsForReview = async (hostId, rating, reviewId) => {
     // No points for 1-2 star ratings
     
     if (points === 0) {
-      console.log('ℹ️ awardPointsForReview: Rating too low, no points awarded');
       return { success: false, reason: 'rating_too_low' };
     }
     
     const currentPoints = userData.points || 0;
     const newPoints = currentPoints + points;
-    
-    console.log('🎯 awardPointsForReview: Updating points', {
-      currentPoints,
-      pointsToAdd: points,
-      newPoints
-    });
     
     const historyEntry = {
       points: points,
@@ -354,19 +333,8 @@ export const awardPointsForReview = async (hostId, rating, reviewId) => {
       lastPointsUpdate: serverTimestamp()
     });
     
-    console.log('✅ awardPointsForReview: Points updated successfully', {
-      points,
-      newPoints
-    });
-    
     return { success: true, points, newPoints };
   } catch (error) {
-    console.error('❌ Error awarding points for review:', error);
-    console.error('Error details:', {
-      message: error.message,
-      code: error.code,
-      stack: error.stack
-    });
     throw error; // Re-throw to see the actual error
   }
 };
@@ -462,11 +430,8 @@ export const awardBirthdayPoints = async (hostId, birthday) => {
       lastPointsUpdate: serverTimestamp()
     });
 
-    console.log('✅ Birthday points awarded:', { points, newPoints });
-
     return { success: true, points, newPoints };
   } catch (error) {
-    console.error('❌ Error awarding birthday points:', error);
     return { success: false, message: error.message };
   }
 };
@@ -543,7 +508,6 @@ export const awardMilestonePoints = async (hostId, milestoneType, milestoneCount
     
     return { success: true, points: milestonePoints, newPoints };
   } catch (error) {
-    console.error('Error awarding milestone points:', error);
     // Don't throw - this is a bonus feature
   }
 };
@@ -564,21 +528,15 @@ const POINTS_TO_CURRENCY_RATE = 0.1; // 10 points = ₱1
  */
 export const deductPointsForUnpublishedListing = async (hostId, listingId) => {
   try {
-    console.log(`🔍 deductPointsForUnpublishedListing: Starting for host ${hostId}, listing ${listingId}`);
-    
     const userRef = doc(db, 'users', hostId);
     const userDoc = await getDoc(userRef);
     
     if (!userDoc.exists()) {
-      console.error(`❌ User not found: ${hostId}`);
       return { success: false, error: 'User not found' };
     }
     
     const userData = userDoc.data();
     const pointsHistory = userData.pointsHistory || [];
-    
-    console.log(`📊 Points history entries: ${pointsHistory.length}`);
-    console.log(`📋 Looking for listingId: ${listingId}`);
     
     // Log all listing_published entries for debugging
     const publishedEntries = pointsHistory.filter(entry => entry.source === 'listing_published');
@@ -594,9 +552,6 @@ export const deductPointsForUnpublishedListing = async (hostId, listingId) => {
     );
     
     if (!listingPointsEntry) {
-      console.log(`⚠️ No points entry found for listing ${listingId}`);
-      console.log(`🔍 Checking if any points were awarded for this listing...`);
-      
       // Check if points were awarded but maybe with different listingId format
       const anyListingPoints = pointsHistory.filter(
         entry => entry.source === 'listing_published'
@@ -618,7 +573,6 @@ export const deductPointsForUnpublishedListing = async (hostId, listingId) => {
       }
       
       if (anyListingPoints.length === 0) {
-        console.log(`ℹ️ No listing_published entries found at all. Listing may have been published before points system.`);
         // Track that this listing was unpublished (even without points) to prevent awarding points when republished
         const trackingEntry = {
           points: 0,
@@ -644,7 +598,6 @@ export const deductPointsForUnpublishedListing = async (hostId, listingId) => {
           message: 'No points were awarded for this listing (published before points system). Listing tracked to prevent points on republish.' 
         };
       } else {
-        console.log(`⚠️ Points were awarded for other listings, but not for listing ${listingId}`);
         // Track that this listing was unpublished (even without points) to prevent awarding points when republished
         const trackingEntry = {
           points: 0,
@@ -672,13 +625,6 @@ export const deductPointsForUnpublishedListing = async (hostId, listingId) => {
       }
     }
     
-    console.log(`✅ Found points entry for listing:`, {
-      listingId: listingPointsEntry.listingId,
-      points: listingPointsEntry.points,
-      reason: listingPointsEntry.reason,
-      deducted: listingPointsEntry.deducted
-    });
-    
     // Check if points were already deducted (to prevent double deduction)
     const alreadyDeducted = pointsHistory.some(
       entry => entry.listingId === listingId && 
@@ -686,7 +632,6 @@ export const deductPointsForUnpublishedListing = async (hostId, listingId) => {
     );
     
     if (alreadyDeducted) {
-      console.log(`⚠️ Points already deducted for listing ${listingId}`);
       return { success: true, deductedFrom: 'already_deducted', amount: 0, message: 'Points already deducted for this listing' };
     }
     
@@ -697,8 +642,6 @@ export const deductPointsForUnpublishedListing = async (hostId, listingId) => {
     
     // Try to deduct from points first
     const currentPoints = userData.points || 0;
-    console.log(`💵 Current points balance: ${currentPoints}`);
-    
     let pointsDeducted = 0;
     let walletDeducted = 0;
     let remainingDeduction = pointsToDeduct;
@@ -707,10 +650,8 @@ export const deductPointsForUnpublishedListing = async (hostId, listingId) => {
     if (currentPoints > 0) {
       pointsDeducted = Math.min(currentPoints, pointsToDeduct);
       remainingDeduction = pointsToDeduct - pointsDeducted;
-      console.log(`📉 Deducting ${pointsDeducted} points from balance. Remaining: ${remainingDeduction}`);
-    } else {
-      console.log(`⚠️ No points available to deduct. All ${pointsToDeduct} points need to be deducted from wallet or recorded as debt.`);
-    }
+      } else {
+      }
     
     // Step 2: If points are insufficient, deduct from GetPay wallet
     if (remainingDeduction > 0) {
@@ -755,7 +696,6 @@ export const deductPointsForUnpublishedListing = async (hostId, listingId) => {
           remainingDeduction = pointsToDeduct - pointsDeducted - walletDeducted;
         }
       } catch (walletError) {
-        console.error('Error deducting from wallet:', walletError);
         // Continue with points deduction even if wallet deduction fails
       }
     }
@@ -822,18 +762,8 @@ export const deductPointsForUnpublishedListing = async (hostId, listingId) => {
       totalDeducted: pointsDeducted + walletDeducted
     };
     
-    console.log(`✅ Deduction completed:`, result);
-    
     return result;
   } catch (error) {
-    console.error('❌ Error deducting points for unpublished listing:', error);
-    console.error('Error details:', {
-      message: error.message,
-      stack: error.stack,
-      name: error.name,
-      hostId,
-      listingId
-    });
     return { success: false, error: error.message || 'Unknown error occurred' };
   }
 };
@@ -884,7 +814,6 @@ export const restorePointsForRepublishedListing = async (hostId, listingId) => {
     
     // If listing was unpublished without points (tracked but no points to restore)
     if (noPointsEntry) {
-      console.log(`ℹ️ Listing was unpublished but no points were awarded, so no restoration needed`);
       // Don't award points on republish if it was published before points system
       return { success: true, restored: false, message: 'No points to restore (listing was published before points system)' };
     }
@@ -941,7 +870,6 @@ export const restorePointsForRepublishedListing = async (hostId, listingId) => {
     
     return { success: true, restored: true, pointsRestored: pointsToRestore, newPoints };
   } catch (error) {
-    console.error('Error restoring points for republished listing:', error);
     return { success: false, error: error.message };
   }
 };
@@ -1058,7 +986,6 @@ export const cashOutPoints = async (hostId, points) => {
     console.log(`✅ Cashed out ${points} points (₱${currencyAmount.toFixed(2)}) for host ${hostId}`);
     return { success: true, currencyAmount, newPoints };
   } catch (error) {
-    console.error('Error cashing out points:', error);
     return { success: false, error: error.message };
   }
 };
@@ -1132,7 +1059,6 @@ export const deductPointsForPayment = async (hostId, amount, reason, metadata = 
       remainingAmount 
     };
   } catch (error) {
-    console.error('Error deducting points for payment:', error);
     return { success: false, error: error.message };
   }
 };
@@ -1167,7 +1093,6 @@ export const checkPointsForPayment = async (hostId, amount) => {
       currencyAmount 
     };
   } catch (error) {
-    console.error('Error checking points for payment:', error);
     return { hasSufficient: false, currentPoints: 0, pointsNeeded: 0, currencyAmount: 0 };
   }
 };

@@ -35,7 +35,6 @@ const PartnersSection = () => {
         setPartners(partnersList);
       } catch (error) {
         // If partners collection doesn't exist or has no data, hide section
-        console.log('No partners data available:', error);
         setPartners([]);
       } finally {
         setLoading(false);

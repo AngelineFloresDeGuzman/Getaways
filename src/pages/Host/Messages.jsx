@@ -162,17 +162,13 @@ const HostMessages = () => {
             setConversations(convos);
             setLoading(false);
           } catch (error) {
-            console.error('Error processing conversations:', error);
             setConversations([]);
             setLoading(false);
           }
         },
         (error) => {
-          console.error('Error in conversations snapshot:', error);
-          
           // Check if it's a permission error
           if (error.code === 'permission-denied') {
-            console.error('Permission denied: Please check Firestore rules allow reading conversations');
             toast.error('Permission denied: Cannot load conversations. Please check Firebase rules.');
           } else if (error.code === 'failed-precondition' && error.message?.includes('index')) {
             // This shouldn't happen now since we're not using orderBy, but just in case
@@ -190,7 +186,6 @@ const HostMessages = () => {
       // Also return it for immediate cleanup if needed
       return () => unsubscribe();
     } catch (error) {
-      console.error('Error loading conversations:', error);
       setConversations([]);
       setLoading(false);
     }
@@ -207,7 +202,6 @@ const HostMessages = () => {
       }
       return { id: userId, firstName: 'Unknown', lastName: 'User', email: 'unknown@example.com' };
     } catch (error) {
-      console.error('Error fetching user data:', error);
       return { id: userId, firstName: 'Unknown', lastName: 'User', email: 'unknown@example.com' };
     }
   };
@@ -227,7 +221,6 @@ const HostMessages = () => {
       }
       return null;
     } catch (error) {
-      console.error('Error fetching listing data:', error);
       return null;
     }
   };
@@ -247,7 +240,6 @@ const HostMessages = () => {
       }
       return null;
     } catch (error) {
-      console.error('Error fetching booking data:', error);
       return null;
     }
   };
@@ -264,13 +256,7 @@ const HostMessages = () => {
           
           // Debug: Log raw data for first message
           if (snapshot.docs.indexOf(docSnap) === 0) {
-            console.log('📨 First message raw data:', {
-              docId: docSnap.id,
-              rawSenderId: data.senderId,
-              stringSenderId: senderId,
-              rawData: data
-            });
-          }
+            }
           
           return {
             id: docSnap.id,
@@ -301,7 +287,6 @@ const HostMessages = () => {
 
       return () => unsubscribe();
     } catch (error) {
-      console.error('Error loading messages:', error);
       toast.error('Failed to load messages');
     }
   };
@@ -313,8 +298,7 @@ const HostMessages = () => {
         [`unreadCounts.${auth.currentUser.uid}`]: 0
       });
     } catch (error) {
-      console.error('Error marking conversation as read:', error);
-    }
+      }
   };
 
   const handleFileSelect = (e) => {
@@ -348,13 +332,6 @@ const HostMessages = () => {
       return;
     }
 
-    console.log('📎 File selected:', {
-      name: file.name,
-      type: file.type,
-      size: file.size,
-      conversationId: selectedConversation.id
-    });
-
     setSelectedFile(file);
 
     // Create preview for images
@@ -364,7 +341,6 @@ const HostMessages = () => {
         setFilePreview(reader.result);
       };
       reader.onerror = () => {
-        console.error('Error reading file for preview');
         toast.error('Failed to preview image');
       };
       reader.readAsDataURL(file);
@@ -453,7 +429,6 @@ const HostMessages = () => {
       setUploadingFile(false);
       shouldScrollRef.current = true;
     } catch (error) {
-      console.error('Error sending message:', error);
       toast.error('Failed to send message: ' + (error.message || 'Unknown error'));
       setUploadingFile(false);
     } finally {

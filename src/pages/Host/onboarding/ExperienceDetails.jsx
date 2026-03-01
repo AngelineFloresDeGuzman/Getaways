@@ -68,7 +68,6 @@ const ExperienceDetails = () => {
     // ALWAYS prioritize currentStepNumber from location state first (most immediate)
     // This ensures navigation with step numbers works correctly
     if (location.state?.currentStepNumber !== undefined && location.state?.currentStepNumber !== null) {
-      console.log("✅ ExperienceDetails: Initializing currentStep from location.state:", location.state.currentStepNumber);
       return location.state.currentStepNumber;
     }
     // If no location state step number, check if we have a draftId - if yes, we'll load from draft
@@ -215,8 +214,7 @@ const ExperienceDetails = () => {
   // Update ref whenever yearsOfExperience changes
   useEffect(() => {
     yearsOfExperienceRef.current = yearsOfExperience;
-    console.log("🔄 yearsOfExperience state updated to:", yearsOfExperience, "ref updated to:", yearsOfExperienceRef.current);
-  }, [yearsOfExperience]);
+    }, [yearsOfExperience]);
   
 
   const totalSteps = 16;
@@ -224,7 +222,6 @@ const ExperienceDetails = () => {
   // Reset refs when component mounts - always reset on mount to ensure fresh load
   useEffect(() => {
     isMountedRef.current = true;
-    console.log("🔄 ExperienceDetails: Component mounted, resetting all loading flags");
     // Always reset on mount to ensure we load data fresh
     hasLoadedDataRef.current = false;
     lastDraftIdRef.current = null;
@@ -262,7 +259,6 @@ const ExperienceDetails = () => {
   useEffect(() => {
     if (location.state?.currentStepNumber !== undefined && location.state?.currentStepNumber !== null) {
       if (currentStep === null || currentStep !== location.state.currentStepNumber) {
-        console.log("✅ ExperienceDetails: Setting currentStep from location.state immediately:", location.state.currentStepNumber);
         setCurrentStep(location.state.currentStepNumber);
         hasSetCurrentStepRef.current = true;
       }
@@ -303,8 +299,7 @@ const ExperienceDetails = () => {
           }
           // If draft doesn't exist, don't set default - wait for loadQualificationData
           } catch (error) {
-            console.error("Error loading experience category from draft:", error);
-          // On error, don't set default - let loadQualificationData handle it
+            // On error, don't set default - let loadQualificationData handle it
           }
         }
       // If no draftId and no categoryFromState, don't set anything
@@ -327,11 +322,8 @@ const ExperienceDetails = () => {
         }
       }
       
-      console.log("🔍 ExperienceDetails: Loading qualification data from draft, draftId:", draftId, "currentStepNumber from location:", location.state?.currentStepNumber);
-      
       // Prevent loading if we've already loaded this draftId or if there's no draftId
       if (!draftId) {
-        console.warn("⚠️ ExperienceDetails: No draftId available, setting defaults");
         // If no draftId, set defaults to allow page to render (only once)
         if (!mainCategory) {
           setMainCategory("art-and-design");
@@ -360,8 +352,6 @@ const ExperienceDetails = () => {
       // IMPORTANT: Don't reload when currentStep changes - data persists in state across steps
       // Only reload when draftId changes or data hasn't been loaded yet
       if (hasLoadedDataRef.current && lastDraftIdRef.current === draftId && !isUnloadedState) {
-        console.log("⏭️ ExperienceDetails: Data already loaded for this draftId, skipping reload");
-        console.log("  Current values:", { currentStep, mainCategory, yearsOfExperience, introTitle, expertise, recognition });
         return;
       }
       
@@ -370,16 +360,6 @@ const ExperienceDetails = () => {
       // 2. Haven't loaded yet
       // 3. We're in unloaded state (means we need to load)
       if (lastDraftIdRef.current !== draftId || !hasLoadedDataRef.current || isUnloadedState) {
-        console.log("🔄 ExperienceDetails: Resetting loading flags", {
-          lastDraftId: lastDraftIdRef.current,
-          currentDraftId: draftId,
-          hasLoaded: hasLoadedDataRef.current,
-          isUnloadedState,
-          currentStep,
-          introTitle,
-          expertise,
-          recognition
-        });
         hasLoadedDataRef.current = false;
         hasSetCurrentStepRef.current = false;
       }
@@ -404,18 +384,15 @@ const ExperienceDetails = () => {
           
           // Debug: Check if yearsOfExperience exists in the data object
           if ('yearsOfExperience' in data) {
-            console.log("✅ yearsOfExperience found in draft data:", data.yearsOfExperience, "type:", typeof data.yearsOfExperience);
-          } else {
+            } else {
             console.error("❌ yearsOfExperience NOT found in draft data! Available keys:", Object.keys(data));
           }
           
           // Load mainCategory from draft data FIRST (before marking as loaded)
           if (!mainCategory && data.experienceCategory) {
-            console.log("✅ ExperienceDetails: Loading experienceCategory from draft:", data.experienceCategory);
             setMainCategory(data.experienceCategory);
           } else if (!mainCategory) {
             // If still no category, set a default to prevent infinite loading
-            console.warn("⚠️ ExperienceDetails: No experienceCategory found, using default");
             setMainCategory("art-and-design");
           }
           
@@ -424,14 +401,11 @@ const ExperienceDetails = () => {
           let stepToSet = null;
           if (location.state?.currentStepNumber !== undefined && location.state?.currentStepNumber !== null) {
             stepToSet = location.state.currentStepNumber;
-            console.log("✅ ExperienceDetails: Using currentStepNumber from location.state:", stepToSet);
-          } else if (data.currentStepNumber !== undefined && data.currentStepNumber !== null) {
+            } else if (data.currentStepNumber !== undefined && data.currentStepNumber !== null) {
             stepToSet = data.currentStepNumber;
-            console.log("✅ ExperienceDetails: Loading currentStepNumber from draft:", stepToSet);
-          } else {
+            } else {
             stepToSet = 1;
-            console.log("⚠️ ExperienceDetails: No currentStepNumber found, defaulting to step 1");
-          }
+            }
           
           // Only set if we haven't set it yet or if it's different
           if (!hasSetCurrentStepRef.current || currentStep !== stepToSet) {
@@ -441,28 +415,18 @@ const ExperienceDetails = () => {
           
           // Load all form data - use !== undefined to include empty strings and falsy values
             // Always set these values, even if they're empty strings or 0, to override defaults
-            console.log("📥 Loading form data from draft:", {
-              introTitle: data.introTitle,
-              expertise: data.expertise,
-              recognition: data.recognition,
-              yearsOfExperience: data.yearsOfExperience
-            });
-            
             if (data.introTitle !== undefined) {
-              console.log("  → Setting introTitle:", data.introTitle);
               setIntroTitle(data.introTitle || "");
             } else if (introTitle === null) {
               // If data doesn't exist and we initialized to null, set to empty string
               setIntroTitle("");
             }
             if (data.expertise !== undefined) {
-              console.log("  → Setting expertise:", data.expertise);
               setExpertise(data.expertise || "");
             } else if (expertise === null) {
               setExpertise("");
             }
             if (data.recognition !== undefined) {
-              console.log("  → Setting recognition:", data.recognition);
               setRecognition(data.recognition || "");
             } else if (recognition === null) {
               setRecognition("");
@@ -474,9 +438,7 @@ const ExperienceDetails = () => {
               setYearsOfExperience(data.yearsOfExperience);
               // Also update the ref immediately to ensure it's in sync
               yearsOfExperienceRef.current = data.yearsOfExperience;
-              console.log("  → Updated ref to:", yearsOfExperienceRef.current);
-            } else if (data.yearsOfExperience === undefined || data.yearsOfExperience === null) {
-              console.warn("  ⚠️ yearsOfExperience is undefined/null in draft data, setting default to 10");
+              } else if (data.yearsOfExperience === undefined || data.yearsOfExperience === null) {
               // If no saved value, set to default 10
               setYearsOfExperience(10);
               yearsOfExperienceRef.current = 10;
@@ -549,26 +511,14 @@ const ExperienceDetails = () => {
               setExperienceDescription(data.experienceDescription || "");
             }
             
-            console.log("✅ ExperienceDetails: All form data loaded from draft", {
-              introTitle: data.introTitle,
-              expertise: data.expertise,
-              recognition: data.recognition,
-              yearsOfExperience: data.yearsOfExperience,
-              currentStepNumber: data.currentStepNumber,
-              profilesCount: data.profiles?.length || 0
-            });
-            
             // Mark as loaded AFTER all state updates are queued
             // Use setTimeout to ensure React has processed all state updates
             setTimeout(() => {
               hasLoadedDataRef.current = true;
               lastDraftIdRef.current = draftId;
-              console.log("✅ ExperienceDetails: Marked as loaded after all state updates, draftId:", draftId);
-            }, 100);
+              }, 100);
             
-            console.log("✅ ExperienceDetails: All data loaded from draft");
-          } else {
-            console.warn("⚠️ ExperienceDetails: Draft does not exist");
+            } else {
             hasLoadedDataRef.current = true; // Mark as attempted even if draft doesn't exist
             lastDraftIdRef.current = draftId;
             // Set defaults to prevent infinite loading
@@ -581,7 +531,6 @@ const ExperienceDetails = () => {
             }
           }
         } catch (error) {
-          console.error("❌ Error loading qualification data from draft:", error);
           hasLoadedDataRef.current = true; // Mark as attempted even on error
           lastDraftIdRef.current = draftId;
           // Set defaults to prevent infinite loading
@@ -620,7 +569,6 @@ const ExperienceDetails = () => {
   const handleDecrement = async () => {
     if (yearsOfExperience > 0) {
       const newValue = yearsOfExperience - 1;
-      console.log("📉 Decrementing yearsOfExperience from", yearsOfExperience, "to", newValue);
       setYearsOfExperience(newValue);
       // Save with the new value directly to avoid state update timing issues
       await saveQualificationData(newValue);
@@ -629,7 +577,6 @@ const ExperienceDetails = () => {
 
   const handleIncrement = async () => {
     const newValue = yearsOfExperience + 1;
-    console.log("📈 Incrementing yearsOfExperience from", yearsOfExperience, "to", newValue);
     setYearsOfExperience(newValue);
     // Save with the new value directly to avoid state update timing issues
     await saveQualificationData(newValue);
@@ -651,11 +598,9 @@ const ExperienceDetails = () => {
   // Compress and prepare photos for Firestore storage
   const compressPhotosForStorage = async (photos) => {
     if (!photos || photos.length === 0) {
-      console.log('📷 ExperienceDetails: No photos to compress');
       return [];
     }
 
-    console.log(`📤 ExperienceDetails: Starting compression of ${photos.length} photos for Firestore...`);
     const compressedPhotos = [];
     
     for (let i = 0; i < photos.length; i++) {
@@ -665,7 +610,6 @@ const ExperienceDetails = () => {
         // If photo already has a compressed base64 string, check if it's small enough
         // Recompress if it's still too large (need to be under 70KB to be safe)
         if (photo.base64 && photo.base64.length < 70000) { // Already small (<70KB)
-          console.log(`⏭️ ExperienceDetails: Photo ${i + 1} already compressed, using existing base64`);
           compressedPhotos.push({
             id: photo.id || `photo_${i}`,
             name: photo.name || `photo_${i + 1}`,
@@ -693,7 +637,6 @@ const ExperienceDetails = () => {
         
         const base64String = photo.base64 || photo.url;
         if (!base64String || base64String.startsWith('blob:')) {
-          console.warn(`⚠️ ExperienceDetails: Photo ${i + 1} has no valid base64 or is a blob URL, skipping`);
           continue;
         }
         
@@ -703,7 +646,6 @@ const ExperienceDetails = () => {
         
         // Compress image very aggressively to reduce size (max 50KB per image)
         // With 8 photos max, total would be ~400KB, well under 1MB Firestore limit
-        console.log(`📦 ExperienceDetails: Compressing photo ${i + 1}/${photos.length}...`);
         const compressionOptions = {
           maxSizeMB: 0.05, // 50KB max per image (very aggressive compression)
           maxWidthOrHeight: 800, // Reduced max dimensions for smaller file size
@@ -734,15 +676,12 @@ const ExperienceDetails = () => {
           base64: compressedBase64, // Store compressed base64 in Firestore
         });
         
-        console.log(`✅ ExperienceDetails: Compressed photo ${i + 1}/${photos.length}`);
-      } catch (error) {
-        console.error(`❌ ExperienceDetails: Error compressing photo ${i + 1}:`, error);
+        } catch (error) {
         // If compression fails, skip this photo to avoid exceeding size limit
         console.warn(`⚠️ ExperienceDetails: Skipping photo ${i + 1} (compression failed)`);
       }
     }
     
-    console.log(`✅ ExperienceDetails: Photo compression complete: ${compressedPhotos.length}/${photos.length} processed`);
     return compressedPhotos;
   };
 
@@ -755,20 +694,12 @@ const ExperienceDetails = () => {
       ? overrideYearsOfExperience 
       : (yearsOfExperienceRef.current !== undefined ? yearsOfExperienceRef.current : yearsOfExperience);
     
-    console.log("💾 saveQualificationData called:", {
-      overrideValue: overrideYearsOfExperience,
-      refValue: yearsOfExperienceRef.current,
-      stateValue: yearsOfExperience,
-      willSave: yearsToSave
-    });
-    
     // If no draftId exists, try to find an existing experience draft first
     if (!draftId) {
       try {
         const { auth } = await import("@/lib/firebase");
         const currentUser = auth.currentUser;
         if (!currentUser) {
-          console.warn("⚠️ ExperienceDetails: User not authenticated, cannot create draft");
           return;
         }
         
@@ -787,8 +718,6 @@ const ExperienceDetails = () => {
         
         if (experienceDraft) {
           draftId = experienceDraft.id;
-          console.log("✅ ExperienceDetails: Found existing experience draft:", draftId);
-          
           // Update state with found draftId
           if (actions?.setDraftId) {
             actions.setDraftId(draftId);
@@ -805,15 +734,12 @@ const ExperienceDetails = () => {
             }
           };
           draftId = await saveDraft(newDraftData, null);
-          console.log("✅ ExperienceDetails: Created new draft:", draftId);
-          
           // Update state with new draftId
           if (actions?.setDraftId) {
             actions.setDraftId(draftId);
           }
         }
       } catch (error) {
-        console.error("❌ ExperienceDetails: Error finding/creating draft:", error);
         throw error;
       }
     }
@@ -823,10 +749,7 @@ const ExperienceDetails = () => {
         const draftRef = doc(db, "onboardingDrafts", draftId);
         
         // Compress photos before saving to avoid exceeding Firestore 1MB limit
-        console.log("📦 ExperienceDetails: Compressing photos before saving...");
         const compressedPhotos = await compressPhotosForStorage(photos);
-        console.log(`✅ ExperienceDetails: Compressed ${compressedPhotos.length} photos for draft save`);
-        
         // Build update object with all form data
         const updateData = {
           "data.introTitle": introTitle,
@@ -901,7 +824,6 @@ const ExperienceDetails = () => {
         const verifySnap = await getDoc(draftRef);
         if (verifySnap.exists()) {
           const savedData = verifySnap.data().data || {};
-          console.log("✅ ExperienceDetails: Draft saved successfully to Firebase on step", currentStep, "draftId:", draftId);
           console.log("💾 Saved data includes:", {
             introTitle: introTitle?.substring(0, 50) || "(empty)",
             expertise: expertise?.substring(0, 50) || "(empty)",
@@ -920,19 +842,11 @@ const ExperienceDetails = () => {
             savedIntroTitle: savedData.introTitle?.substring(0, 30) || "(empty)"
           });
         } else {
-          console.error("❌ ExperienceDetails: Save verification failed - document not found after save!");
-        }
+          }
       } catch (error) {
-        console.error("❌ ExperienceDetails: Error saving qualification data:", error);
-        console.error("Error details:", {
-          draftId,
-          errorMessage: error.message,
-          errorCode: error.code
-        });
         throw error; // Re-throw to allow callers to handle errors
       }
     } else {
-      console.error("❌ ExperienceDetails: No draftId available to save data");
       throw new Error("No draft ID available. Cannot save data.");
     }
   };
@@ -1080,7 +994,6 @@ const ExperienceDetails = () => {
           }
         } catch (error) {
           if (error.name === 'AbortError') return;
-          console.error('Error fetching address suggestions:', error);
           results = [];
         }
         
@@ -1147,8 +1060,7 @@ const ExperienceDetails = () => {
       setAvailablePhotos([...photos, ...newPhotos]);
       saveQualificationData();
     } catch (error) {
-      console.error('Error processing photos:', error);
-    }
+      }
   };
 
   // Handle drag and drop
@@ -1256,8 +1168,7 @@ const ExperienceDetails = () => {
       const base64 = await fileToBase64(file);
       setItemImage(base64);
     } catch (error) {
-      console.error('Error processing image:', error);
-    }
+      }
 
     if (itineraryImageInputRef.current) {
       itineraryImageInputRef.current.value = '';
@@ -1372,9 +1283,7 @@ const ExperienceDetails = () => {
       // Save to Firebase when duration changes - await to ensure save completes
       try {
         await saveQualificationData();
-        console.log("✅ Duration decremented and saved to Firebase:", newValue);
-      } catch (error) {
-        console.error("❌ Error saving duration change:", error);
+        } catch (error) {
         alert("Failed to save duration change. Please try again.");
       }
     }
@@ -1387,9 +1296,7 @@ const ExperienceDetails = () => {
     // Save to Firebase when duration changes - await to ensure save completes
     try {
       await saveQualificationData();
-      console.log("✅ Duration incremented and saved to Firebase:", newValue);
-    } catch (error) {
-      console.error("❌ Error saving duration change:", error);
+      } catch (error) {
       alert("Failed to save duration change. Please try again.");
     }
   };
@@ -1408,9 +1315,7 @@ const ExperienceDetails = () => {
     // Save to Firebase when duration changes - await to ensure save completes
     try {
       await saveQualificationData();
-      console.log("✅ Duration edited and saved to Firebase:", finalValue);
-    } catch (error) {
-      console.error("❌ Error saving duration change:", error);
+      } catch (error) {
       alert("Failed to save duration change. Please try again.");
     }
   };
@@ -1455,8 +1360,7 @@ const ExperienceDetails = () => {
             addressData = JSON.parse(proxyData.contents || '{}');
           }
         } catch (e) {
-          console.error('Error fetching address details:', e);
-        }
+          }
       }
       
       if (addressData && addressData.address) {
@@ -1491,22 +1395,12 @@ const ExperienceDetails = () => {
       setShowMap(true);
       saveQualificationData();
     } catch (error) {
-      console.error('Error parsing address:', error);
       setShowConfirmLocation(true);
       saveQualificationData();
     }
   };
 
   const handleSaveAndExit = async () => {
-    console.log("🚀 ExperienceDetails handleSaveAndExit called");
-    console.log("📊 Current state values before save:", {
-      yearsOfExperience,
-      yearsOfExperienceRef: yearsOfExperienceRef.current,
-      introTitle,
-      expertise,
-      recognition,
-      currentStep
-    });
     try {
       const { auth } = await import("@/lib/firebase");
       const currentUser = auth.currentUser;
@@ -1516,13 +1410,10 @@ const ExperienceDetails = () => {
         return;
       }
 
-      console.log("💾 Saving qualification data with current values...");
       // Use the ref value to ensure we have the most up-to-date value
       const currentYearsValue = yearsOfExperienceRef.current !== undefined ? yearsOfExperienceRef.current : yearsOfExperience;
       console.log("💾 Using yearsOfExperience value:", currentYearsValue, "(from ref:", yearsOfExperienceRef.current, ", from state:", yearsOfExperience, ")");
       await saveQualificationData(currentYearsValue);
-      console.log("✅ Data saved, navigating to listings page...");
-
       // Get the updated draftId after saving (in case it was created)
       const updatedDraftId = state.draftId || location.state?.draftId;
 
@@ -1534,9 +1425,7 @@ const ExperienceDetails = () => {
           message: "Draft saved successfully!",
         },
       });
-      console.log("✅ Navigation to listings page initiated");
-    } catch (error) {
-      console.error("❌ Error saving draft:", error);
+      } catch (error) {
       alert("Failed to save. Please try again.");
     }
   };
@@ -1545,8 +1434,7 @@ const ExperienceDetails = () => {
     try {
       // Always save before any navigation or action - this ensures all current data is saved to Firebase
       // Same functionality as Save & Exit
-      console.log("💾 handleNext: Saving data before navigation, currentStep:", currentStep);
-    await saveQualificationData();
+      await saveQualificationData();
     
     // If on Step 13, set termsAgreed to true when clicking Next (which acts as "I agree")
     if (currentStep === 13) {
@@ -1578,16 +1466,13 @@ const ExperienceDetails = () => {
         setCurrentStep(nextStep);
         // Save again after moving to next step to update currentStepNumber in Firebase
         // This ensures the draft knows which step we're on, same as Save & Exit
-        console.log("💾 handleNext: Saving after moving to step", nextStep);
         await saveQualificationData();
     } else {
         // This should never execute since step 16 is handled above
         // But if it does, save and stay on current step
-        console.warn("⚠️ ExperienceDetails: Reached else block in handleNext, this shouldn't happen");
         await saveQualificationData();
       }
     } catch (error) {
-      console.error("❌ Error in handleNext:", error);
       console.error("❌ Error details:", {
         message: error.message,
         stack: error.stack,
@@ -1620,7 +1505,6 @@ const ExperienceDetails = () => {
       },
     });
     } catch (error) {
-      console.error("❌ Error in handleBack:", error);
       alert("Failed to save progress. Please try again.");
     }
   };
@@ -1629,18 +1513,15 @@ const ExperienceDetails = () => {
     try {
       // Always save before going to previous step - this ensures all current data is saved to Firebase
       const actualCurrentStep = currentStep !== null ? currentStep : (location.state?.currentStepNumber ?? 1);
-      console.log("💾 handlePreviousStep: Saving data before going back, currentStep:", actualCurrentStep);
-    await saveQualificationData();
+      await saveQualificationData();
       const previousStep = actualCurrentStep - 1;
       setCurrentStep(previousStep);
       // Save again after moving to previous step to update currentStepNumber in Firebase
       // This ensures the draft knows which step we're on, same as Save & Exit
-      console.log("💾 handlePreviousStep: Saving after moving to step", previousStep);
       await saveQualificationData();
       // Note: The useEffect will automatically reload data when currentStep changes
       // because we added currentStep to the dependency array, ensuring saved values are displayed
     } catch (error) {
-      console.error("❌ Error in handlePreviousStep:", error);
       alert("Failed to save progress. Please try again.");
     }
   };
@@ -1663,9 +1544,7 @@ const ExperienceDetails = () => {
       // Close the modal
       setShowCreateOwnModal(false);
       
-      console.log("✅ Title and description saved successfully");
-    } catch (error) {
-      console.error("❌ Error saving title and description:", error);
+      } catch (error) {
       alert("Failed to save title and description. Please try again.");
     }
   };
@@ -1677,7 +1556,6 @@ const ExperienceDetails = () => {
       const draftId = state.draftId || location.state?.draftId;
       
       if (!draftId) {
-        console.error("❌ No draftId available");
         alert("Error: No draft found. Please start over.");
         return;
       }
@@ -1690,7 +1568,6 @@ const ExperienceDetails = () => {
       const draftSnap = await getDoc(draftRef);
       
       if (!draftSnap.exists()) {
-        console.error("❌ Draft not found");
         alert("Error: Draft not found. Please start over.");
         return;
       }
@@ -1795,8 +1672,6 @@ const ExperienceDetails = () => {
       });
       
       const listingId = await createListing(listingData, existingListingId);
-      console.log("✅ Experience listing created/updated:", listingId);
-      
       // Update draft with publishedListingId and mark as published
       await updateDoc(draftRef, {
         publishedListingId: listingId,
@@ -1814,7 +1689,6 @@ const ExperienceDetails = () => {
       },
     });
     } catch (error) {
-      console.error("❌ Error submitting experience listing:", error);
       alert("Failed to submit listing: " + error.message);
     } finally {
       setIsLoading(false);

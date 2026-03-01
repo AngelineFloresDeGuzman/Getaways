@@ -21,9 +21,8 @@ import {
 export const saveDraft = async (draftData, draftId = null) => {
   try {
     const user = auth.currentUser;
-    console.log('Current user in saveDraft:', user); // Debug log
+    // Debug log
     if (!user) {
-      console.error('User not authenticated for draft saving');
       throw new Error('User must be authenticated to save drafts');
     }
 
@@ -32,7 +31,6 @@ export const saveDraft = async (draftData, draftId = null) => {
 
     // If no draftId provided, try to find the user's most recent draft
     if (!docId) {
-      console.log('No draftId provided, checking for existing drafts...');
       const userDraftsQuery = query(
         draftsCollection,
         where('userId', '==', user.uid)
@@ -51,25 +49,17 @@ export const saveDraft = async (draftData, draftId = null) => {
 
         if (draftDocs.length > 0) {
           docId = draftDocs[0].id;
-          console.log('Found existing draft to update:', docId);
-        } else {
+          } else {
           // Create new draft ID
           docId = `${user.uid}_${Date.now()}`;
-          console.log('No existing drafts found, creating new draft:', docId);
-        }
+          }
       } else {
         // Create new draft ID
         docId = `${user.uid}_${Date.now()}`;
-        console.log('No existing drafts found, creating new draft:', docId);
-      }
+        }
     }
 
     const draftRef = doc(draftsCollection, docId);
-
-    console.log('draftService: About to save minimal data to Firestore');
-    console.log('draftService: Document ID:', docId);
-    console.log('draftService: Input data:', draftData);
-    console.log('draftService: Existing draft ID:', draftId);
 
     // Only include minimal fields at first creation
     let draftWithMetadata;
@@ -122,8 +112,6 @@ export const saveDraft = async (draftData, draftId = null) => {
     }
 
     console.log('draftService: Final data structure:', Object.keys(draftWithMetadata));
-    console.log('draftService: createdAt value:', draftWithMetadata.createdAt);
-
     if (draftWithMetadata.photos && Array.isArray(draftWithMetadata.photos)) {
       draftWithMetadata.photos = draftWithMetadata.photos.map(photo => ({
         id: photo.id,
@@ -145,14 +133,7 @@ export const saveDraft = async (draftData, draftId = null) => {
 
     try {
       await setDoc(draftRef, draftWithMetadata, { merge: true });
-      console.log('draftService: Successfully saved to Firestore');
-      console.log('draftService: Document saved with ID:', docId);
-    } catch (firestoreError) {
-      console.error('draftService: Firestore save failed:', firestoreError);
-      console.error('draftService: Error code:', firestoreError.code);
-      console.error('draftService: Error message:', firestoreError.message);
-      console.error('draftService: Full error:', firestoreError);
-
+      } catch (firestoreError) {
       // Provide more specific error messages
       let userFriendlyMessage = 'Failed to save draft: ';
       switch (firestoreError.code) {
@@ -177,7 +158,6 @@ export const saveDraft = async (draftData, draftId = null) => {
 
     return docId;
   } catch (error) {
-    console.error('Error saving draft:', error);
     throw new Error('Failed to save draft: ' + error.message);
   }
 };
@@ -210,7 +190,6 @@ export const loadDraft = async (draftId) => {
       return null;
     }
   } catch (error) {
-    console.error('Error loading draft:', error);
     throw new Error('Failed to load draft: ' + error.message);
   }
 };
@@ -256,7 +235,6 @@ export const getUserDrafts = async () => {
 
     return drafts;
   } catch (error) {
-    console.error('Error getting user drafts:', error);
     throw new Error('Failed to get drafts: ' + error.message);
   }
 };
@@ -282,7 +260,6 @@ export const deleteDraft = async (draftId) => {
     const draftRef = doc(db, 'onboardingDrafts', draftId);
     await deleteDoc(draftRef);
   } catch (error) {
-    console.error('Error deleting draft:', error);
     throw new Error('Failed to delete draft: ' + error.message);
   }
 };
@@ -305,7 +282,6 @@ export const markDraftAsCompleted = async (draftId) => {
       completedAt: serverTimestamp()
     }, { merge: true });
   } catch (error) {
-    console.error('Error marking draft as completed:', error);
     throw new Error('Failed to mark draft as completed: ' + error.message);
   }
 };

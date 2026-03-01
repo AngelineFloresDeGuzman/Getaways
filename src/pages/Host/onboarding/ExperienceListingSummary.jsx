@@ -154,8 +154,7 @@ const ExperienceListingSummary = () => {
             }
           }
         } catch (error) {
-          console.error("Error loading experience data from draft:", error);
-        }
+          }
       }
     };
     loadData();
@@ -183,10 +182,8 @@ const ExperienceListingSummary = () => {
           currentStep: "experience-years-of-experience",
           lastModified: new Date(),
         });
-        console.log("✅ Updated experience listing summary in draft, moving to years of experience");
-      } catch (error) {
-        console.error("Error updating draft:", error);
-      }
+        } catch (error) {
+        }
     }
 
     // Navigate to experience years of experience (first step in Step 2)
@@ -213,7 +210,6 @@ const ExperienceListingSummary = () => {
   };
 
   const handleSaveAndExit = async () => {
-    console.log("🚀 ExperienceListingSummary handleSaveAndExit called");
     try {
       const { auth } = await import("@/lib/firebase");
       const currentUser = auth.currentUser;
@@ -244,14 +240,11 @@ const ExperienceListingSummary = () => {
             data: draftData
           };
           draftId = await saveDraft(newDraftData, null);
-          console.log("✅ ExperienceListingSummary: Created new draft:", draftId);
-          
           // Update state with new draftId
           if (actions?.setDraftId) {
             actions.setDraftId(draftId);
           }
         } catch (error) {
-          console.error("❌ ExperienceListingSummary: Error creating draft:", error);
           alert("Failed to create draft. Please try again.");
           return;
         }
@@ -273,9 +266,7 @@ const ExperienceListingSummary = () => {
           }
           
           await updateDoc(draftRef, updateData);
-          console.log("✅ ExperienceListingSummary: Draft saved successfully");
-        } catch (error) {
-          console.error("❌ Error saving draft:", error);
+          } catch (error) {
           alert("Failed to save draft. Please try again.");
           return;
         }
@@ -289,9 +280,7 @@ const ExperienceListingSummary = () => {
           message: "Draft saved successfully!",
         },
       });
-      console.log("✅ Navigation to listings page initiated");
-    } catch (error) {
-      console.error("❌ Error in handleSaveAndExit:", error);
+      } catch (error) {
       alert("Failed to save. Please try again.");
     }
   };

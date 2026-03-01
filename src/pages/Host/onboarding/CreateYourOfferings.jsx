@@ -36,8 +36,7 @@ const CreateYourOfferings = () => {
             }
           }
         } catch (error) {
-          console.error("Error loading offerings from draft:", error);
-        }
+          }
       }
     };
     loadOfferings();

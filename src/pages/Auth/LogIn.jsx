@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
@@ -84,8 +84,7 @@ const LogIn = ({ isModal = false, onClose, onLoginSuccess, setUserData, onSwitch
           userData.emailVerified = true; // Update local copy
         }
       } catch (err) {
-        console.warn("⚠️ Could not update emailVerified in Firestore:", err.code);
-      }
+        }
 
       // Check email verification - use Firestore emailVerified (set by EmailJS) instead of Firebase Auth's emailVerified
       const isEmailVerified = userData.emailVerified === true;
@@ -263,8 +262,7 @@ const LogIn = ({ isModal = false, onClose, onLoginSuccess, setUserData, onSwitch
                 });
               }
             } catch (err) {
-              console.warn("⚠️ Could not update emailVerified in Firestore:", err.code);
-            }
+              }
             
             // Existing user signed in
           }

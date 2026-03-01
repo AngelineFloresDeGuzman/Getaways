@@ -75,7 +75,6 @@ const Languages = () => {
       }
       setLoading(false);
     } catch (error) {
-      console.error('Error loading preferences:', error);
       setLoading(false);
     }
   };
@@ -97,7 +96,6 @@ const Languages = () => {
 
       toast.success('Language and currency preferences saved successfully');
     } catch (error) {
-      console.error('Error saving preferences:', error);
       toast.error('Failed to save preferences');
     } finally {
       setSaving(false);

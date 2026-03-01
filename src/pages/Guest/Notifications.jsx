@@ -59,7 +59,6 @@ const Notifications = () => {
 
       return () => unsubscribe();
     } catch (error) {
-      console.error('Error loading notifications:', error);
       setLoading(false);
     }
   };
@@ -71,7 +70,6 @@ const Notifications = () => {
         readAt: serverTimestamp()
       });
     } catch (error) {
-      console.error('Error marking notification as read:', error);
       toast.error('Failed to mark notification as read');
     }
   };
@@ -89,7 +87,6 @@ const Notifications = () => {
       );
       toast.success('All notifications marked as read');
     } catch (error) {
-      console.error('Error marking all as read:', error);
       toast.error('Failed to mark all as read');
     }
   };
@@ -103,7 +100,6 @@ const Notifications = () => {
       });
       toast.success('Notification deleted');
     } catch (error) {
-      console.error('Error deleting notification:', error);
       toast.error('Failed to delete notification');
     }
   };

@@ -47,8 +47,7 @@ const PropertyDetails = () => {
             setDraftRef(ref);
           }
         } catch (error) {
-          console.error('Error restoring draftId:', error);
-        }
+          }
       }
     };
     restoreDraftId();
@@ -71,8 +70,7 @@ const PropertyDetails = () => {
           }
         }
       } catch (error) {
-        console.error('Error loading draft:', error);
-      }
+        }
     };
 
     fetchDraft();
@@ -81,7 +79,6 @@ const PropertyDetails = () => {
   // Set current step for progress bar when component mounts or route changes
   useEffect(() => {
     if (actions.setCurrentStep && state.currentStep !== 'propertydetails') {
-      console.log('📍 PropertyDetails page - Setting currentStep to propertydetails');
       actions.setCurrentStep('propertydetails');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -133,8 +130,7 @@ const PropertyDetails = () => {
             }
           }
         } catch (error) {
-          console.error('Error creating/finding draft:', error);
-        }
+          }
       }
       
       if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
@@ -165,7 +161,6 @@ const PropertyDetails = () => {
       
       navigate('/pages/propertystructure', { state: { draftId: draftIdToUse || draftId } });
     } catch (error) {
-      console.error('Error saving draft:', error);
       setSaveError('Failed to save progress. Continuing anyway...');
       setTimeout(() => navigate('/pages/propertystructure', { state: { draftId: draftIdToUse || draftId } }), 1000);
     } finally {
@@ -212,8 +207,7 @@ const PropertyDetails = () => {
             }
           }
         } catch (error) {
-          console.error('Error creating/finding draft:', error);
-        }
+          }
       }
       
       if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
@@ -249,7 +243,6 @@ const PropertyDetails = () => {
         }
       });
     } catch (error) {
-      console.error('Error saving draft:', error);
       setSaveError(error.message);
       alert('Failed to save progress: ' + error.message);
     } finally {

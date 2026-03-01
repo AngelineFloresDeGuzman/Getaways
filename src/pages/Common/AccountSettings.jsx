@@ -213,7 +213,6 @@ const AccountSettings = () => {
   useEffect(() => {
     if (!user || activeTab !== 'bookings' || isHost) return;
     // Force reload when navigating to bookings tab to ensure newly created bookings appear
-    console.log('📦 AccountSettings: Bookings tab activated, loading bookings...');
     loadGuestBookings();
   }, [location.search, activeTab]); // Reload when URL changes or tab becomes active
 
@@ -340,8 +339,7 @@ const AccountSettings = () => {
             }
           }
         } catch (error) {
-          console.warn('Error loading residential address from listings:', error);
-        }
+          }
         
         // Handle birthday - could be stored as Date, string, or timestamp
         let birthdayValue = '';
@@ -427,8 +425,7 @@ const AccountSettings = () => {
               }
             }
           } catch (error) {
-            console.error('Error auto-connecting merchant account for admin:', error);
-          }
+            }
         }
         
         const paymentMethod = paymentData.method || '';
@@ -491,7 +488,6 @@ const AccountSettings = () => {
         });
       }
     } catch (error) {
-      console.error('Error loading user profile:', error);
       toast.error('Failed to load profile data');
     }
   };
@@ -518,8 +514,7 @@ const AccountSettings = () => {
         reviewsCount = reviewStats.totalReviews;
         averageRating = reviewStats.averageRating;
       } catch (error) {
-        console.error('Error loading review stats:', error);
-      }
+        }
 
       setStats({
         reviews: reviewsCount,
@@ -528,8 +523,7 @@ const AccountSettings = () => {
         averageRating: averageRating
       });
     } catch (error) {
-      console.error('Error loading stats:', error);
-    }
+      }
   };
 
   const loadHostListings = async () => {
@@ -565,8 +559,7 @@ const AccountSettings = () => {
 
       setListings(listingsData);
     } catch (error) {
-      console.error('Error loading host listings:', error);
-    }
+      }
   };
 
   const loadGuestBookings = async () => {
@@ -574,10 +567,7 @@ const AccountSettings = () => {
 
     try {
       setBookingsLoading(true);
-      console.log('📦 AccountSettings: Loading guest bookings for user:', user.uid);
       const guestBookings = await getGuestBookings(user.uid);
-      console.log('📦 AccountSettings: Loaded', guestBookings.length, 'bookings');
-
       const bookingsWithDetails = await Promise.all(
         guestBookings.map(async (booking) => {
           try {
@@ -620,7 +610,6 @@ const AccountSettings = () => {
               };
             }
           } catch (error) {
-            console.error('Error loading listing for booking:', error);
             return {
               ...booking,
               checkInDate: booking.checkInDate?.toDate ? booking.checkInDate.toDate() : new Date(booking.checkInDate),
@@ -637,9 +626,7 @@ const AccountSettings = () => {
       );
 
       setBookings(bookingsWithDetails);
-      console.log('📦 AccountSettings: Set bookings with details:', bookingsWithDetails.length);
-    } catch (error) {
-      console.error('Error loading guest bookings:', error);
+      } catch (error) {
       setBookings([]);
     } finally {
       setBookingsLoading(false);
@@ -650,7 +637,6 @@ const AccountSettings = () => {
   useEffect(() => {
     if (!user || isHost || activeTab !== 'bookings') return;
 
-    console.log('📦 AccountSettings: Setting up real-time listener for bookings');
     const bookingsQuery = query(
       collection(db, 'bookings'),
       where('guestId', '==', user.uid)
@@ -660,27 +646,22 @@ const AccountSettings = () => {
     const unsubscribe = onSnapshot(
       bookingsQuery,
       async (snapshot) => {
-        console.log('📦 AccountSettings: Real-time booking update - docs:', snapshot.docs.length);
         // Always reload bookings when snapshot changes (including first snapshot if navigating from booking creation)
         // This ensures newly created bookings appear immediately
         if (isFirstSnapshot) {
           isFirstSnapshot = false;
           // Still reload on first snapshot to catch any bookings created just before listener was set up
-          console.log('📦 AccountSettings: First snapshot received, reloading bookings...');
           loadGuestBookings();
           return;
         }
         // Reload bookings when real-time update is received (new booking created or updated)
-        console.log('📦 AccountSettings: Booking change detected, reloading...');
         loadGuestBookings();
       },
       (error) => {
-        console.error('Error in bookings real-time listener:', error);
-      }
+        }
     );
 
     return () => {
-      console.log('📦 AccountSettings: Cleaning up real-time listener');
       unsubscribe();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -748,7 +729,6 @@ const AccountSettings = () => {
       const hostCoupons = await getHostCoupons(user.uid);
       setCoupons(hostCoupons);
     } catch (error) {
-      console.error('Error loading coupons:', error);
       toast.error('Failed to load coupons');
     } finally {
       setCouponsLoading(false);
@@ -765,7 +745,6 @@ const AccountSettings = () => {
       toast.success('Coupon deleted successfully');
       loadCoupons(); // Reload coupons
     } catch (error) {
-      console.error('Error deleting coupon:', error);
       toast.error(error.message || 'Failed to delete coupon');
     }
   };
@@ -819,7 +798,6 @@ const AccountSettings = () => {
 
       setBookings(bookingsData);
     } catch (error) {
-      console.error('Error loading host bookings:', error);
       setBookings([]);
     } finally {
       setBookingsLoading(false);
@@ -831,8 +809,6 @@ const AccountSettings = () => {
 
     try {
       setWishlistLoading(true);
-      console.log('📋 Wishlists: Fetching wishes for host:', user.uid);
-      
       const listingsRef = collection(db, 'listings');
       let listingsSnapshot;
       try {
@@ -890,8 +866,7 @@ const AccountSettings = () => {
             });
           });
         } catch (error) {
-          console.error(`Error fetching wishes for listing ${listingId}:`, error);
-        }
+          }
       }
 
       allWishes.sort((a, b) => {
@@ -906,7 +881,6 @@ const AccountSettings = () => {
       const uniqueListings = [...new Set(allWishes.map(w => w.listingTitle))];
       setWishlistListings(uniqueListings);
     } catch (error) {
-      console.error('❌ Error fetching wishes:', error);
       toast.error('Failed to load wishes');
     } finally {
       setWishlistLoading(false);
@@ -934,13 +908,6 @@ const AccountSettings = () => {
           const bookingAmount = bookingData.bookingAmount || 0;
           const guestFee = bookingData.guestFee || 0;
           const listingTitle = bookingData.listingTitle || 'Accommodation';
-          
-          console.log('🔍 Processing payment on booking confirmation:', {
-            bookingId,
-            paymentProvider,
-            paymentMethod,
-            totalAmount
-          });
           
           // Handle PayPal payment differently
           // Check paymentProvider first as it's the source of truth
@@ -1048,8 +1015,7 @@ const AccountSettings = () => {
               });
               
               toast.success('Booking confirmed. PayPal payment processed successfully.');
-              console.log('✅ Booking confirmed with PayPal payment - payment already captured');
-            } else {
+              } else {
               // PayPal payment was not authorized/captured yet
               // Mark booking as confirmed but payment as pending
               // Set 24-hour deadline for payment completion
@@ -1201,7 +1167,6 @@ const AccountSettings = () => {
           
           // Continue to email sending and booking reload (for both PayPal and GetPay)
         } catch (paymentError) {
-          console.error('❌ Error processing payment on booking confirmation:', paymentError);
           toast.error('Failed to process payment. Booking confirmation cancelled.');
           return; // Don't update status if payment fails
         }
@@ -1247,8 +1212,7 @@ const AccountSettings = () => {
           );
           
           if (emailResult.success) {
-            console.log('✅ Booking confirmation email sent to guest');
-          } else if (emailResult.skipped) {
+            } else if (emailResult.skipped) {
             console.log('ℹ️ Email sending skipped (EmailJS not configured)');
           } else {
             console.warn('⚠️ Failed to send booking confirmation email (non-critical):', emailResult.error);
@@ -1270,22 +1234,19 @@ const AccountSettings = () => {
           );
           
           if (emailResult.success) {
-            console.log('✅ Booking cancellation email sent to guest');
-          } else if (emailResult.skipped) {
+            } else if (emailResult.skipped) {
             console.log('ℹ️ Email sending skipped (EmailJS not configured)');
           } else {
             console.warn('⚠️ Failed to send booking cancellation email (non-critical):', emailResult.error);
           }
         }
       } catch (emailError) {
-        console.error('❌ Error sending booking status email:', emailError);
         // Don't fail the booking status update if email fails
       }
       
       toast.success(`Booking ${newStatus}`);
       await loadHostBookings();
     } catch (error) {
-      console.error('❌ Error updating booking status:', error);
       toast.error('Failed to update booking status');
     }
   };
@@ -1331,7 +1292,6 @@ const AccountSettings = () => {
       setSelectedBookingForReview(bookingForReview);
       setShowReviewModal(true);
     } catch (error) {
-      console.error('Error marking booking as completed:', error);
       toast.error('Failed to mark booking as completed');
     } finally {
       setMarkingCompleted(null);
@@ -1374,7 +1334,6 @@ const AccountSettings = () => {
         toast.error(result.message || 'Failed to cancel booking');
       }
     } catch (error) {
-      console.error('Error cancelling booking:', error);
       toast.error(error.message || 'Failed to cancel booking');
     } finally {
       setCancellingBooking(null);
@@ -1396,7 +1355,6 @@ const AccountSettings = () => {
 
       toast.success(`Wish marked as ${newStatus}`);
     } catch (error) {
-      console.error('Error updating wish:', error);
       toast.error('Failed to update wish status');
     }
   };
@@ -1469,7 +1427,6 @@ const AccountSettings = () => {
             });
             toast.success('Profile picture updated successfully!');
           } catch (error) {
-            console.error('Error saving profile image:', error);
             toast.error('Failed to save profile picture');
           } finally {
             setUploadingImage(false);
@@ -1490,7 +1447,6 @@ const AccountSettings = () => {
       
       reader.readAsDataURL(file);
     } catch (error) {
-      console.error('Error uploading image:', error);
       toast.error('Failed to upload image');
       setUploadingImage(false);
     }
@@ -1555,7 +1511,6 @@ const AccountSettings = () => {
       await loadUserProfile(user.uid);
       await loadStats(user.uid);
     } catch (error) {
-      console.error('Error saving profile:', error);
       toast.error('Failed to save profile. Please try again.');
     } finally {
       setSaving(false);
@@ -1624,7 +1579,6 @@ const AccountSettings = () => {
       setShowConnectPayPal(false);
       toast.success('PayPal account connected successfully!');
     } catch (error) {
-      console.error('Error connecting PayPal:', error);
       toast.error('Failed to connect PayPal account: ' + error.message);
     } finally {
       setIsConnectingPayPal(false);
@@ -1675,7 +1629,6 @@ const AccountSettings = () => {
       await loadStats(user.uid);
       toast.success('PayPal account disconnected successfully');
     } catch (error) {
-      console.error('Error disconnecting PayPal:', error);
       toast.error('Failed to disconnect PayPal account: ' + error.message);
     } finally {
       setIsDisconnectingPayPal(false);
@@ -1936,7 +1889,6 @@ const AccountSettings = () => {
                       const reviews = await getUserReviews(user.uid);
                       setUserReviews(reviews);
                     } catch (error) {
-                      console.error('Error loading user reviews:', error);
                       toast.error('Failed to load reviews');
                     } finally {
                       setUserReviewsLoading(false);
@@ -2665,8 +2617,7 @@ const AccountSettings = () => {
                                         );
                                         navigate(`/host/messages?conversation=${conversationId}`);
                                       } catch (error) {
-                                        console.error('Error starting conversation:', error);
-                                      }
+                                        }
                                       })();
                                     }}
                                     className="btn-outline w-full px-4 py-2 text-sm font-medium flex items-center justify-center gap-2 mt-2"
@@ -2748,8 +2699,7 @@ const AccountSettings = () => {
                                               );
                                               navigate(`/host/messages?conversation=${conversationId}`);
                                             } catch (error) {
-                                              console.error('Error starting conversation:', error);
-                                            }
+                                              }
                                             })();
                                           }}
                                           className="btn-outline px-4 py-2 text-sm font-medium flex items-center gap-2 mt-2 w-full"

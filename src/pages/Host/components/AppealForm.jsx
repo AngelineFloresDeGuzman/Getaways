@@ -32,7 +32,6 @@ const AppealForm = ({ hostId, hostEmail, hostName, onSuccess, onCancel }) => {
       await submitAppeal(hostId, hostEmail, hostName, reason.trim(), additionalInfo.trim());
       onSuccess();
     } catch (err) {
-      console.error('Error submitting appeal:', err);
       setError('Failed to submit appeal. Please try again.');
     } finally {
       setIsSubmitting(false);

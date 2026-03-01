@@ -84,8 +84,7 @@ const ServiceWhereProvide = () => {
             }
           }
         } catch (error) {
-          console.error("Error loading selections from draft:", error);
-        }
+          }
       }
     };
     loadSelections();
@@ -116,8 +115,7 @@ const ServiceWhereProvide = () => {
       if (proxyError.name === 'AbortError') {
         throw proxyError;
       }
-      console.log('Vite proxy failed, trying alternatives...', proxyError.message);
-    }
+      }
     
     try {
       const response = await fetch(nominatimUrl, {
@@ -137,8 +135,7 @@ const ServiceWhereProvide = () => {
       if (directError.name === 'AbortError') {
         throw directError;
       }
-      console.log('Direct request failed, trying public proxies...', directError.message);
-    }
+      }
     
     const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(nominatimUrl)}`;
     let timeoutId = null;
@@ -173,10 +170,8 @@ const ServiceWhereProvide = () => {
       }
     } catch (error) {
       if (error.name === 'AbortError') {
-        console.log('Proxy timed out');
-      } else {
-        console.log('Proxy failed:', error.message);
-      }
+        } else {
+        }
       throw error;
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
@@ -227,7 +222,6 @@ const ServiceWhereProvide = () => {
           if (error.name === 'AbortError') {
             return;
           }
-          console.error('Error fetching location suggestions:', error);
           results = [];
         }
         
@@ -250,7 +244,6 @@ const ServiceWhereProvide = () => {
         if (error.name === 'AbortError') {
           return;
         }
-        console.error('Error fetching location suggestions:', error);
         setLocationSuggestions([]);
         setIsSearching(false);
       }
@@ -302,10 +295,8 @@ const ServiceWhereProvide = () => {
           "data.serviceTravelToGuests": serviceAreas.length > 0,
           lastModified: new Date(),
         });
-        console.log("✅ Updated service areas in draft");
-      } catch (error) {
-        console.error("Error updating draft:", error);
-      }
+        } catch (error) {
+        }
     }
     setShowServiceAreaModal(false);
     setSearchQuery("");
@@ -382,10 +373,8 @@ const ServiceWhereProvide = () => {
           "data.serviceGuestsComeToYou": true,
           lastModified: new Date(),
         });
-        console.log("✅ Updated guests come to you selection in draft");
-      } catch (error) {
-        console.error("Error updating draft:", error);
-      }
+        } catch (error) {
+        }
     }
     setAddressSelectedInModal(false); // Reset selection
     setShowAddressModal(false);
@@ -436,10 +425,8 @@ const ServiceWhereProvide = () => {
           "data.serviceGuestsComeToYou": false,
           lastModified: new Date(),
         });
-        console.log("✅ Removed address from guests come to you");
-      } catch (error) {
-        console.error("Error updating draft:", error);
-      }
+        } catch (error) {
+        }
     }
   };
 
@@ -455,9 +442,7 @@ const ServiceWhereProvide = () => {
           "data.serviceAreas": serviceAreas,
           lastModified: new Date(),
         });
-        console.log("✅ Saved both options to Firebase");
-      } catch (error) {
-        console.error("Error saving options to Firebase:", error);
+        } catch (error) {
         throw error;
       }
     }
@@ -482,10 +467,8 @@ const ServiceWhereProvide = () => {
           currentStep: "service-photos",
           lastModified: new Date(),
         });
-        console.log("✅ Updated service where provide step in draft");
-      } catch (error) {
-        console.error("Error updating draft:", error);
-      }
+        } catch (error) {
+        }
     }
 
     // Navigate to next page (service-photos)
@@ -552,10 +535,8 @@ const ServiceWhereProvide = () => {
             currentStep: "service-where-provide", // Save CURRENT step
             lastModified: new Date(),
           });
-          console.log("✅ ServiceWhereProvide: Draft saved successfully on Save & Exit");
-        } catch (error) {
-          console.error("Error saving currentStep:", error);
-        }
+          } catch (error) {
+          }
       }
       
       navigate("/host/listings", {
@@ -565,7 +546,6 @@ const ServiceWhereProvide = () => {
         },
       });
     } catch (error) {
-      console.error("❌ Error saving draft:", error);
       alert("Failed to save. Please try again.");
     }
   };

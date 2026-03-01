@@ -57,13 +57,10 @@ const ServicesDetail = () => {
 
       try {
         setLoading(true);
-        console.log('📦 ServicesDetail: Fetching service with ID:', id);
-        
         const docRef = doc(db, 'listings', id);
         const docSnap = await getDoc(docRef);
         
         if (!docSnap.exists()) {
-          console.error('❌ Service not found:', id);
           setError('Service not found');
           setLoading(false);
           return;
@@ -126,7 +123,6 @@ const ServicesDetail = () => {
         setService(serviceData);
         setLoading(false);
       } catch (error) {
-        console.error('Error fetching service:', error);
         setError('Failed to load service');
         setLoading(false);
       }
@@ -141,12 +137,9 @@ const ServicesDetail = () => {
 
     const loadUnavailableDates = async () => {
       try {
-        console.log('📅 ServicesDetail: Loading unavailable dates for listing:', id);
         const dates = await getUnavailableDates(id);
-        console.log('📅 ServicesDetail: Loaded unavailable dates:', dates.length, 'dates');
         setUnavailableDates(dates);
       } catch (error) {
-        console.error('❌ ServicesDetail: Error loading unavailable dates:', error);
         setUnavailableDates([]);
       }
     };
@@ -169,12 +162,10 @@ const ServicesDetail = () => {
           loadUnavailableDates();
         },
         (error) => {
-          console.error('❌ ServicesDetail: Error in bookings snapshot:', error);
-        }
+          }
       );
     } catch (error) {
-      console.error('❌ ServicesDetail: Error setting up bookings listener:', error);
-    }
+      }
 
     return () => {
       if (unsubscribe) {
@@ -220,7 +211,6 @@ const ServicesDetail = () => {
       const finalTotal = Math.max(0, originalPrice - discountAmount);
       setTotalPrice(finalTotal);
     } catch (error) {
-      console.error('Error calculating price:', error);
       setTotalPrice(0);
     }
   }, [selectedDate, participants, service]);
@@ -235,8 +225,7 @@ const ServicesDetail = () => {
         const reviewsData = await getListingReviews(id);
         setReviews(reviewsData);
       } catch (error) {
-        console.error('Error loading reviews:', error);
-      } finally {
+        } finally {
         setReviewsLoading(false);
       }
     };
@@ -629,7 +618,6 @@ const ServicesDetail = () => {
                             
                             return dateToCheck.getTime() === unavailableDateObj.getTime();
                           } catch (error) {
-                            console.warn('Error comparing unavailable date:', error);
                             return false;
                           }
                         });
@@ -967,8 +955,7 @@ const ServicesDetail = () => {
                         url: `${window.location.origin}/services/${activeShare}`,
                       });
                     } catch (error) {
-                      console.error("Share cancelled or failed:", error);
-                    }
+                      }
                   } else {
                     alert("Sharing via device apps is not supported on this browser.");
                   }

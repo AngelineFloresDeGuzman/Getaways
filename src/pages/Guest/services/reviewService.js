@@ -91,25 +91,13 @@ export const createReview = async (reviewData) => {
   // Award points to host for positive review
   try {
     const hostId = listingData.ownerId || listingData.hostId;
-    console.log('🎯 Review points: Checking hostId for listing:', {
-      listingId,
-      ownerId: listingData.ownerId,
-      hostId: listingData.hostId,
-      foundHostId: hostId,
-      rating
-    });
-    
     if (!hostId) {
-      console.warn('⚠️ Review points: No hostId found in listing data:', listingData);
       return reviewRef.id; // Return early if no hostId
     }
     
     if (rating >= 3) {
-      console.log('✅ Review points: Awarding points to host:', hostId, 'for', rating, 'star review');
       const { awardPointsForReview, awardMilestonePoints } = await import('@/pages/Host/services/pointsService');
       const pointsResult = await awardPointsForReview(hostId, rating, reviewRef.id);
-      console.log('✅ Review points: Points awarded result:', pointsResult);
-      
       // Check for review milestones
       try {
         const { collection, query, where, getDocs } = await import('firebase/firestore');
@@ -124,8 +112,6 @@ export const createReview = async (reviewData) => {
         const hostListingsSnapshot = await getDocs(hostListingsQuery);
         const hostListingIds = hostListingsSnapshot.docs.map(doc => doc.id);
         
-        console.log('🎯 Review points: Found', hostListingIds.length, 'listings for host');
-        
         if (hostListingIds.length > 0) {
           // Firestore 'in' query limit is 10, so we need to batch if there are more
           let totalReviews = 0;
@@ -139,31 +125,20 @@ export const createReview = async (reviewData) => {
             totalReviews += allHostReviewsSnapshot.size;
           }
           
-          console.log('🎯 Review points: Total reviews for host:', totalReviews);
-          
           if ([5, 10, 25, 50].includes(totalReviews)) {
-            console.log('🎯 Review points: Milestone reached!', totalReviews, 'reviews');
             await awardMilestonePoints(hostId, 'reviews', totalReviews);
           }
         }
       } catch (milestoneError) {
-        console.error('Error checking review milestones:', milestoneError);
         // Don't block if milestone check fails
       }
     } else {
       console.log('ℹ️ Review points: Rating too low (', rating, '), no points awarded');
     }
   } catch (pointsError) {
-    console.error('❌ Error awarding points for review:', pointsError);
-    console.error('Error details:', {
-      message: pointsError.message,
-      code: pointsError.code,
-      stack: pointsError.stack
-    });
     // Don't block review creation if points fail
   }
 
-  console.log('✅ Review created successfully:', reviewRef.id);
   return reviewRef.id;
 };
 
@@ -201,7 +176,6 @@ export const getListingReviews = async (listingId) => {
 
     return reviews;
   } catch (error) {
-    console.error('Error getting listing reviews:', error);
     return [];
   }
 };
@@ -240,7 +214,6 @@ export const getUserReviews = async (userId) => {
 
     return reviews;
   } catch (error) {
-    console.error('Error getting user reviews:', error);
     return [];
   }
 };
@@ -273,7 +246,6 @@ export const getReviewByBookingId = async (bookingId) => {
       createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt),
     };
   } catch (error) {
-    console.error('Error getting review by booking ID:', error);
     return null;
   }
 };
@@ -308,10 +280,8 @@ export const updateListingRating = async (listingId) => {
       updatedAt: serverTimestamp(),
     });
 
-    console.log('✅ Listing rating updated:', { rating: roundedRating, count: reviews.length });
-  } catch (error) {
-    console.error('Error updating listing rating:', error);
-  }
+    } catch (error) {
+    }
 };
 
 /**
@@ -345,7 +315,6 @@ export const getUserReviewStats = async (userId) => {
       ratingDistribution,
     };
   } catch (error) {
-    console.error('Error getting user review stats:', error);
     return {
       totalReviews: 0,
       averageRating: 0,

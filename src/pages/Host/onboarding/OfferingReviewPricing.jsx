@@ -84,8 +84,7 @@ const OfferingReviewPricing = () => {
               }
             }
           } catch (error) {
-            console.error("Error loading pricing:", error);
-          }
+            }
         }
       }
     };

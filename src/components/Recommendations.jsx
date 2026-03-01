@@ -79,7 +79,6 @@ const Recommendations = ({ title = "Recommended for You", showTitle = true, limi
       // Final formatted recommendations
       setRecommendations(formattedRecommendations);
     } catch (error) {
-      console.error('❌ Error loading recommendations:', error);
       setRecommendations([]);
     } finally {
       setLoading(false);
@@ -137,7 +136,6 @@ const Recommendations = ({ title = "Recommended for You", showTitle = true, limi
   }
 
   if (recommendations.length === 0) {
-    console.log('⚠️ No recommendations to display');
     // Show empty state instead of hiding completely
     return (
       <section className="py-12 bg-background">

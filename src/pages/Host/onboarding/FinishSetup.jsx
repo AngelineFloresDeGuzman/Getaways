@@ -33,8 +33,7 @@ const FinishSetup = () => {
         try {
           await loadDraftIfNeeded(location.state.draftId);
         } catch (error) {
-          console.error('Error loading draft in FinishSetup:', error);
-        }
+          }
       }
     };
 
@@ -142,10 +141,8 @@ const FinishSetup = () => {
                     currentStep: 'bookingsettings',
                     lastModified: new Date()
                   });
-                  console.log('📍 FinishSetup: ✅ Saved currentStep to Firebase:', draftIdToUse, '- currentStep: bookingsettings');
-                }
+                  }
               } catch (saveError) {
-                console.error('📍 FinishSetup: Error saving to Firebase:', saveError);
                 // Continue navigation even if save fails
               }
             }
@@ -162,7 +159,6 @@ const FinishSetup = () => {
               } 
             });
           } catch (error) {
-            console.error('Error in FinishSetup Next:', error);
             alert('Error saving progress. Please try again.');
           }
         }}

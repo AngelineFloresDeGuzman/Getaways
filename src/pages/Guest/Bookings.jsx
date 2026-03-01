@@ -56,7 +56,6 @@ const Bookings = () => {
       
       toast.success('Booking marked as completed! Host earnings will be released by admin.');
     } catch (error) {
-      console.error('Error marking booking as completed:', error);
       toast.error('Failed to mark booking as completed');
     } finally {
       setCompletingBooking(null);
@@ -128,7 +127,6 @@ const Bookings = () => {
                   };
                 }
               } catch (error) {
-                console.error('Error loading listing for booking:', error);
                 return {
                   ...booking,
                   listingTitle: 'Error loading listing',
@@ -147,7 +145,6 @@ const Bookings = () => {
         toast.error(result.message || 'Failed to cancel booking');
       }
     } catch (error) {
-      console.error('Error cancelling booking:', error);
       toast.error(error.message || 'Failed to cancel booking');
     } finally {
       setCancellingBooking(null);
@@ -214,7 +211,6 @@ const Bookings = () => {
                 };
               }
             } catch (error) {
-              console.error('Error loading listing for booking:', error);
               return {
                 ...booking,
                 listingTitle: 'Error loading listing',
@@ -229,7 +225,6 @@ const Bookings = () => {
 
         setBookings(bookingsWithDetails);
       } catch (error) {
-        console.error('Error loading bookings:', error);
         setBookings([]);
       } finally {
         setLoading(false);
@@ -249,11 +244,9 @@ const Bookings = () => {
         const unsubscribe = onSnapshot(
           bookingsQuery,
           async (snapshot) => {
-            console.log('📦 Bookings snapshot update - docs:', snapshot.docs.length);
             const updatedBookings = [];
             for (const docSnap of snapshot.docs) {
               const bookingData = docSnap.data();
-              console.log('📦 Processing booking:', docSnap.id, 'Status:', bookingData.status, 'PaymentStatus:', bookingData.paymentStatus, 'TotalPrice:', bookingData.totalPrice);
               try {
                 const listingRef = doc(db, 'listings', bookingData.listingId);
                 const listingSnap = await getDoc(listingRef);
@@ -283,8 +276,7 @@ const Bookings = () => {
                   });
                 }
               } catch (error) {
-                console.error('❌ Error loading listing:', error);
-              }
+                }
             }
             // Sort by createdAt descending
             updatedBookings.sort((a, b) => {
@@ -292,18 +284,15 @@ const Bookings = () => {
               const bDate = b.createdAt || new Date(0);
               return bDate - aDate;
             });
-            console.log('✅ Updated bookings count:', updatedBookings.length);
             setBookings(updatedBookings);
           },
           (error) => {
-            console.error('❌ Error in bookings snapshot:', error);
-          }
+            }
         );
 
         return () => unsubscribe();
       } catch (error) {
-        console.error('Error setting up bookings listener:', error);
-      }
+        }
     }
   }, [user]);
 

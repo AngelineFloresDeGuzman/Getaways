@@ -47,7 +47,6 @@ export const getAllCashOutRequests = async (status = null) => {
       reviewedAt: doc.data().reviewedAt?.toDate ? doc.data().reviewedAt.toDate() : null
     }));
   } catch (error) {
-    console.error('Error getting cash out requests:', error);
     throw error;
   }
 };
@@ -96,7 +95,6 @@ export const getUserCashOutRequests = async (userId, status = null) => {
 
     return requests;
   } catch (error) {
-    console.error('Error getting user cash out requests:', error);
     throw error;
   }
 };
@@ -186,9 +184,7 @@ export const approveCashOutRequest = async (requestId, adminId, adminNotes = '')
     });
 
     await batch.commit();
-    console.log(`✅ Cash out request ${requestId} approved. ₱${requestData.amount} deducted from user ${requestData.userId}`);
-  } catch (error) {
-    console.error('Error approving cash out request:', error);
+    } catch (error) {
     throw error;
   }
 };
@@ -223,9 +219,7 @@ export const rejectCashOutRequest = async (requestId, adminId, reason = '') => {
       updatedAt: serverTimestamp()
     });
 
-    console.log(`❌ Cash out request ${requestId} rejected. Reason: ${reason || 'No reason provided'}`);
-  } catch (error) {
-    console.error('Error rejecting cash out request:', error);
+    } catch (error) {
     throw error;
   }
 };

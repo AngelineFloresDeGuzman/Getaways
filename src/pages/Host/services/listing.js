@@ -14,13 +14,11 @@ export const createListing = async (listingData, existingListingId = null) => {
   // CRITICAL: If existingListingId is provided, ALWAYS update, never create new
   // This prevents accidental duplicates
   if (existingListingId) {
-    console.log('📝 createListing: existingListingId provided, will update existing listing:', existingListingId);
     // Verify listing exists before updating
     const existingListingRef = doc(db, 'listings', existingListingId);
     const existingListingSnap = await getDoc(existingListingRef);
     
     if (!existingListingSnap.exists()) {
-      console.error('❌ createListing: existingListingId provided but listing does not exist:', existingListingId);
       throw new Error(`Listing with ID ${existingListingId} does not exist`);
     }
   }
@@ -36,18 +34,9 @@ export const createListing = async (listingData, existingListingId = null) => {
   const pricing = listingData.pricing || {};
   
   // Debug: Log photos received in createListing
-  console.log('📸 createListing: Received photos:', photos.length);
-  console.log('📸 createListing: existingListingId:', existingListingId, '(updating:', !!existingListingId, ')');
   if (photos.length > 0) {
-    console.log('📸 createListing: First photo:', {
-      id: photos[0].id,
-      name: photos[0].name,
-      hasBase64: !!photos[0].base64,
-      hasUrl: !!photos[0].url,
-      allKeys: Object.keys(photos[0])
-    });
   } else {
-    console.warn('⚠️ createListing: No photos received! (This is OK if user removed all photos)');
+    // No photos received (This is OK if user removed all photos)
   }
   
   // Get first photo's base64 for main image (but don't duplicate - use from photos array)
@@ -165,7 +154,6 @@ export const createListing = async (listingData, existingListingId = null) => {
       
       // CRITICAL: Verify this listing belongs to the current user before updating
       if (existingData.ownerId !== user.uid) {
-        console.error('❌ createListing: Attempted to update listing owned by different user');
         throw new Error('Listing belongs to a different user');
       }
       
@@ -189,7 +177,6 @@ export const createListing = async (listingData, existingListingId = null) => {
       });
       
       console.log('📝 createListing: Updating existing listing with fields:', Object.keys(listingDoc));
-      console.log('📝 createListing: Photos being updated:', photos.length, 'photos');
       console.log('📝 createListing: Fields being updated:', Object.keys(listingDoc));
       
       // Update existing listing (Firestore updateDoc only updates provided fields)
@@ -197,7 +184,6 @@ export const createListing = async (listingData, existingListingId = null) => {
       console.log('✅ Updated existing listing (only changed fields):', existingListingId);
       return existingListingId;
     } else {
-      console.error('❌ createListing: existingListingId provided but listing does not exist:', existingListingId);
       throw new Error(`Cannot update: Listing ${existingListingId} does not exist`);
     }
   }
@@ -219,22 +205,18 @@ export const createListing = async (listingData, existingListingId = null) => {
     existingListingsSnapshot.docs.forEach(doc => {
       const existingListing = doc.data();
       if (existingListing.title === listingTitle && existingListing.location === listingLocation) {
-        console.warn(`⚠️ createListing: Found existing active listing with same title and location: ${doc.id}`);
-        console.warn('⚠️ This might be a duplicate. Consider using update instead.');
         // Don't throw - allow creation but log warning
         // The draft's publishedListingId should prevent this, but this is a safety net
       }
     });
   } catch (queryError) {
     // If query fails (e.g., missing index), log warning but continue
-    console.warn('⚠️ createListing: Could not check for duplicates:', queryError.message);
-  }
+    }
   
   // Create new listing
   listingDoc.createdAt = serverTimestamp();
   listingDoc.publishedAt = listingData.publishedAt || serverTimestamp();
   
   const docRef = await addDoc(listingsCollection, listingDoc);
-  console.log('✅ Created new listing:', docRef.id);
   return docRef.id;
 };

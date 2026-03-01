@@ -39,10 +39,8 @@ export const submitAppeal = async (hostId, hostEmail, hostName, reason, addition
     };
 
     const docRef = await addDoc(collection(db, APPEALS_COLLECTION), appealData);
-    console.log('✅ Appeal submitted successfully:', docRef.id);
     return docRef.id;
   } catch (error) {
-    console.error('❌ Error submitting appeal:', error);
     throw error;
   }
 };
@@ -76,7 +74,6 @@ export const getAllAppeals = async (status = null) => {
       reviewedAt: doc.data().reviewedAt?.toDate ? doc.data().reviewedAt.toDate() : null
     }));
   } catch (error) {
-    console.error('❌ Error getting appeals:', error);
     throw error;
   }
 };
@@ -107,7 +104,6 @@ export const getAppealByHostId = async (hostId) => {
       reviewedAt: appealDoc.data().reviewedAt?.toDate ? appealDoc.data().reviewedAt.toDate() : null
     };
   } catch (error) {
-    console.error('❌ Error getting appeal by host ID:', error);
     throw error;
   }
 };
@@ -130,9 +126,7 @@ export const updateAppealStatus = async (appealId, status, adminId, adminNotes =
       reviewedBy: adminId,
       adminNotes
     });
-    console.log('✅ Appeal status updated:', appealId, status);
-  } catch (error) {
-    console.error('❌ Error updating appeal status:', error);
+    } catch (error) {
     throw error;
   }
 };

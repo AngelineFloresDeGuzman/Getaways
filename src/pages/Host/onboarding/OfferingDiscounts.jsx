@@ -81,17 +81,10 @@ const OfferingDiscounts = () => {
                 setMaxGuests(offering.maxGuests);
               }
               
-              console.log("✅ Loaded discount data for editing:", {
-                discounts: offering.discounts,
-                discountValues: offering.discountValues,
-                largeGroupDetails: offering.largeGroupDetails,
-                maxGuests: offering.maxGuests,
-              });
-            }
+              }
           }
         } catch (error) {
-          console.error("Error loading discount data:", error);
-        }
+          }
       }
     };
 
@@ -285,21 +278,17 @@ const OfferingDiscounts = () => {
               ...offerings[existingOfferingIndex], // Preserve existing fields (availability, etc.)
               ...offeringData, // Override with new discount data
             };
-            console.log("✅ Updated existing offering with discounts, ID:", offeringId);
-          } else {
+            } else {
             // Add new offering
             offerings = [...offerings, offeringData];
-            console.log("✅ Added new offering with discounts, ID:", offeringId);
-          }
+            }
           
           await updateDoc(draftRef, {
             "data.serviceOfferings": offerings,
             lastModified: new Date(),
           });
-          console.log("✅ Saved service offerings array to Firebase, total offerings:", offerings.length);
-        }
+          }
       } catch (error) {
-        console.error("Error saving offering to Firebase:", error);
         throw error; // Re-throw to handle in caller if needed
       }
     }
@@ -356,10 +345,8 @@ const OfferingDiscounts = () => {
 
     try {
       await saveOfferingToFirebase(offeringData);
-      console.log("✅ Saved offering progress before exit");
-    } catch (error) {
-      console.error("Error saving before exit:", error);
-    }
+      } catch (error) {
+      }
 
       navigate("/host/listings");
   };

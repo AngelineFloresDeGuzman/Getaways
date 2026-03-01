@@ -129,7 +129,6 @@ const ExperienceCategorySelection = () => {
   useEffect(() => {
     const loadCategory = async () => {
       const draftId = state.draftId || location.state?.draftId;
-      console.log("🔍 ExperienceCategorySelection: Loading category from draft, draftId:", draftId);
       if (draftId) {
         try {
           const { getDoc } = await import('firebase/firestore');
@@ -137,22 +136,16 @@ const ExperienceCategorySelection = () => {
           const draftSnap = await getDoc(draftRef);
           if (draftSnap.exists()) {
             const data = draftSnap.data().data || {};
-            console.log("📦 ExperienceCategorySelection: Draft data:", data);
             if (data.experienceCategory) {
-              console.log("✅ ExperienceCategorySelection: Setting selected category:", data.experienceCategory);
               setSelectedCategory(data.experienceCategory);
             } else {
-              console.warn("⚠️ ExperienceCategorySelection: No experienceCategory in draft data");
-            }
+              }
           } else {
-            console.warn("⚠️ ExperienceCategorySelection: Draft does not exist");
-          }
+            }
         } catch (error) {
-          console.error("❌ Error loading experience category from draft:", error);
-        }
+          }
       } else {
-        console.warn("⚠️ ExperienceCategorySelection: No draftId available");
-      }
+        }
     };
     loadCategory();
   }, [state.draftId, location.state?.draftId]);
@@ -172,7 +165,6 @@ const ExperienceCategorySelection = () => {
         const { auth } = await import("@/lib/firebase");
         const currentUser = auth.currentUser;
         if (!currentUser) {
-          console.warn("⚠️ ExperienceCategorySelection: User not authenticated, cannot create draft");
           return;
         }
         
@@ -185,14 +177,11 @@ const ExperienceCategorySelection = () => {
           }
         };
         draftId = await saveDraft(newDraftData, null);
-        console.log("✅ ExperienceCategorySelection: Created new draft:", draftId);
-        
         // Update state with new draftId
         if (actions?.setDraftId) {
           actions.setDraftId(draftId);
         }
       } catch (error) {
-        console.error("❌ ExperienceCategorySelection: Error creating draft:", error);
         return;
       }
     }
@@ -206,10 +195,8 @@ const ExperienceCategorySelection = () => {
           "data.experienceCategory": selectedCategory,
           lastModified: new Date(),
         });
-        console.log("✅ Updated experience category in draft");
-      } catch (error) {
-        console.error("Error updating draft:", error);
-      }
+        } catch (error) {
+        }
     }
     
     // Update context for next step
@@ -232,7 +219,6 @@ const ExperienceCategorySelection = () => {
   };
 
   const handleSaveAndExit = async () => {
-    console.log("🚀 ExperienceCategorySelection handleSaveAndExit called");
     try {
       const { auth } = await import("@/lib/firebase");
       const currentUser = auth.currentUser;
@@ -256,14 +242,11 @@ const ExperienceCategorySelection = () => {
             }
           };
           draftId = await saveDraft(newDraftData, null);
-          console.log("✅ ExperienceCategorySelection: Created new draft:", draftId);
-          
           // Update state with new draftId
           if (actions?.setDraftId) {
             actions.setDraftId(draftId);
           }
         } catch (error) {
-          console.error("❌ ExperienceCategorySelection: Error creating draft:", error);
           alert("Failed to create draft. Please try again.");
           return;
         }
@@ -278,9 +261,7 @@ const ExperienceCategorySelection = () => {
             "data.experienceCategory": selectedCategory,
             lastModified: new Date(),
           });
-          console.log("✅ ExperienceCategorySelection: Draft saved successfully");
-        } catch (error) {
-          console.error("❌ Error saving draft:", error);
+          } catch (error) {
           alert("Failed to save draft. Please try again.");
           return;
         }
@@ -294,9 +275,7 @@ const ExperienceCategorySelection = () => {
           message: "Draft saved successfully!",
         },
       });
-      console.log("✅ Navigation to listings page initiated");
-    } catch (error) {
-      console.error("❌ Error in handleSaveAndExit:", error);
+      } catch (error) {
       alert("Failed to save. Please try again.");
     }
   };

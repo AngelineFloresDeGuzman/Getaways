@@ -52,7 +52,6 @@ export const getPendingRefunds = async () => {
     
     return pendingRefunds;
   } catch (error) {
-    console.error('Error getting pending refunds:', error);
     return [];
   }
 };
@@ -186,7 +185,6 @@ export const processRefund = async (bookingId) => {
     };
     
   } catch (error) {
-    console.error('Error processing refund:', error);
     return { success: false, message: error.message || 'Failed to process refund' };
   }
 };

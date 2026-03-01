@@ -34,42 +34,34 @@ export const useOnboardingAutoSave = (stepName, dependencies = []) => {
   // Auto-save functionality with debouncing
   const debouncedSave = useCallback(async () => {
     if (!auth.currentUser) {
-      console.log('Auto-save skipped: User not authenticated');
       return;
     }
 
     // Prevent auto-save on the first onboarding step
     if (state.currentStep === 'hostingsteps') {
-      console.log('Auto-save skipped: On hosting-steps, only lastModified should be updated manually');
       return;
     }
     // Don't save if we're currently loading
     if (state.isLoading) {
-      console.log('Auto-save skipped: Currently loading');
       return;
     }
 
     // Don't auto-save immediately after loading a draft
     if (hasLoadedDraftRef.current && Date.now() - hasLoadedDraftRef.lastLoadTime < 5000) {
-      console.log('Auto-save skipped: Recently loaded draft');
       return;
     }
 
     // Compare current data with last saved data to avoid unnecessary saves
     const currentData = JSON.stringify({...state, currentStep: stepName});
     if (currentData === lastSavedDataRef.current) {
-      console.log('Auto-save skipped: No changes detected');
       return;
     }
 
     try {
-      console.log(`Auto-saving ${stepName}...`);
       await actions.saveDraft();
       lastSavedDataRef.current = currentData;
-      console.log(`Auto-save completed for ${stepName}`);
-    } catch (error) {
-      console.error(`Auto-save failed for ${stepName}:`, error);
-    }
+      } catch (error) {
+      }
   }, [state, stepName, actions]);
 
   // Set up auto-save with debouncing
@@ -110,20 +102,16 @@ export const useOnboardingAutoSave = (stepName, dependencies = []) => {
     }
 
     try {
-      console.log(`Loading draft ${draftId} for ${stepName}...`);
       actions.setLoading(true);
       await actions.loadDraft(draftId);
       hasLoadedDraftRef.current = true;
       hasLoadedDraftRef.lastLoadTime = Date.now(); // Track when draft was loaded
-      console.log(`Draft loaded successfully for ${stepName}`);
-      
       // Update lastSavedDataRef to current state to prevent immediate auto-save
       const currentData = JSON.stringify({...state, currentStep: stepName});
       lastSavedDataRef.current = currentData;
       
       return true;
     } catch (error) {
-      console.error(`Error loading draft for ${stepName}:`, error);
       hasLoadedDraftRef.current = false;
       return false;
     } finally {
@@ -142,8 +130,6 @@ export const useOnboardingAutoSave = (stepName, dependencies = []) => {
   // Save and exit function
   const saveAndExit = useCallback(async (currentPageData = null) => {
     try {
-      console.log(`Saving and exiting from ${stepName}...`);
-      
       if (!auth.currentUser) {
         throw new Error('User not authenticated. Please log in again.');
       }
@@ -155,8 +141,6 @@ export const useOnboardingAutoSave = (stepName, dependencies = []) => {
 
       // If current page data is provided, update state first
       if (currentPageData) {
-        console.log(`Updating current page data for ${stepName}:`, currentPageData);
-        
         // Use individual update functions based on data type
         Object.keys(currentPageData).forEach(key => {
           const value = currentPageData[key];
@@ -192,9 +176,7 @@ export const useOnboardingAutoSave = (stepName, dependencies = []) => {
       }
 
       await actions.saveAndExit();
-      console.log(`Save and exit completed from ${stepName}`);
-    } catch (error) {
-      console.error(`Save and exit failed from ${stepName}:`, error);
+      } catch (error) {
       throw error;
     }
   }, [stepName, actions]);
@@ -232,7 +214,6 @@ export const useOnboardingNavigation = (stepName, currentPath) => {
         }
       });
     } catch (error) {
-      console.error(`Error navigating from ${stepName}:`, error);
       // Continue navigation even if save fails
       navigate(nextPath, {
         state: {
@@ -259,7 +240,6 @@ export const useOnboardingNavigation = (stepName, currentPath) => {
         }
       });
     } catch (error) {
-      console.error(`Error navigating back from ${stepName}:`, error);
       // Continue navigation even if save fails
       navigate(backPath, {
         state: {

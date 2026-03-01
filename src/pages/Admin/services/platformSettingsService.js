@@ -24,7 +24,6 @@ export const getPlatformSettings = async () => {
       updatedAt: null
     };
   } catch (error) {
-    console.error('Error getting platform settings:', error);
     throw error;
   }
 };
@@ -58,7 +57,6 @@ export const updatePlatformSettings = async (settings) => {
     
     return updateData;
   } catch (error) {
-    console.error('Error updating platform settings:', error);
     throw error;
   }
 };
@@ -72,7 +70,6 @@ export const getAdminPayPalEmail = async () => {
     const settings = await getPlatformSettings();
     return settings.adminPayPalEmail || '';
   } catch (error) {
-    console.error('Error getting admin PayPal email:', error);
     return '';
   }
 };
@@ -96,7 +93,6 @@ export const updateAdminPayPalEmail = async (email, accountName = '') => {
       adminPayPalAccountName: accountName.trim() || ''
     });
   } catch (error) {
-    console.error('Error updating admin PayPal email:', error);
     throw error;
   }
 };

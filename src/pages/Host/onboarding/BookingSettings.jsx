@@ -42,21 +42,16 @@ const BookingSettings = () => {
   const canProceed = selectedOption !== null;
 
   // Debug: Log the location state
-  console.log('BookingSettings - location.state:', location.state);
-
   // Load draft data when navigating from "Continue Editing"
   useEffect(() => {
     const loadDraftData = async () => {
       // Only load draft if user is authenticated and we have a draftId
       if (location.state?.draftId && !hasInitialized.current && actions.loadDraft && state.user) {
-        console.log('BookingSettings - Loading draft with ID:', location.state.draftId);
         try {
           await actions.loadDraft(location.state.draftId);
           hasInitialized.current = true;
-          console.log('BookingSettings - Draft loaded successfully');
-        } catch (error) {
-          console.error('BookingSettings - Error loading draft:', error);
-        }
+          } catch (error) {
+          }
       }
     };
 
@@ -66,7 +61,6 @@ const BookingSettings = () => {
   // Set current step when component mounts or route changes
   useEffect(() => {
     if (actions.setCurrentStep && state.currentStep !== 'bookingsettings') {
-      console.log('📍 BookingSettings page - Setting currentStep to bookingsettings');
       actions.setCurrentStep('bookingsettings');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -84,39 +78,30 @@ const BookingSettings = () => {
           const drafts = await getUserDrafts();
           if (drafts.length > 0) {
             draftIdToUse = drafts[0].id;
-            console.log('📍 BookingSettings: Found draftId from getUserDrafts:', draftIdToUse);
             if (!state.draftId && actions.setDraftId) {
               actions.setDraftId(draftIdToUse);
             }
           }
         } catch (error) {
-          console.error('📍 BookingSettings: Error getting user drafts:', error);
-        }
+          }
       }
       
       // Load bookingSettings from Firebase if we have a draftId
       if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
         try {
-          console.log('📍 BookingSettings: Loading bookingSettings from Firebase with draftId:', draftIdToUse);
           const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
           const docSnap = await getDoc(draftRef);
           
           if (docSnap.exists()) {
             const draftData = docSnap.data();
-            console.log('📍 BookingSettings: Draft data exists');
-            console.log('📍 BookingSettings: draftData.data:', draftData.data);
-            console.log('📍 BookingSettings: draftData.data?.bookingSettings:', draftData.data?.bookingSettings);
-            
             // Check nested data.bookingSettings first (where we save it), then top-level, then context
             const savedBookingSettings = draftData.data?.bookingSettings || draftData.bookingSettings || state.bookingSettings;
             
             if (savedBookingSettings) {
-              console.log('📍 BookingSettings: ✅ Found saved bookingSettings:', savedBookingSettings);
               setSelectedOption(savedBookingSettings);
               
               // Also update context if it's not set there yet or is different
               if (!state.bookingSettings || state.bookingSettings !== savedBookingSettings) {
-                console.log('📍 BookingSettings: Updating context with saved bookingSettings');
                 updateBookingSettingsContext(savedBookingSettings);
               }
               
@@ -125,14 +110,11 @@ const BookingSettings = () => {
               }
               return; // Exit early if we found it in Firebase
             } else {
-              console.log('📍 BookingSettings: ⚠️ No bookingSettings found in Firebase draft');
-            }
+              }
           } else {
-            console.log('📍 BookingSettings: ⚠️ Draft document does not exist for draftId:', draftIdToUse);
-          }
+            }
         } catch (error) {
-          console.error('📍 BookingSettings: ❌ Error loading bookingSettings from Firebase:', error);
-        }
+          }
       }
       
       // Fallback: check context state if Firebase didn't have it
@@ -150,7 +132,6 @@ const BookingSettings = () => {
   // Also watch for bookingSettings changes in context (as a fallback)
   useEffect(() => {
     if (state.bookingSettings && !hasInitialized.current) {
-      console.log('📍 BookingSettings: BookingSettings changed in context, updating:', state.bookingSettings);
       setSelectedOption(state.bookingSettings);
       hasInitialized.current = true;
     }
@@ -159,7 +140,6 @@ const BookingSettings = () => {
 
   // Real-time context updates
   const updateBookingSettingsContext = (settings) => {
-    console.log('BookingSettings - Updating context with:', settings);
     if (actions.updateBookingSettings) {
       actions.updateBookingSettings(settings);
     }
@@ -178,7 +158,6 @@ const BookingSettings = () => {
     
     // If draftId is temp, reset it to find/create a real one
     if (draftIdToUse && draftIdToUse.startsWith('temp_')) {
-      console.log('📍 BookingSettings: Found temp ID, resetting to find/create real draft');
       draftIdToUse = null;
     }
     
@@ -191,13 +170,11 @@ const BookingSettings = () => {
         if (drafts.length > 0) {
           // Use the most recent draft
           draftIdToUse = drafts[0].id;
-          console.log('📍 BookingSettings: Using existing draft:', draftIdToUse);
           if (actions.setDraftId) {
             actions.setDraftId(draftIdToUse);
           }
         } else {
           // No drafts exist, create a new one
-          console.log('📍 BookingSettings: No existing drafts, creating new draft');
           const nextStep = targetRoute === '/pages/guestselection' ? 'guestselection' : 'bookingsettings';
           const newDraftData = {
             currentStep: nextStep,
@@ -207,13 +184,11 @@ const BookingSettings = () => {
             }
           };
           draftIdToUse = await saveDraft(newDraftData, null);
-          console.log('📍 BookingSettings: ✅ Created new draft:', draftIdToUse);
           if (actions.setDraftId) {
             actions.setDraftId(draftIdToUse);
           }
         }
       } catch (error) {
-        console.error('📍 BookingSettings: Error finding/creating draft:', error);
         throw error;
       }
     }
@@ -232,10 +207,8 @@ const BookingSettings = () => {
             currentStep: nextStep,
             lastModified: new Date()
           });
-          console.log('📍 BookingSettings: ✅ Saved bookingSettings to data.bookingSettings and currentStep to Firebase:', draftIdToUse, '- bookingSettings:', bookingSettingsData, ', currentStep:', nextStep);
-        } else {
+          } else {
           // Document doesn't exist, create it
-          console.log('📍 BookingSettings: Document not found, creating new one');
           const { saveDraft } = await import('@/pages/Host/services/draftService');
           const nextStep = targetRoute === '/pages/guestselection' ? 'guestselection' : 'bookingsettings';
           const newDraftData = {
@@ -246,32 +219,24 @@ const BookingSettings = () => {
             }
           };
           draftIdToUse = await saveDraft(newDraftData, draftIdToUse);
-          console.log('📍 BookingSettings: ✅ Created new draft with bookingSettings:', draftIdToUse);
           if (actions.setDraftId) {
             actions.setDraftId(draftIdToUse);
           }
         }
         return draftIdToUse;
       } catch (error) {
-        console.error('📍 BookingSettings: ❌ Error saving to Firebase:', error);
         throw error;
       }
     } else if (state.user?.uid) {
-      console.warn('📍 BookingSettings: ⚠️ User authenticated but no valid draftId after ensureDraftAndSave');
       throw new Error('Failed to create draft for authenticated user');
     } else {
-      console.warn('📍 BookingSettings: ⚠️ User not authenticated, cannot save to Firebase');
       return null;
     }
   };
 
   // Custom Save & Exit handler
   const handleSaveAndExitClick = async () => {
-    console.log('BookingSettings Save & Exit clicked');
-    console.log('Current booking settings:', selectedOption);
-    
     if (!auth.currentUser) {
-      console.error('BookingSettings: No authenticated user');
       alert('Please log in to save your progress');
       return;
     }
@@ -281,7 +246,6 @@ const BookingSettings = () => {
     try {
       // Set current step before saving so "Continue Editing" returns to this page
       if (actions.setCurrentStep) {
-        console.log('BookingSettings: Setting currentStep to bookingsettings');
         actions.setCurrentStep('bookingsettings');
       }
       
@@ -292,9 +256,7 @@ const BookingSettings = () => {
       let draftIdToUse;
       try {
         draftIdToUse = await ensureDraftAndSave(selectedOption, '/pages/bookingsettings');
-        console.log('📍 BookingSettings: ✅ Saved bookingSettings to Firebase on Save & Exit');
-      } catch (saveError) {
-        console.error('📍 BookingSettings: Error saving to Firebase on Save & Exit:', saveError);
+        } catch (saveError) {
         // Continue with save & exit even if Firebase save fails
       }
       
@@ -310,7 +272,6 @@ const BookingSettings = () => {
       });
       
     } catch (error) {
-      console.error('Error in BookingSettings save:', error);
       alert('Failed to save progress: ' + error.message);
     } finally {
       setIsSaving(false);
@@ -393,9 +354,7 @@ const BookingSettings = () => {
               let draftIdToUse;
               try {
                 draftIdToUse = await ensureDraftAndSave(selectedOption, '/pages/guestselection');
-                console.log('📍 BookingSettings: ✅ Saved bookingSettings to Firebase on Next click');
-              } catch (saveError) {
-                console.error('📍 BookingSettings: Error saving to Firebase on Next:', saveError);
+                } catch (saveError) {
                 // Continue navigation even if save fails - data is in context
               }
               
@@ -416,7 +375,6 @@ const BookingSettings = () => {
                 } 
               });
             } catch (error) {
-              console.error('Error saving booking settings:', error);
               alert('Error saving progress. Please try again.');
             }
           }

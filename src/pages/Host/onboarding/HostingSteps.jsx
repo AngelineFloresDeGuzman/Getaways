@@ -95,7 +95,6 @@ const HostingSteps = () => {
           draftId = null;
         }
       } catch (error) {
-        console.error('Error fetching user drafts:', error);
         draftId = null;
       }
     }
@@ -107,11 +106,9 @@ const HostingSteps = () => {
         const drafts = await getUserDrafts();
         if (drafts.length > 0) {
           draftId = drafts[0].id;
-          console.log('HostingSteps: Found draftId from getUserDrafts:', draftId);
-        }
+          }
       } catch (error) {
-        console.error('Error fetching user drafts:', error);
-      }
+        }
     }
     
     // Always update Firebase if we have a draftId
@@ -128,8 +125,7 @@ const HostingSteps = () => {
             currentStep: "propertydetails",
             lastModified: new Date()
           });
-          console.log('HostingSteps: ✅ Updated Firebase currentStep to propertydetails for draftId:', draftId);
-        } else {
+          } else {
           // Document does not exist - create it
           await setDoc(draftRef, {
             userId: state.user.uid,
@@ -137,16 +133,13 @@ const HostingSteps = () => {
             lastModified: new Date(),
             data: {}
           });
-          console.log('HostingSteps: ✅ Created new Firebase document with currentStep propertydetails for draftId:', draftId);
-        }
+          }
       } catch (error) {
-        console.error("HostingSteps: Error updating/creating draft:", error);
         // Still navigate even if update fails
       }
       navigate("/pages/propertydetails", { state: { draftId } });
     } else {
       // No draft yet, just navigate to propertydetails (do NOT create new draft)
-      console.warn('HostingSteps: No draftId found, navigating without Firebase update');
       navigate("/pages/propertydetails");
     }
   };
@@ -168,8 +161,7 @@ const HostingSteps = () => {
         await deleteDoc(doc(db, 'onboardingDrafts', draftId));
       }
     } catch (e) {
-      console.error('Failed to delete draft on cancel:', e);
-    } finally {
+      } finally {
       navigate('/host/listings');
     }
   };
@@ -186,8 +178,7 @@ const HostingSteps = () => {
       });
       navigate("/host/listings");
     } catch (error) {
-      console.error("Error saving draft:", error);
-    }
+      }
   };
 
   return (

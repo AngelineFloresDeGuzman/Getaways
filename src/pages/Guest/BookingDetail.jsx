@@ -87,8 +87,7 @@ const BookingDetail = () => {
             isAdmin = roles.includes('admin');
           }
         } catch (error) {
-          console.error('Error checking admin role:', error);
-        }
+          }
 
         if (!isGuest && !isHost && !isAdmin) {
           toast.error('You do not have access to this booking');
@@ -120,11 +119,9 @@ const BookingDetail = () => {
           
           if (now > deadline) {
             // Deadline has passed, auto-cancel the booking
-            console.log('⏰ PayPal payment deadline expired. Auto-cancelling booking...');
             // Call async function without await (fire and forget)
             handleAutoCancelExpiredBooking(bookingDoc.id).catch(err => {
-              console.error('Error auto-cancelling expired booking:', err);
-            });
+              });
             setIsExpired(true);
           }
         }
@@ -172,8 +169,7 @@ const BookingDetail = () => {
                   averageRating: reviewStats.averageRating
                 });
               } catch (error) {
-                console.error('Error loading guest stats:', error);
-              }
+                }
             }
           }
         }
@@ -220,11 +216,9 @@ const BookingDetail = () => {
               
               if (now > deadline) {
                 // Deadline has passed, auto-cancel the booking
-                console.log('⏰ PayPal payment deadline expired. Auto-cancelling booking...');
                 // Call async function without await (fire and forget)
                 handleAutoCancelExpiredBooking(snapshot.id).catch(err => {
-                  console.error('Error auto-cancelling expired booking:', err);
-                });
+                  });
                 setIsExpired(true);
               }
             }
@@ -234,7 +228,6 @@ const BookingDetail = () => {
         setLoading(false);
         return () => unsubscribe();
       } catch (error) {
-        console.error('Error loading booking:', error);
         toast.error('Failed to load booking details');
         setLoading(false);
       }
@@ -305,13 +298,10 @@ const BookingDetail = () => {
       const result = await cancelBooking(bookingId);
       if (result.success) {
         toast.error('Your booking was automatically cancelled because PayPal payment was not completed within 24 hours.');
-        console.log('✅ Expired booking auto-cancelled:', bookingId);
-      } else {
-        console.error('Failed to auto-cancel expired booking:', result.message);
-      }
+        } else {
+        }
     } catch (error) {
-      console.error('Error auto-cancelling expired booking:', error);
-    }
+      }
   };
 
   const handleCancelBooking = async () => {
@@ -345,7 +335,6 @@ const BookingDetail = () => {
         toast.error(result.message || 'Failed to cancel booking');
       }
     } catch (error) {
-      console.error('Error cancelling booking:', error);
       toast.error(error.message || 'Failed to cancel booking');
     } finally {
       setCancellingBooking(false);
@@ -449,8 +438,7 @@ const BookingDetail = () => {
                 checkOutDate: bookingData.checkOutDate?.toDate ? bookingData.checkOutDate.toDate().toISOString() : bookingData.checkOutDate
               }
             );
-            console.log('✅ Payment sent to admin GetPay wallet');
-          }
+            }
           
           // Update booking with payment status
           await updateFirestoreDoc(bookingRef, {
@@ -460,7 +448,6 @@ const BookingDetail = () => {
             updatedAt: serverTimestamp()
           });
         } catch (paymentError) {
-          console.error('❌ Error processing payment on booking confirmation:', paymentError);
           toast.error('Failed to process payment. Booking confirmation cancelled.');
           setUpdatingStatus(false);
           return; // Don't update status if payment fails
@@ -475,7 +462,6 @@ const BookingDetail = () => {
       
       toast.success(`Booking ${newStatus}`);
     } catch (error) {
-      console.error('❌ Error updating booking status:', error);
       toast.error('Failed to update booking status');
     } finally {
       setUpdatingStatus(false);
@@ -493,8 +479,7 @@ const BookingDetail = () => {
       );
       navigate(`/host/messages?conversation=${conversationId}`);
     } catch (error) {
-      console.error('Error starting conversation:', error);
-    }
+      }
   };
 
   const getStatusColor = (status) => {
@@ -1012,8 +997,6 @@ const BookingDetail = () => {
                             try {
                               setProcessingPayPal(true);
                               const details = await actions.order.capture();
-                              console.log('✅ PayPal payment captured:', details);
-                              
                               // Update booking with PayPal payment details
                               const { updateDoc: updateFirestoreDoc, serverTimestamp } = await import('firebase/firestore');
                               const bookingRef = doc(db, 'bookings', booking.id);
@@ -1061,8 +1044,7 @@ const BookingDetail = () => {
                                     checkOutDate: booking.checkOutDate?.toISOString ? booking.checkOutDate.toISOString() : booking.checkOutDate
                                   }
                                 );
-                                console.log('✅ PayPal payment sent to admin GetPay wallet');
-                              }
+                                }
                               
                               toast.success('PayPal payment completed successfully!');
                               setProcessingPayPal(false);
@@ -1081,18 +1063,15 @@ const BookingDetail = () => {
                                 });
                               }
                             } catch (err) {
-                              console.error('PayPal payment error:', err);
                               toast.error('PayPal payment failed: ' + (err?.message || 'Unknown error'));
                               setProcessingPayPal(false);
                             }
                           }}
                           onError={(err) => {
-                            console.error('PayPal error:', err);
                             toast.error('PayPal payment failed: ' + (err?.message || 'Unknown error'));
                             setProcessingPayPal(false);
                           }}
                           onCancel={() => {
-                            console.log('PayPal payment cancelled');
                             setProcessingPayPal(false);
                           }}
                         />
@@ -1205,7 +1184,6 @@ const BookingDetail = () => {
                           setSelectedBooking(booking);
                           setShowReviewModal(true);
                         } catch (error) {
-                          console.error('Error marking booking as completed:', error);
                           toast.error('Failed to mark booking as completed');
                         } finally {
                           setUpdatingStatus(false);

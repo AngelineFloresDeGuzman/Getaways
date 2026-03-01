@@ -47,8 +47,7 @@ const ServiceAddress = () => {
             if (data.serviceZipCode) setZipCode(data.serviceZipCode);
           }
         } catch (error) {
-          console.error("Error loading address from draft:", error);
-        }
+          }
       }
     };
     loadAddress();
@@ -78,7 +77,6 @@ const ServiceAddress = () => {
         const { auth } = await import("@/lib/firebase");
         const currentUser = auth.currentUser;
         if (!currentUser) {
-          console.warn("⚠️ ServiceAddress: User not authenticated, cannot create draft");
           return null;
         }
         
@@ -96,14 +94,11 @@ const ServiceAddress = () => {
           }
         };
         draftId = await saveDraft(newDraftData, null);
-        console.log("✅ ServiceAddress: Created new draft:", draftId);
-        
         // Update state with new draftId
         if (actions?.setDraftId) {
           actions.setDraftId(draftId);
         }
       } catch (error) {
-        console.error("❌ ServiceAddress: Error creating draft:", error);
         throw error;
       }
     }
@@ -121,9 +116,7 @@ const ServiceAddress = () => {
           "data.serviceZipCode": zipCode.trim(),
           lastModified: new Date(),
         });
-        console.log("✅ ServiceAddress: Draft saved successfully");
-      } catch (error) {
-        console.error("❌ ServiceAddress: Error saving data:", error);
+        } catch (error) {
         throw error;
       }
     }
@@ -149,7 +142,6 @@ const ServiceAddress = () => {
         },
       });
     } catch (error) {
-      console.error("❌ Error saving draft:", error);
       alert("Failed to save. Please try again.");
     }
   };
@@ -188,7 +180,6 @@ const ServiceAddress = () => {
         },
       });
     } catch (error) {
-      console.error("❌ Error in handleNext:", error);
       alert("Failed to save progress. Please try again.");
     }
   };

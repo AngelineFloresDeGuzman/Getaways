@@ -41,13 +41,10 @@ const ResetPassword = () => {
       // If Firebase action code exists, use it directly
       if (actionCode) {
         try {
-          console.log("🔑 Verifying Firebase action code...");
           const email = await verifyPasswordResetCode(auth, actionCode);
-          console.log("✅ Action code verified, email:", email);
           setTokenValid(true);
           setUserEmail(email);
         } catch (error) {
-          console.error("❌ Token verification error:", error);
           setTokenValid(false);
           if (error.code === "auth/invalid-action-code") {
             showToast("Invalid or expired reset link. Please request a new one.", "error");
@@ -153,8 +150,6 @@ const ResetPassword = () => {
       }, 2000);
       
     } catch (err) {
-      console.error("❌ Password reset error:", err);
-      
       if (err.code === "auth/invalid-action-code") {
         showToast("Invalid or expired reset code. Please request a new password reset.", "error");
       } else if (err.code === "auth/expired-action-code") {
@@ -253,13 +248,6 @@ const ResetPassword = () => {
             disabled={isLoading || !password || !confirmPassword || !actionCode}
             className="w-full bg-primary text-white py-3 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed hover:bg-primary/90 transition-colors font-medium"
             onClick={(e) => {
-              console.log("Button clicked - State:", { 
-                isLoading, 
-                password: password ? "filled" : "empty", 
-                confirmPassword: confirmPassword ? "filled" : "empty",
-                actionCode: actionCode ? "exists" : "missing"
-              });
-              
               if (!actionCode) {
                 e.preventDefault();
                 showToast("Invalid reset link. Please use the link from Firebase's email (check your inbox).", "error");

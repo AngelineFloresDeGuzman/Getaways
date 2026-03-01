@@ -42,8 +42,7 @@ const ServiceTitle = () => {
             }
           }
         } catch (error) {
-          console.error("Error loading title from draft:", error);
-        }
+          }
       }
     };
     loadTitle();
@@ -72,7 +71,6 @@ const ServiceTitle = () => {
         const { auth } = await import("@/lib/firebase");
         const currentUser = auth.currentUser;
         if (!currentUser) {
-          console.warn("⚠️ ServiceTitle: User not authenticated, cannot create draft");
           return null;
         }
         
@@ -86,14 +84,11 @@ const ServiceTitle = () => {
           }
         };
         draftId = await saveDraft(newDraftData, null);
-        console.log("✅ ServiceTitle: Created new draft:", draftId);
-        
         // Update state with new draftId
         if (actions?.setDraftId) {
           actions.setDraftId(draftId);
         }
       } catch (error) {
-        console.error("❌ ServiceTitle: Error creating draft:", error);
         throw error;
       }
     }
@@ -107,9 +102,7 @@ const ServiceTitle = () => {
           currentStep: "service-title", // Save CURRENT step, not next step
           lastModified: new Date(),
         });
-        console.log("✅ ServiceTitle: Draft saved successfully");
-      } catch (error) {
-        console.error("❌ ServiceTitle: Error saving data:", error);
+        } catch (error) {
         throw error;
       }
     }
@@ -152,7 +145,6 @@ const ServiceTitle = () => {
       },
     });
     } catch (error) {
-      console.error("❌ Error in handleNext:", error);
       alert("Failed to save progress. Please try again.");
     }
   };
@@ -202,7 +194,6 @@ const ServiceTitle = () => {
         },
       });
       } catch (error) {
-      console.error("❌ Error saving draft:", error);
       alert("Failed to save. Please try again.");
     }
   };

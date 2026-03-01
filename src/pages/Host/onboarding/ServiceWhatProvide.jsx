@@ -77,8 +77,7 @@ const ServiceWhatProvide = () => {
             }
           }
         } catch (error) {
-          console.error("Error loading data from draft:", error);
-        }
+          }
       }
     };
     loadData();
@@ -110,10 +109,8 @@ const ServiceWhatProvide = () => {
           firestoreId: docSnap.id,
         };
       }).filter(photo => !!photo.base64);
-      console.log("📍 ServiceWhatProvide: Loaded service photos from subcollection:", loadedPhotos.length);
       return loadedPhotos;
     } catch (error) {
-      console.error("Error loading service photos from subcollection:", error);
       return [];
     }
   };
@@ -133,11 +130,9 @@ const ServiceWhatProvide = () => {
   // Compress and prepare photos for Firestore storage (limit to 8 photos, max 50KB each)
   const compressPhotosForStorage = async (photos) => {
     if (!photos || photos.length === 0) {
-      console.log('📷 No photos to compress');
       return [];
     }
 
-    console.log(`📤 Starting compression of ${photos.length} photos for Firestore...`);
     const compressedPhotos = [];
     
     for (let i = 0; i < photos.length; i++) {
@@ -153,7 +148,6 @@ const ServiceWhatProvide = () => {
         // If photo already has a compressed base64 string, check if it's small enough
         // Recompress if it's still too large (need to be under 70KB to be safe)
         if (photo.base64 && photo.base64.length < 70000) { // Already small (<70KB)
-          console.log(`⏭️ Photo ${i + 1} already compressed, using existing base64`);
           compressedPhotos.push({
             id: photo.id || `photo_${i}`,
             name: photo.name || `photo_${i + 1}`,
@@ -175,7 +169,6 @@ const ServiceWhatProvide = () => {
         
         const base64String = photo.base64 || photo.url;
         if (!base64String) {
-          console.warn(`⚠️ Photo ${i + 1} has no base64 or url, skipping`);
           continue;
         }
         
@@ -185,7 +178,6 @@ const ServiceWhatProvide = () => {
         
         // Compress image very aggressively to reduce size (max 50KB per image)
         // With 8 photos max, total would be ~400KB, well under 1MB Firestore limit
-        console.log(`📦 Compressing photo ${i + 1}/${photos.length}...`);
         const compressionOptions = {
           maxSizeMB: 0.05, // 50KB max per image (very aggressive compression)
           maxWidthOrHeight: 800, // Reduced max dimensions for smaller file size
@@ -216,9 +208,7 @@ const ServiceWhatProvide = () => {
           base64: compressedBase64, // Store compressed base64 in Firestore
         });
         
-        console.log(`✅ Compressed photo ${i + 1}/${photos.length}`);
-      } catch (error) {
-        console.error(`❌ Error compressing photo ${i + 1}:`, error);
+        } catch (error) {
         // If compression fails, use original but log warning
         if (photo.base64) {
           compressedPhotos.push({
@@ -231,15 +221,12 @@ const ServiceWhatProvide = () => {
       }
     }
     
-    console.log(`✅ Compressed ${compressedPhotos.length} photos for Firestore storage`);
     return compressedPhotos;
   };
 
   // Function to publish service listing
   const publishServiceListing = async (draftId) => {
     try {
-      console.log("📝 publishServiceListing: Starting with draftId:", draftId);
-      
       const draftRef = doc(db, "onboardingDrafts", draftId);
       const draftSnap = await getDoc(draftRef);
       
@@ -266,21 +253,12 @@ const ServiceWhatProvide = () => {
       let photos = data.servicePhotos || data.photos || [];
       const pricing = data.servicePricing || data.pricing || {};
 
-      console.log("📝 publishServiceListing: Initial photos count:", photos.length);
-      console.log("📝 publishServiceListing: Location data:", locationData);
-      console.log("📝 publishServiceListing: Pricing:", pricing);
-      console.log("📝 publishServiceListing: Service city:", data.serviceCity);
-      console.log("📝 publishServiceListing: Service country:", data.serviceCountry);
-
       if (!Array.isArray(photos) || !photos.some(photo => photo?.base64)) {
-        console.log("📝 publishServiceListing: Loading photos from subcollection...");
         const subcollectionPhotos = await loadServicePhotosFromSubcollection(draftId);
         if (subcollectionPhotos.length > 0) {
           photos = subcollectionPhotos;
-          console.log("📝 publishServiceListing: Loaded", photos.length, "photos from subcollection");
-        } else {
-          console.warn("⚠️ publishServiceListing: No photos found in subcollection either");
-        }
+          } else {
+          }
       }
       
       // Validate required fields
@@ -294,34 +272,23 @@ const ServiceWhatProvide = () => {
       const hasState = locationData.state || locationData.province || data.serviceState;
       
       if (!hasCity && !hasCountry && !hasState) {
-        console.error("❌ Location data missing:", {
-          locationData,
-          serviceCity: data.serviceCity,
-          serviceCountry: data.serviceCountry,
-          serviceState: data.serviceState,
-          allDataKeys: Object.keys(data)
-        });
         throw new Error("Location data is required. Please complete the location and address steps.");
       }
       
       if (photos.length === 0) {
-        console.warn("⚠️ publishServiceListing: No photos found, but continuing...");
+        throw new Error("At least one photo is required");
       }
       
       // Compress photos before storing in Firestore to avoid exceeding 1MB document limit
-      console.log("📦 Compressing photos for Firestore storage...");
-      console.log(`📦 Original photos count: ${photos.length}`);
       const compressedPhotos = await compressPhotosForStorage(photos);
-      console.log(`✅ Compressed ${compressedPhotos.length} photos (from ${photos.length} original)`);
       
       // Calculate approximate document size to warn if still too large
       const estimatedSize = JSON.stringify(compressedPhotos).length;
       const estimatedSizeKB = estimatedSize / 1024;
       const estimatedSizeMB = estimatedSizeKB / 1024;
-      console.log(`📊 Estimated photos size: ${estimatedSizeKB.toFixed(2)}KB (${estimatedSizeMB.toFixed(2)}MB)`);
       
       if (estimatedSizeMB > 0.8) {
-        console.warn(`⚠️ Warning: Estimated document size (${estimatedSizeMB.toFixed(2)}MB) is close to 1MB limit. Consider reducing photo count or compression further.`);
+        // Document size is close to limit
       }
       
       // Prepare listing data with all service fields
@@ -352,23 +319,11 @@ const ServiceWhatProvide = () => {
         reviews: 0,
       };
       
-      console.log("📝 publishServiceListing: Listing data prepared:", {
-        title: listingData.title,
-        category: listingData.category,
-        photosCount: listingData.photos.length,
-        hasLocation: !!listingData.location,
-        hasPricing: !!listingData.pricing,
-      });
-      
       // Check if listing already exists (edit mode)
       let targetListingId = draftData.publishedListingId || null;
-      console.log("📝 publishServiceListing: Target listing ID:", targetListingId);
-      
       // Create or update listing
       try {
         const listingId = await createListing(listingData, targetListingId);
-        console.log("✅ Service listing published:", listingId);
-        
         // Update draft with publishedListingId if new listing
         if (!targetListingId && listingId) {
           const batch = writeBatch(db);
@@ -377,30 +332,15 @@ const ServiceWhatProvide = () => {
             published: true,
           });
           await batch.commit();
-          console.log("✅ Updated draft with publishedListingId");
-        }
+          }
         
         // Delete draft after successful publishing
         await deleteDoc(draftRef);
-        console.log("✅ Draft deleted after successful publishing");
-        
         return listingId;
       } catch (createError) {
-        console.error("❌ publishServiceListing: Error in createListing:", createError);
-        console.error("❌ publishServiceListing: Error details:", {
-          message: createError.message,
-          stack: createError.stack,
-          name: createError.name,
-        });
         throw new Error(`Failed to create listing: ${createError.message}`);
       }
     } catch (error) {
-      console.error("❌ publishServiceListing: Error publishing service listing:", error);
-      console.error("❌ publishServiceListing: Full error:", {
-        message: error.message,
-        stack: error.stack,
-        name: error.name,
-      });
       throw error;
     }
   };
@@ -414,7 +354,6 @@ const ServiceWhatProvide = () => {
       const draftId = await saveServiceData();
       
       if (!draftId) {
-        console.error("No draftId found");
         alert("Error: Failed to save draft. Please try again.");
         return;
       }
@@ -431,8 +370,6 @@ const ServiceWhatProvide = () => {
           
           // If user has active payment, publish listing directly
           if (userPayment.status === "active") {
-            console.log("📍 Service: User has active payment, publishing listing");
-            
             try {
               const listingId = await publishServiceListing(draftId);
               
@@ -450,7 +387,6 @@ const ServiceWhatProvide = () => {
               });
               return;
             } catch (publishError) {
-              console.error("Error publishing service listing:", publishError);
               const errorMessage = publishError?.message || "Unknown error occurred";
               alert(`Error publishing listing: ${errorMessage}. Please check the console for details and try again.`);
               return;
@@ -458,14 +394,11 @@ const ServiceWhatProvide = () => {
           }
         }
       } catch (error) {
-        console.error("Error checking payment status:", error);
         // Continue to payment page if check fails
       }
     }
 
     // If no active payment, navigate to payment page
-    console.log("📍 Service: No active payment, navigating to payment page");
-    
     // Update context
     if (actions.setCurrentStep) {
       actions.setCurrentStep("payment");
@@ -479,8 +412,7 @@ const ServiceWhatProvide = () => {
         lastModified: new Date(),
       });
     } catch (error) {
-      console.error("Error updating draft:", error);
-    }
+      }
 
     // Update sessionStorage before navigating to payment
     updateSessionStorageBeforeNav("service-what-provide", "payment");
@@ -498,7 +430,6 @@ const ServiceWhatProvide = () => {
       },
     });
     } catch (error) {
-      console.error("❌ Error in handleNext:", error);
       alert("Failed to save progress. Please try again.");
     }
   };
@@ -526,7 +457,6 @@ const ServiceWhatProvide = () => {
         const { auth } = await import("@/lib/firebase");
         const currentUser = auth.currentUser;
         if (!currentUser) {
-          console.warn("⚠️ ServiceWhatProvide: User not authenticated, cannot create draft");
           return null;
         }
         
@@ -541,14 +471,11 @@ const ServiceWhatProvide = () => {
           }
         };
         draftId = await saveDraft(newDraftData, null);
-        console.log("✅ ServiceWhatProvide: Created new draft:", draftId);
-        
         // Update state with new draftId
         if (actions?.setDraftId) {
           actions.setDraftId(draftId);
         }
       } catch (error) {
-        console.error("❌ ServiceWhatProvide: Error creating draft:", error);
         throw error;
       }
     }
@@ -563,9 +490,7 @@ const ServiceWhatProvide = () => {
           "data.serviceAgreedToTerms": agreedToTerms,
           lastModified: new Date(),
         });
-        console.log("✅ ServiceWhatProvide: Draft saved successfully");
-      } catch (error) {
-        console.error("❌ ServiceWhatProvide: Error saving data:", error);
+        } catch (error) {
         throw error;
       }
     }
@@ -592,7 +517,6 @@ const ServiceWhatProvide = () => {
         },
       });
     } catch (error) {
-      console.error("❌ Error saving draft:", error);
       alert("Failed to save. Please try again.");
     }
   };

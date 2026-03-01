@@ -72,7 +72,6 @@ const PayPalCashInButton = ({ amount, onSuccess, onError, disabled }) => {
             return actions.order.capture().then((details) => {
               onSuccess(details);
             }).catch((err) => {
-              console.error('PayPal capture error:', err);
               // Handle capture errors (including seller/buyer account conflicts)
               const errorMessage = err?.message || err?.toString() || '';
               const errorDetails = err?.details || [];
@@ -112,7 +111,6 @@ const PayPalCashInButton = ({ amount, onSuccess, onError, disabled }) => {
             });
           }}
           onError={(err) => {
-            console.error('PayPal error:', err);
             // Check for seller account error in the error object itself
             const errorMessage = err?.message || err?.toString() || '';
             const errorStr = JSON.stringify(err) || '';
@@ -138,7 +136,6 @@ const PayPalCashInButton = ({ amount, onSuccess, onError, disabled }) => {
             });
           }}
           onCancel={(data) => {
-            console.log('PayPal payment cancelled:', data);
             onError({
               message: 'Payment was cancelled',
               cancelled: true
@@ -248,7 +245,6 @@ const EWallet = () => {
           }
         }
       } catch (error) {
-        console.error('Error determining user roles:', error);
         setCurrentMode('guest');
       }
     };
@@ -282,8 +278,7 @@ const EWallet = () => {
           setCashOutPayPalEmail(adminEmail);
         }
       } catch (error) {
-        console.error('Error loading merchant PayPal email:', error);
-      }
+        }
     };
     
     if (paypalEmail || userRoles.includes('admin')) {
@@ -347,12 +342,10 @@ const EWallet = () => {
         const requests = await getUserCashOutRequests(userId);
         setCashOutRequests(requests);
       } catch (error) {
-        console.error('Error loading cash out requests:', error);
         // Don't show error toast for this, just log it
       }
       
     } catch (error) {
-      console.error('Error loading wallet data:', error);
       toast.error('Failed to load wallet data');
     } finally {
       setLoading(false);
@@ -420,7 +413,6 @@ const EWallet = () => {
             }
           }
         } catch (error) {
-          console.error('Error updating PayPal connection:', error);
           // Don't fail the cash-in if PayPal connection update fails
         }
       }
@@ -428,7 +420,6 @@ const EWallet = () => {
       // Reload wallet data
       await loadWalletData(user.uid);
     } catch (error) {
-      console.error('Error processing cash-in:', error);
       toast.error(error.message || 'Failed to process cash-in');
     } finally {
       setIsProcessingCashIn(false);
@@ -436,8 +427,6 @@ const EWallet = () => {
   };
 
   const handleCashInError = (error) => {
-    console.error('PayPal cash-in error:', error);
-    
     // Check for specific PayPal errors
     const errorMessage = error?.message || error?.toString() || '';
     const errorDetails = error?.details || [];
@@ -504,7 +493,6 @@ const EWallet = () => {
       // Reload wallet data
       await loadWalletData(user.uid);
     } catch (error) {
-      console.error('Error processing cash-out:', error);
       toast.error(error.message || 'Failed to process cash-out request');
     } finally {
       setIsProcessingCashOut(false);

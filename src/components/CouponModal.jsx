@@ -86,7 +86,6 @@ const CouponModal = ({ isOpen, onClose, coupon, onSave }) => {
         );
         querySnapshot = await getDocs(q);
       } catch (error) {
-        console.warn('Error querying listings with status filter:', error);
         // Fallback: query by ownerId only
         const q = query(
           listingsRef,
@@ -109,7 +108,6 @@ const CouponModal = ({ isOpen, onClose, coupon, onSave }) => {
 
       setHostListings(listings);
     } catch (error) {
-      console.error('Error loading host listings:', error);
       toast.error('Failed to load listings');
       setHostListings([]);
     } finally {
@@ -202,7 +200,6 @@ const CouponModal = ({ isOpen, onClose, coupon, onSave }) => {
 
       onSave();
     } catch (error) {
-      console.error('Error saving coupon:', error);
       toast.error(error.message || 'Failed to save coupon');
     } finally {
       setLoading(false);

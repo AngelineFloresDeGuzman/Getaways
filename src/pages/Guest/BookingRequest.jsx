@@ -222,8 +222,7 @@ const BookingRequest = () => {
                 const balance = await getWalletBalance(currentUser.uid);
                 setWalletBalance(balance);
               } catch (error) {
-                console.error('Error checking wallet balance:', error);
-              } finally {
+                } finally {
                 setIsCheckingBalance(false);
               }
             }
@@ -231,7 +230,6 @@ const BookingRequest = () => {
             setIsCheckingPaypal(false);
           }
         } catch (error) {
-          console.error('Error loading user profile:', error);
           setIsCheckingPaypal(false);
         }
       } else {
@@ -257,7 +255,6 @@ const BookingRequest = () => {
             setIsCheckingPaypal(false);
           }
         } catch (error) {
-          console.error('Error checking PayPal status:', error);
           setIsCheckingPaypal(false);
         }
       };
@@ -287,12 +284,9 @@ const BookingRequest = () => {
 
     const loadUnavailableDates = async () => {
       try {
-        console.log('📅 Loading unavailable dates for listing:', listingId);
         const dates = await getUnavailableDates(listingId);
-        console.log('📅 Loaded unavailable dates:', dates.length, 'dates');
         setUnavailableDates(dates);
       } catch (error) {
-        console.error('❌ Error loading unavailable dates:', error);
         setUnavailableDates([]);
       }
     };
@@ -316,12 +310,10 @@ const BookingRequest = () => {
           setUnavailableDates(dates);
         },
         (error) => {
-          console.error('Error listening to bookings:', error);
-        }
+          }
       );
     } catch (error) {
-      console.error('Error setting up bookings listener:', error);
-    }
+      }
     
     return () => {
       if (unsubscribe) {
@@ -446,7 +438,6 @@ const BookingRequest = () => {
         handleNext();
       }
     } catch (error) {
-      console.error('Error saving profile photo:', error);
       if (error.message && error.message.includes('longer than')) {
         toast.error('Image is too large. Please try a smaller image.');
       } else {
@@ -539,7 +530,6 @@ const BookingRequest = () => {
       toast.success('PayPal account connected successfully!');
       setIsConnectingPaypal(false);
     } catch (error) {
-      console.error('Error connecting PayPal:', error);
       toast.error('Failed to connect PayPal account: ' + error.message);
       setIsConnectingPaypal(false);
     }
@@ -604,8 +594,6 @@ const BookingRequest = () => {
         return;
       }
       
-      console.log('✅ No date conflict, proceeding with booking');
-
       // Handle payment based on provider and option
       if (paymentOption === 'now') {
         if (paymentProvider === 'getpay') {
@@ -620,9 +608,7 @@ const BookingRequest = () => {
             }
             
             // Note: Payment will be processed in createBooking when useWallet=true
-            console.log('✅ GetPay wallet has sufficient balance');
-          } catch (walletError) {
-            console.error('Error checking GetPay balance:', walletError);
+            } catch (walletError) {
             toast.error('Failed to check wallet balance: ' + walletError.message);
             setIsSubmitting(false);
             return;
@@ -639,8 +625,7 @@ const BookingRequest = () => {
           // Payment will only be processed when host confirms the booking (same as GetPay wallet)
           // PayPal is always available, connection is optional
           
-          console.log('✅ PayPal payment method selected - payment will be processed when host confirms');
-        }
+          }
       }
       
       // Create booking
@@ -673,7 +658,6 @@ const BookingRequest = () => {
       // Navigate to account settings bookings tab
       navigate('/accountsettings?tab=bookings');
     } catch (error) {
-      console.error('Error creating booking:', error);
       toast.error(error.message || 'Failed to create booking. Please try again.');
     } finally {
       setIsSubmitting(false);
@@ -945,8 +929,7 @@ const BookingRequest = () => {
                               }).then(balance => {
                                 setWalletBalance(balance);
                               }).catch(error => {
-                                console.error('Error checking wallet balance:', error);
-                              }).finally(() => {
+                                }).finally(() => {
                                 setIsCheckingBalance(false);
                               });
                             }
@@ -1569,7 +1552,6 @@ const BookingRequest = () => {
                                 
                                 return dateStr === unavailableStr;
                               } catch (error) {
-                                console.warn('Error comparing unavailable date:', error);
                                 return false;
                               }
                             });

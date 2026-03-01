@@ -166,8 +166,7 @@ const ExperienceSubcategorySelection = () => {
               setMainCategory(draftSnap.data().data.experienceCategory);
             }
           } catch (error) {
-            console.error("Error loading experience category from draft:", error);
-          }
+            }
         }
       }
     };
@@ -178,30 +177,23 @@ const ExperienceSubcategorySelection = () => {
   useEffect(() => {
     const loadSubcategory = async () => {
       const draftId = state.draftId || location.state?.draftId;
-      console.log("🔍 ExperienceSubcategorySelection: Loading subcategory from draft, draftId:", draftId, "mainCategory:", mainCategory);
       if (draftId) {
         try {
           const draftRef = doc(db, "onboardingDrafts", draftId);
           const draftSnap = await getDoc(draftRef);
           if (draftSnap.exists()) {
             const data = draftSnap.data().data || {};
-            console.log("📦 ExperienceSubcategorySelection: Draft data:", data);
             // Load subcategory even if mainCategory is not set yet (it will be set by the other useEffect)
             if (data.experienceSubcategory) {
-              console.log("✅ ExperienceSubcategorySelection: Setting selected subcategory:", data.experienceSubcategory);
               setSelectedSubcategory(data.experienceSubcategory);
             } else {
-              console.warn("⚠️ ExperienceSubcategorySelection: No experienceSubcategory in draft data");
-            }
+              }
           } else {
-            console.warn("⚠️ ExperienceSubcategorySelection: Draft does not exist");
-          }
+            }
         } catch (error) {
-          console.error("❌ Error loading experience subcategory from draft:", error);
-        }
+          }
       } else {
-        console.warn("⚠️ ExperienceSubcategorySelection: No draftId available");
-      }
+        }
     };
     loadSubcategory();
   }, [state.draftId, location.state?.draftId, mainCategory]);
@@ -221,7 +213,6 @@ const ExperienceSubcategorySelection = () => {
         const { auth } = await import("@/lib/firebase");
         const currentUser = auth.currentUser;
         if (!currentUser) {
-          console.warn("⚠️ ExperienceSubcategorySelection: User not authenticated, cannot create draft");
           return;
         }
         
@@ -235,14 +226,11 @@ const ExperienceSubcategorySelection = () => {
           }
         };
         draftId = await saveDraft(newDraftData, null);
-        console.log("✅ ExperienceSubcategorySelection: Created new draft:", draftId);
-        
         // Update state with new draftId
         if (actions?.setDraftId) {
           actions.setDraftId(draftId);
         }
       } catch (error) {
-        console.error("❌ ExperienceSubcategorySelection: Error creating draft:", error);
         return;
       }
     }
@@ -257,10 +245,8 @@ const ExperienceSubcategorySelection = () => {
           "data.experienceSubcategory": selectedSubcategory,
           lastModified: new Date(),
         });
-        console.log("✅ Updated experience subcategory in draft");
-      } catch (error) {
-        console.error("Error updating draft:", error);
-      }
+        } catch (error) {
+        }
     }
 
     // Update context for next step
@@ -289,7 +275,6 @@ const ExperienceSubcategorySelection = () => {
   };
 
   const handleSaveAndExit = async () => {
-    console.log("🚀 ExperienceSubcategorySelection handleSaveAndExit called");
     try {
       const { auth } = await import("@/lib/firebase");
       const currentUser = auth.currentUser;
@@ -314,14 +299,11 @@ const ExperienceSubcategorySelection = () => {
             }
           };
           draftId = await saveDraft(newDraftData, null);
-          console.log("✅ ExperienceSubcategorySelection: Created new draft:", draftId);
-          
           // Update state with new draftId
           if (actions?.setDraftId) {
             actions.setDraftId(draftId);
           }
         } catch (error) {
-          console.error("❌ ExperienceSubcategorySelection: Error creating draft:", error);
           alert("Failed to create draft. Please try again.");
           return;
         }
@@ -337,9 +319,7 @@ const ExperienceSubcategorySelection = () => {
             "data.experienceSubcategory": selectedSubcategory,
             lastModified: new Date(),
           });
-          console.log("✅ ExperienceSubcategorySelection: Draft saved successfully");
-        } catch (error) {
-          console.error("❌ Error saving draft:", error);
+          } catch (error) {
           alert("Failed to save draft. Please try again.");
           return;
         }
@@ -353,9 +333,7 @@ const ExperienceSubcategorySelection = () => {
           message: "Draft saved successfully!",
         },
       });
-      console.log("✅ Navigation to listings page initiated");
-    } catch (error) {
-      console.error("❌ Error in handleSaveAndExit:", error);
+      } catch (error) {
       alert("Failed to save. Please try again.");
     }
   };

@@ -47,12 +47,9 @@ const ExperiencesDetails = () => {
 
     const loadUnavailableDates = async () => {
       try {
-        console.log('📅 Loading unavailable dates for experience:', id);
         const dates = await getUnavailableDates(id);
-        console.log('📅 Loaded unavailable dates:', dates.length, 'dates');
         setUnavailableDates(dates);
       } catch (error) {
-        console.error('❌ Error loading unavailable dates:', error);
         setUnavailableDates([]);
       }
     };
@@ -74,12 +71,10 @@ const ExperiencesDetails = () => {
           setUnavailableDates(dates);
         },
         (error) => {
-          console.error('Error listening to bookings:', error);
-        }
+          }
       );
     } catch (error) {
-      console.error('Error setting up bookings listener:', error);
-    }
+      }
     
     return () => {
       if (unsubscribe) {
@@ -136,13 +131,10 @@ const ExperiencesDetails = () => {
 
       try {
         setLoading(true);
-        console.log('📦 ExperiencesDetails: Fetching experience with ID:', id);
-        
         const docRef = doc(db, 'listings', id);
         const docSnap = await getDoc(docRef);
         
         if (!docSnap.exists()) {
-          console.error('❌ Experience not found:', id);
           setError('Experience not found');
           setLoading(false);
           return;
@@ -211,7 +203,6 @@ const ExperiencesDetails = () => {
           recognition: data.recognition
         };
         
-        console.log('✅ ExperiencesDetails: Loaded experience:', experienceData.title);
         setExperience(experienceData);
         
         // Load reviews
@@ -229,8 +220,7 @@ const ExperiencesDetails = () => {
             }));
           }
         } catch (error) {
-          console.error('Error loading reviews:', error);
-        } finally {
+          } finally {
           setReviewsLoading(false);
         }
         
@@ -268,7 +258,6 @@ const ExperiencesDetails = () => {
               });
             }
           } catch (hostError) {
-            console.warn('Could not load host profile:', hostError);
             setHostProfile({
               name: experienceData.ownerEmail?.split('@')[0] || 'Host',
               email: experienceData.ownerEmail || '',
@@ -277,7 +266,6 @@ const ExperiencesDetails = () => {
           }
         }
       } catch (err) {
-        console.error('❌ Error fetching experience:', err);
         setError('Failed to load experience');
       } finally {
         setLoading(false);

@@ -157,7 +157,6 @@ export const createBooking = async (bookingData) => {
         }
       }
     } catch (pointsError) {
-      console.warn('Error checking points for booking:', pointsError);
       // Continue with wallet payment check if points check fails
     }
 
@@ -205,8 +204,7 @@ export const createBooking = async (bookingData) => {
         read: false
       });
     } catch (notifyError) {
-      console.error('Error notifying host of booking request:', notifyError);
-    }
+      }
     
     // Payment will NOT be transferred to admin wallet here.
     // Payment will only be deducted from guest and added to admin wallet when host confirms the booking.
@@ -216,16 +214,13 @@ export const createBooking = async (bookingData) => {
     if (message && message.trim()) {
       try {
         await sendBookingMessageToHost(docRef.id, listingId, ownerId, message, user.uid, user.email, listingTitle);
-        console.log('✅ Message sent to host via messaging system');
-      } catch (error) {
-        console.error('Error sending message to host:', error);
+        } catch (error) {
         // Don't fail the booking if message sending fails - message is still stored in booking
       }
     }
     // NOTE: Booking confirmation email will be sent when host confirms the booking
     // This ensures guests only receive confirmation emails when their booking is actually confirmed
     
-    console.log('✅ Booking created successfully:', docRef.id);
     return docRef.id;
   } else {
     // Create booking without immediate payment processing
@@ -286,14 +281,11 @@ export const createBooking = async (bookingData) => {
     if (message && message.trim()) {
       try {
         await sendBookingMessageToHost(docRef.id, listingId, ownerId, message, user.uid, user.email, listingTitleForMessage);
-        console.log('✅ Message sent to host via messaging system');
-      } catch (error) {
-        console.error('Error sending message to host:', error);
+        } catch (error) {
         // Don't fail the booking if message sending fails - message is still stored in booking
       }
     }
   
-  console.log('✅ Booking created successfully:', docRef.id);
   return docRef.id;
   }
 };
@@ -411,9 +403,7 @@ const sendBookingMessageToHost = async (bookingId, listingId, hostId, message, g
       [`unreadCounts.${hostId}`]: currentUnreadCount + 1
     });
     
-    console.log('✅ Booking message sent to host in conversation:', conversationId);
-  } catch (error) {
-    console.error('Error sending booking message to host:', error);
+    } catch (error) {
     throw error;
   }
 };
@@ -439,8 +429,7 @@ export const checkDateConflict = async (listingId, checkIn, checkOut) => {
         );
         querySnapshot = await getDocs(q);
     } catch (error) {
-      console.error('❌ Error checking date conflict:', error);
-        return true; // Err on the side of caution
+      return true; // Err on the side of caution
     }
     
     // Check each existing booking for overlap
@@ -488,7 +477,6 @@ export const checkDateConflict = async (listingId, checkIn, checkOut) => {
 
     return false;
   } catch (error) {
-    console.error('Error checking date conflict:', error);
     // If we can't check, err on the side of caution and prevent booking
     return true;
   }
@@ -520,7 +508,6 @@ export const getListingBookings = async (listingId) => {
 
     return bookings;
   } catch (error) {
-    console.error('Error getting listing bookings:', error);
     return [];
   }
 };
@@ -545,8 +532,6 @@ export const getGuestBookings = async (guestId) => {
       querySnapshot = await getDocs(q);
     } catch (indexError) {
       // If index doesn't exist, fall back to query without orderBy
-      console.warn('⚠️ Composite index not found for bookings query, falling back to query without orderBy:', indexError.message);
-      
       // Check if error is about missing index
       if (indexError.code === 'failed-precondition' || indexError.message.includes('index')) {
         const q = query(
@@ -585,7 +570,6 @@ export const getGuestBookings = async (guestId) => {
 
     return bookings;
   } catch (error) {
-    console.error('❌ Error getting guest bookings:', error);
     // Return empty array instead of throwing to prevent UI crashes
     return [];
   }
@@ -610,8 +594,7 @@ export const getUnavailableDates = async (listingId) => {
         );
         querySnapshot = await getDocs(q);
     } catch (error) {
-      console.error('❌ Error getting unavailable dates:', error);
-        return [];
+      return [];
     }
 
     const unavailableDates = [];
@@ -628,8 +611,6 @@ export const getUnavailableDates = async (listingId) => {
         console.log(`⏭️ Skipping booking ${doc.id} with status: ${booking.status} (only confirmed bookings block dates)`);
         return;
       }
-
-      console.log(`📌 Processing confirmed booking ${doc.id} - marking dates as unavailable`);
 
       const checkIn = booking.checkInDate?.toDate ? booking.checkInDate.toDate() : new Date(booking.checkInDate);
       const checkOut = booking.checkOutDate?.toDate ? booking.checkOutDate.toDate() : new Date(booking.checkOutDate);
@@ -690,12 +671,10 @@ export const getUnavailableDates = async (listingId) => {
       });
       console.log(`📅 Unavailable date strings (local):`, dateStrings);
     } else {
-      console.log('⚠️ No unavailable dates to return');
-    }
+      }
     
     return uniqueDates;
   } catch (error) {
-    console.error('❌ Error getting unavailable dates:', error);
     return [];
   }
 };
@@ -1048,7 +1027,6 @@ export const cancelBooking = async (bookingId) => {
           }
         }
       } catch (e) {
-        console.warn('Error formatting check-in date:', e);
         checkInDateFormatted = 'N/A';
       }
       
@@ -1063,7 +1041,6 @@ export const cancelBooking = async (bookingId) => {
           }
         }
       } catch (e) {
-        console.warn('Error formatting check-out date:', e);
         checkOutDateFormatted = 'N/A';
       }
       
@@ -1091,28 +1068,13 @@ export const cancelBooking = async (bookingId) => {
       );
       
       if (emailResult.success) {
-        console.log('✅ Cancellation email sent to guest successfully');
-      } else if (emailResult.skipped) {
+        } else if (emailResult.skipped) {
         // EmailJS not configured - log this clearly
-        console.warn('⚠️ Cancellation email skipped - EmailJS not configured. Please check your .env file for VITE_EMAILJS_BOOKING_PUBLIC_KEY, VITE_EMAILJS_BOOKING_SERVICE_ID, and VITE_EMAILJS_CANCELLATION_TEMPLATE_ID');
-      } else {
+        } else {
         // Other email errors - log with full details
-        console.error('❌ Failed to send cancellation email:', emailResult.error);
-        console.error('Email details:', {
-          email: booking.guestEmail || user.email,
-          bookingId: bookingId,
-          listingTitle: listingTitle
-        });
-      }
+        }
     } catch (error) {
       // Catch any unexpected errors in email sending
-      console.error('❌ Error in cancellation email sending process:', error);
-      console.error('Error details:', {
-        message: error.message,
-        stack: error.stack,
-        email: booking.guestEmail || user.email,
-        bookingId: bookingId
-      });
       // Don't fail cancellation if email sending fails
     }
     
@@ -1122,7 +1084,6 @@ export const cancelBooking = async (bookingId) => {
     };
     
   } catch (error) {
-    console.error('Error cancelling booking:', error);
     return { success: false, message: error.message || 'Failed to cancel booking' };
   }
 };

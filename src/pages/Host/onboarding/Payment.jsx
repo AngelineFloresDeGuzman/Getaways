@@ -62,16 +62,13 @@ const PayPalPaymentButton = ({ amount, planName, onPayment, disabled }) => {
             return actions.order.capture().then((details) => {
               onPayment(details);
             }).catch((err) => {
-              console.error('PayPal capture error:', err);
               alert('Payment failed: ' + (err?.message || 'Unknown error'));
             });
           }}
           onError={(err) => {
-            console.error('PayPal error:', err);
             alert('PayPal payment failed: ' + (err?.message || 'Unknown error'));
           }}
           onCancel={(data) => {
-            console.log('PayPal payment cancelled:', data);
             alert('Payment was cancelled');
           }}
         />
@@ -117,7 +114,6 @@ const GetPayPaymentButton = ({ amount, planName, onPayment, disabled, userId, pa
 
         setIsCheckingBalance(false);
       } catch (error) {
-        console.error('Error checking balance:', error);
         setIsCheckingBalance(false);
       }
     };
@@ -314,8 +310,7 @@ const Payment = () => {
             setIsAdmin(roles.includes('admin'));
           }
         } catch (error) {
-          console.error('Error checking admin status:', error);
-        }
+          }
       }
     };
     checkAdminStatus();
@@ -340,8 +335,7 @@ const Payment = () => {
         setPaypalAccountConnected(true);
       }
     } catch (error) {
-      console.error('Error checking merchant account:', error);
-    }
+      }
   };
   
   // Load merchant email and check on mount and when PayPal email or admin status changes
@@ -359,13 +353,11 @@ const Payment = () => {
     const checkPaymentRequirement = async () => {
       // Prevent multiple simultaneous checks
       if (isCheckingPaymentRef.current) {
-        console.log('📍 Payment: Payment check already in progress, skipping');
         return;
       }
       
       // Prevent re-running if we've already checked and the dependencies haven't meaningfully changed
       if (hasCheckedPaymentRef.current && !isEditMode && !listingId && !draftId) {
-        console.log('📍 Payment: Already checked payment requirement, skipping');
         return;
       }
       
@@ -394,13 +386,11 @@ const Payment = () => {
           }
           
           if (userPayment.status === 'active') {
-              console.log('📍 Payment: User has active payment, skipping payment');
               setRequiresPayment(false);
               
               // Publish/Update listing directly without payment
               // CRITICAL: Only publish if not already published to prevent duplicates
               if (isPublishingRef.current) {
-                console.warn('📍 Payment: Publishing already in progress, skipping auto-publish');
                 return;
               }
               
@@ -432,7 +422,6 @@ const Payment = () => {
                       await awardMilestonePoints(auth.currentUser.uid, 'listings', listingCount);
                     }
                   } catch (pointsError) {
-                    console.error('Error awarding points for listing:', pointsError);
                     // Don't block navigation if points fail
                   }
                 }
@@ -454,7 +443,6 @@ const Payment = () => {
                 });
                 return;
               } catch (error) {
-                console.error('❌ Error publishing listing:', error);
                 setUploadProgress('');
                 isAutoPublishingRef.current = false;
                 isPublishingRef.current = false; // Reset ref on error
@@ -464,7 +452,6 @@ const Payment = () => {
             }
           }
         } catch (error) {
-          console.error('📍 Payment: Error checking user subscription:', error);
           // Continue to check listing-level subscription
         }
       }
@@ -483,13 +470,11 @@ const Payment = () => {
               const userPayment = userData.payment || {};
               // If user has active payment, skip payment
               if (userPayment.status === 'active') {
-                console.log('📍 Payment: User has active payment, skipping payment');
-              setRequiresPayment(false);
+                setRequiresPayment(false);
               
               // Publish/Update listing directly without payment
               // CRITICAL: Only publish if not already published to prevent duplicates
               if (isPublishingRef.current) {
-                console.warn('📍 Payment: Publishing already in progress, skipping auto-publish');
                 return;
               }
               
@@ -497,7 +482,6 @@ const Payment = () => {
               isAutoPublishingRef.current = true; // Mark as auto-publishing
               try {
                 const listingIdResult = await publishListing();
-                console.log('✅ Listing updated without payment:', listingIdResult);
                 isAutoPublishingRef.current = false;
                 
                 setUploadProgress('Finalizing...');
@@ -516,7 +500,6 @@ const Payment = () => {
                 });
                 return;
               } catch (error) {
-                console.error('❌ Error updating listing:', error);
                 setUploadProgress('');
                 isAutoPublishingRef.current = false;
                 isPublishingRef.current = false; // Reset ref on error
@@ -528,7 +511,6 @@ const Payment = () => {
           }
           }
         } catch (error) {
-          console.error('📍 Payment: Error checking user payment:', error);
           // Default to requiring payment if check fails
         }
       }
@@ -552,11 +534,9 @@ const Payment = () => {
                 const userData = userSnap.data();
                 const userPayment = userData.payment || {};
                 if (userPayment.status === 'active') {
-                  console.log('📍 Payment: User has active payment, skipping payment');
                   setRequiresPayment(false);
                   // CRITICAL: Only publish if not already published to prevent duplicates
                   if (isPublishingRef.current) {
-                    console.warn('📍 Payment: Publishing already in progress, skipping auto-publish');
                     return;
                   }
                   
@@ -580,7 +560,6 @@ const Payment = () => {
                     });
                     return;
                   } catch (error) {
-                    console.error('❌ Error updating listing:', error);
                     setUploadProgress('');
                     isAutoPublishingRef.current = false;
                     isPublishingRef.current = false; // Reset ref on error
@@ -593,8 +572,7 @@ const Payment = () => {
             }
           }
         } catch (error) {
-          console.error('📍 Payment: Error checking draft:', error);
-        }
+          }
       }
       
         // If we reach here, payment is required
@@ -617,7 +595,6 @@ const Payment = () => {
     
     // If draftId is temp, reset it to find/create a real one
     if (draftIdToUse && draftIdToUse.startsWith('temp_')) {
-      console.log('📍 Payment: Found temp ID, resetting to find/create real draft');
       draftIdToUse = null;
     }
     
@@ -630,26 +607,22 @@ const Payment = () => {
         if (drafts.length > 0) {
           // Use the most recent draft
           draftIdToUse = drafts[0].id;
-          console.log('📍 Payment: Using existing draft:', draftIdToUse);
           if (actions.setDraftId) {
             actions.setDraftId(draftIdToUse);
           }
         } else {
           // No drafts exist, create a new one
-          console.log('📍 Payment: No existing drafts, creating new draft');
           const newDraftData = {
             currentStep: targetStep,
             category: state.category || 'accommodation',
             data: {}
           };
           draftIdToUse = await saveDraft(newDraftData, null);
-          console.log('📍 Payment: ✅ Created new draft:', draftIdToUse);
           if (actions.setDraftId) {
             actions.setDraftId(draftIdToUse);
           }
         }
       } catch (error) {
-        console.error('📍 Payment: Error finding/creating draft:', error);
         throw error;
       }
     }
@@ -669,7 +642,6 @@ const Payment = () => {
           console.log('📍 Payment: ✅ Saved currentStep to Firebase (currentStep:', targetStep, ')');
         } else {
           // Document doesn't exist, create it
-          console.log('📍 Payment: Document not found, creating new one');
           const { saveDraft } = await import('@/pages/Host/services/draftService');
           
           const newDraftData = {
@@ -678,21 +650,17 @@ const Payment = () => {
             data: {}
           };
           draftIdToUse = await saveDraft(newDraftData, draftIdToUse);
-          console.log('📍 Payment: ✅ Created new draft with currentStep:', draftIdToUse);
           if (actions.setDraftId) {
             actions.setDraftId(draftIdToUse);
           }
         }
         return draftIdToUse;
       } catch (error) {
-        console.error('📍 Payment: ❌ Error saving to Firebase:', error);
         throw error;
       }
     } else if (state.user?.uid) {
-      console.warn('📍 Payment: ⚠️ User authenticated but no valid draftId after ensureDraftAndSave');
       throw new Error('Failed to create draft for authenticated user');
     } else {
-      console.warn('📍 Payment: ⚠️ User not authenticated, cannot save to Firebase');
       return null;
     }
   };
@@ -705,11 +673,8 @@ const Payment = () => {
     }
     
     try {
-      console.log('📍 Payment: Save & Exit clicked');
-      
       // Set current step before saving so "Continue Editing" returns to this page
       if (actions.setCurrentStep) {
-        console.log('📍 Payment: Setting currentStep to payment');
         actions.setCurrentStep('payment');
       }
       
@@ -717,9 +682,7 @@ const Payment = () => {
       let draftIdToUse;
       try {
         draftIdToUse = await ensureDraftAndSave('payment');
-        console.log('📍 Payment: ✅ Saved currentStep to Firebase on Save & Exit');
-      } catch (saveError) {
-        console.error('📍 Payment: Error saving to Firebase on Save & Exit:', saveError);
+        } catch (saveError) {
         alert('Error saving progress: ' + saveError.message);
         return;
       }
@@ -735,7 +698,6 @@ const Payment = () => {
         }
       });
     } catch (error) {
-      console.error('Error in Payment save:', error);
       alert('Failed to save progress: ' + error.message);
     }
   };
@@ -743,7 +705,6 @@ const Payment = () => {
   // Set current step when component mounts
   useEffect(() => {
     if (actions.setCurrentStep && state.currentStep !== 'payment') {
-      console.log('📍 Payment page - Setting currentStep to payment');
       actions.setCurrentStep('payment');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -778,8 +739,7 @@ const Payment = () => {
             }
           }
         } catch (error) {
-          console.error('Error loading PayPal status:', error);
-        }
+          }
       }
     };
     
@@ -805,12 +765,10 @@ const Payment = () => {
   // Compress and prepare photos for Firestore storage
   const compressPhotosForStorage = async (photos) => {
     if (!photos || photos.length === 0) {
-      console.log('📷 No photos to compress');
       setUploadProgress('No photos to process');
       return [];
     }
 
-    console.log(`📤 Starting compression of ${photos.length} photos for Firestore...`);
     setUploadProgress(`Compressing ${photos.length} photos...`);
     const compressedPhotos = [];
     
@@ -824,7 +782,6 @@ const Payment = () => {
         // If photo already has a compressed base64 string, check if it's small enough
         // Recompress if it's still too large (need to be under 70KB to be safe)
         if (photo.base64 && photo.base64.length < 70000) { // Already small (<70KB)
-          console.log(`⏭️ Photo ${i + 1} already compressed, using existing base64`);
           compressedPhotos.push({
             id: photo.id || `photo_${i}`,
             name: photo.name || `photo_${i + 1}`,
@@ -852,7 +809,6 @@ const Payment = () => {
         
         const base64String = photo.base64 || photo.url;
         if (!base64String) {
-          console.warn(`⚠️ Photo ${i + 1} has no base64 or url, skipping`);
           continue;
         }
         
@@ -862,7 +818,6 @@ const Payment = () => {
         
         // Compress image very aggressively to reduce size (max 50KB per image)
         // With 8 photos max, total would be ~400KB, well under 1MB Firestore limit
-        console.log(`📦 Compressing photo ${i + 1}/${photos.length}...`);
         const compressionOptions = {
           maxSizeMB: 0.05, // 50KB max per image (very aggressive compression)
           maxWidthOrHeight: 800, // Reduced max dimensions for smaller file size
@@ -893,9 +848,7 @@ const Payment = () => {
           base64: compressedBase64, // Store compressed base64 in Firestore
         });
         
-        console.log(`✅ Compressed photo ${i + 1}/${photos.length}`);
-      } catch (error) {
-        console.error(`❌ Error compressing photo ${i + 1}:`, error);
+        } catch (error) {
         // If compression fails, use original but log warning
         if (photo.base64) {
           compressedPhotos.push({
@@ -910,7 +863,6 @@ const Payment = () => {
     }
     
     setUploadProgress(`Compressed ${compressedPhotos.length} of ${photos.length} photos successfully`);
-    console.log(`✅ Photo compression complete: ${compressedPhotos.length}/${photos.length} processed`);
     return compressedPhotos;
   };
 
@@ -932,10 +884,8 @@ const Payment = () => {
           firestoreId: docSnap.id,
         };
       }).filter(photo => !!photo.base64);
-      console.log('📍 Payment: Loaded service photos from subcollection:', loadedPhotos.length);
       return loadedPhotos;
     } catch (error) {
-      console.error('Error loading service photos from subcollection:', error);
       return [];
     }
   };
@@ -959,10 +909,8 @@ const Payment = () => {
           firestoreId: docSnap.id,
         };
       }).filter(photo => !!photo.base64);
-      console.log('📍 Payment: Loaded accommodation photos from subcollection:', loadedPhotos.length);
       return loadedPhotos;
     } catch (error) {
-      console.error('Error loading accommodation photos from subcollection:', error);
       return [];
     }
   };
@@ -984,10 +932,8 @@ const Payment = () => {
         const existingListingRef = doc(db, 'listings', initialDraftData.publishedListingId);
         const existingListingSnap = await getDoc(existingListingRef);
         if (existingListingSnap.exists()) {
-          console.log('📍 Payment: Draft already has published listing, returning existing ID to prevent duplicate:', initialDraftData.publishedListingId);
           return initialDraftData.publishedListingId;
         } else {
-          console.warn('⚠️ Draft references non-existent listing, clearing publishedListingId');
           // Clear invalid publishedListingId
           await updateDoc(draftRef, {
             publishedListingId: null,
@@ -1000,13 +946,11 @@ const Payment = () => {
     // Prevent duplicate publishing (if already in progress and not auto-publishing)
     // But allow if this is auto-publishing from checkPaymentRequirement and it's a retry
     if (isPublishingRef.current && !isAutoPublishingRef.current) {
-      console.warn('⚠️ publishListing already in progress, preventing duplicate');
       // Double-check draft one more time in case it was updated
       const recheckDraftSnap = await getDoc(draftRef);
       if (recheckDraftSnap.exists()) {
         const recheckDraftData = recheckDraftSnap.data();
         if (recheckDraftData.publishedListingId) {
-          console.log('📍 Payment: Found publishedListingId on recheck, returning to prevent duplicate:', recheckDraftData.publishedListingId);
           return recheckDraftData.publishedListingId;
         }
       }
@@ -1015,7 +959,6 @@ const Payment = () => {
     
     // If auto-publishing failed before, reset and allow retry
     if (isPublishingRef.current && isAutoPublishingRef.current) {
-      console.log('📍 Payment: Resetting publishing ref for auto-publishing retry');
       isPublishingRef.current = false;
     }
 
@@ -1036,16 +979,13 @@ const Payment = () => {
       let targetListingId = null;
       
       if (draftData.publishedListingId) {
-        console.log('📍 Payment: Draft already has published listing, updating instead of creating new:', draftData.publishedListingId);
         targetListingId = draftData.publishedListingId;
         
         // Verify listing exists
         const existingListingRef = doc(db, 'listings', targetListingId);
         const existingListingSnap = await getDoc(existingListingRef);
         if (existingListingSnap.exists()) {
-          console.log('✅ Found existing listing, will update instead of creating duplicate');
-        } else {
-          console.warn('⚠️ Draft references listingId that does not exist, clearing publishedListingId and will create new listing');
+          } else {
           // Clear invalid publishedListingId from draft
           targetListingId = null;
         }
@@ -1054,8 +994,7 @@ const Payment = () => {
       // Also check if isEditMode and listingId are set (from navigation state)
       if (!targetListingId && isEditMode && listingId) {
         targetListingId = listingId;
-        console.log('📍 Payment: Using listingId from edit mode:', targetListingId);
-      }
+        }
       
       const data = draftData.data || {};
       const category = draftData.category || 'accommodation';
@@ -1077,32 +1016,26 @@ const Payment = () => {
         const subcollectionPhotos = await loadServicePhotosFromSubcollection(draftId);
         if (subcollectionPhotos.length > 0) {
           photos = subcollectionPhotos;
-          console.log('📍 Payment: Using photos from servicePhotos subcollection:', photos.length);
-        } else {
+          } else {
           // Fallback to main document if subcollection is empty
           const hasValidBase64 = Array.isArray(photos) && photos.some(photo => photo?.base64);
           if (!hasValidBase64) {
-            console.warn('⚠️ Payment: No photos found in subcollection or main document for service');
-          }
+            }
         }
       } else {
         // For accommodation, load from 'photos' subcollection
         const subcollectionPhotos = await loadAccommodationPhotosFromSubcollection(draftId);
         if (subcollectionPhotos.length > 0) {
           photos = subcollectionPhotos;
-          console.log('📍 Payment: Using photos from photos subcollection:', photos.length);
-        } else {
+          } else {
           // Fallback to main document if subcollection is empty
           const hasValidBase64 = Array.isArray(photos) && photos.some(photo => photo?.base64);
           if (!hasValidBase64) {
-            console.warn('⚠️ Payment: No photos found in subcollection or main document for accommodation');
-          }
+            }
         }
       }
       
       // Debug: Log photos data to help diagnose missing images issue
-      console.log('📍 Payment: Photos from draft:', photos);
-      console.log('📍 Payment: Number of photos:', photos.length);
       console.log('📍 Payment: First photo keys:', photos[0] ? Object.keys(photos[0]) : 'no photos');
       
       // Prepare listing data first (without photos - we'll add them after upload)
@@ -1159,9 +1092,6 @@ const Payment = () => {
       }
 
       // Convert blob URLs to base64 for Firestore storage (no Firebase Storage available)
-      console.log('📦 Processing photos for Firestore storage...');
-      console.log('📦 Photos to process:', photos.length);
-      
       // Helper to convert blob URL to base64
       const blobUrlToBase64 = async (blobUrl) => {
         try {
@@ -1174,7 +1104,6 @@ const Payment = () => {
             reader.readAsDataURL(blob);
           });
         } catch (error) {
-          console.error('Error converting blob URL to base64:', error);
           throw error;
         }
       };
@@ -1250,32 +1179,18 @@ const Payment = () => {
             // Return photo as-is if no conversion needed
             return photo;
           } catch (error) {
-            console.error(`❌ Error processing photo ${index + 1}:`, error);
             // Return photo as-is if conversion fails
             return photo;
           }
         })
       );
       
-      console.log(`✅ Processed ${photosWithBase64.length} photos`);
-      
       // Compress photos to reduce Firestore document size
       const compressedPhotos = await compressPhotosForStorage(photosWithBase64.slice(0, 8));
-      console.log(`✅ Compressed ${compressedPhotos.length} photos`);
-      
       // Store photos in listing document with base64 (Firestore storage)
       listingDataWithoutPhotos.photos = compressedPhotos;
       
       // Debug: Log photos being saved
-      console.log('📸 Payment: Photos to save to listing:', compressedPhotos.length);
-      console.log('📸 Payment: First photo structure:', compressedPhotos[0] ? {
-        id: compressedPhotos[0].id,
-        name: compressedPhotos[0].name,
-        hasBase64: !!compressedPhotos[0].base64,
-        hasUrl: !!compressedPhotos[0].url,
-        base64Length: compressedPhotos[0].base64 ? compressedPhotos[0].base64.length : 0,
-        allKeys: Object.keys(compressedPhotos[0])
-      } : 'no photos');
       
       // Remove image and images fields - frontend should use photos[0].base64
       // This saves significant space by not duplicating photo data
@@ -1285,7 +1200,6 @@ const Payment = () => {
       
       if (targetListingId) {
         // Update existing listing (prevent duplicate)
-        console.log('📝 Updating existing listing (preventing duplicate):', targetListingId);
         
         // Get existing listing to preserve rating and reviews
         const existingListingRef = doc(db, 'listings', targetListingId);
@@ -1306,7 +1220,6 @@ const Payment = () => {
         if (draftRecheckSnap.exists()) {
           const draftRecheckData = draftRecheckSnap.data();
           if (draftRecheckData.publishedListingId) {
-            console.log('📍 Payment: Found publishedListingId on recheck, updating instead of creating:', draftRecheckData.publishedListingId);
             targetListingId = draftRecheckData.publishedListingId;
             
             // Verify listing exists
@@ -1319,22 +1232,19 @@ const Payment = () => {
               finalListingId = await createListing(listingDataWithoutPhotos, targetListingId);
               console.log('✅ Listing updated with ID (prevented duplicate on recheck):', finalListingId);
             } else {
-              console.warn('⚠️ PublishedListingId references non-existent listing, will create new');
               // Clear invalid publishedListingId and continue to create new
               await updateDoc(draftRef, {
                 publishedListingId: null,
                 published: false
               });
               finalListingId = await createListing(listingDataWithoutPhotos);
-              console.log('✅ Listing created with ID:', finalListingId);
-            }
+              }
           } else {
             // CRITICAL: Final atomic check before creating - re-read draft one last time
             const finalCheckSnap = await getDoc(draftRef);
             if (finalCheckSnap.exists()) {
               const finalCheckData = finalCheckSnap.data();
               if (finalCheckData.publishedListingId) {
-                console.log('📍 Payment: FINAL CHECK - Found publishedListingId, updating instead of creating:', finalCheckData.publishedListingId);
                 targetListingId = finalCheckData.publishedListingId;
                 const existingListingRef = doc(db, 'listings', targetListingId);
                 const existingListingSnap = await getDoc(existingListingRef);
@@ -1355,14 +1265,12 @@ const Payment = () => {
             // Create new listing ONLY if no existing listingId found after final check
             console.log('📝 Creating new listing (no existing listingId found after final check)');
             finalListingId = await createListing(listingDataWithoutPhotos);
-            console.log('✅ Listing created with ID:', finalListingId);
-          }
+            }
         } else {
           // Draft doesn't exist, create new listing
           console.log('📝 Creating new listing (draft not found)');
           finalListingId = await createListing(listingDataWithoutPhotos);
-          console.log('✅ Listing created with ID:', finalListingId);
-        }
+          }
         
         // CRITICAL: Update draft with publishedListingId IMMEDIATELY after creating listing
         // Use batch write to ensure atomicity and prevent race conditions
@@ -1376,9 +1284,7 @@ const Payment = () => {
               published: true
             });
             await batch.commit();
-            console.log('✅ Updated draft with publishedListingId atomically to prevent duplicates');
-          } catch (updateError) {
-            console.error('❌ CRITICAL: Could not update draft with publishedListingId:', updateError);
+            } catch (updateError) {
             // This is critical - if we can't update the draft, we might create duplicates
             // Try one more time with regular updateDoc
             try {
@@ -1388,16 +1294,13 @@ const Payment = () => {
               });
               console.log('✅ Updated draft with publishedListingId (fallback)');
             } catch (fallbackError) {
-              console.error('❌ Failed to update draft even with fallback:', fallbackError);
               // If we can't update the draft, delete the listing we just created to prevent orphan
               // But only if it's a new listing (not an update)
               try {
                 const listingRef = doc(db, 'listings', finalListingId);
                 await updateDoc(listingRef, { status: 'inactive' }); // Mark as inactive instead of deleting
-                console.error('⚠️ Marked listing as inactive due to draft update failure');
                 throw new Error('Failed to update draft with publishedListingId. Listing marked as inactive.');
               } catch (cleanupError) {
-                console.error('❌ CRITICAL: Failed to cleanup listing after draft update failure:', cleanupError);
                 // At this point, we have a listing but no draft reference - this is bad but we'll return it
               }
             }
@@ -1408,14 +1311,11 @@ const Payment = () => {
       // NOTE: We do NOT delete the draft anymore - we keep it with publishedListingId
       // This allows editing listings and prevents duplicates
       // The draft is marked as published, so it won't show in drafts list
-      console.log('✅ Listing published successfully. ListingId:', finalListingId);
-      
       // CRITICAL: Only release the publishing lock AFTER draft is updated
       // This ensures no other publishListing call can happen before draft is marked
       isPublishingRef.current = false;
       return finalListingId;
     } catch (error) {
-      console.error('Error publishing listing:', error);
       isPublishingRef.current = false; // Reset flag on error
       throw error;
     }
@@ -1484,10 +1384,8 @@ const Payment = () => {
         accountName: paypalEmailInput.trim().split('@')[0]
       });
       // Success - the state will update and show the connected status
-      console.log('PayPal account connected successfully');
       setIsConnectingPayPal(false);
     } catch (error) {
-      console.error('Error connecting PayPal:', error);
       alert('Failed to connect PayPal account: ' + error.message);
       setIsConnectingPayPal(false);
     }
@@ -1505,8 +1403,6 @@ const Payment = () => {
     setUploadProgress('Processing PayPal payment...');
     
     try {
-      console.log('✅ PayPal payment approved:', paypalDetails);
-      
       // Verify payment amount matches
       const paidAmountPHP = parseFloat(paypalDetails.purchase_units[0]?.payments?.captures[0]?.amount?.value || 0);
       const expectedAmountPHP = planPrice; // planPrice is already in PHP
@@ -1542,10 +1438,8 @@ const Payment = () => {
           );
           console.log('✅ Subscription payment (PayPal) recorded in admin wallet');
         } else {
-          console.warn('⚠️ Admin user ID not found - subscription payment not recorded in admin wallet');
-        }
+          }
       } catch (adminWalletError) {
-        console.error('⚠️ Error recording subscription payment in admin wallet:', adminWalletError);
         // Don't block payment flow if admin wallet recording fails
       }
 
@@ -1583,12 +1477,10 @@ const Payment = () => {
         await updateDoc(userRef, {
           payment: paymentUpdate
         });
-        console.log('✅ PayPal payment info saved to user document', { paypalOrderId, paypalTransactionId });
-      }
+        }
 
       // Publish/Update the listing
       setUploadProgress(isEditMode ? 'Updating your listing...' : 'Creating your listing...');
-      console.log('📤 Starting listing publication/update process...');
       isAutoPublishingRef.current = false;
       const listingId = await publishListing();
       console.log('✅ PayPal payment processed and listing ' + (isEditMode ? 'updated' : 'published') + ':', listingId);
@@ -1613,8 +1505,7 @@ const Payment = () => {
             await awardMilestonePoints(auth.currentUser.uid, 'listings', listingCount);
           }
         } catch (pointsError) {
-          console.error('Error awarding points for listing:', pointsError);
-        }
+          }
       }
 
       updateSessionStorageBeforeNav('payment');
@@ -1633,7 +1524,6 @@ const Payment = () => {
         }
       });
     } catch (error) {
-      console.error('❌ Error processing PayPal payment:', error);
       setIsProcessing(false);
       setUploadProgress('');
       alert(`Error processing payment: ${error.message}\n\nPlease try again or contact support if the issue persists.`);
@@ -1741,10 +1631,8 @@ const Payment = () => {
             paymentType: 'subscription_payment'
           }
         );
-        console.log('✅ Subscription payment sent directly to admin GetPay wallet');
-      } else {
-        console.warn('⚠️ Admin user ID not found - payment not credited to admin wallet');
-      }
+        } else {
+        }
 
       // Update user payment status
         const userRef = doc(db, 'users', auth.currentUser.uid);
@@ -1763,12 +1651,10 @@ const Payment = () => {
             method: 'getpay'
             }
           });
-        console.log('✅ Payment info saved to user document');
-      }
+        }
 
       // Publish/Update the listing (this includes photo uploads which may take time)
       setUploadProgress(isEditMode ? 'Updating your listing...' : 'Creating your listing...');
-      console.log('📤 Starting listing publication/update process...');
       isAutoPublishingRef.current = false; // Ensure manual clicks are not treated as auto-publishing
       const listingId = await publishListing();
       console.log('✅ GetPay payment processed and listing ' + (isEditMode ? 'updated' : 'published') + ':', listingId);
@@ -1794,7 +1680,6 @@ const Payment = () => {
             await awardMilestonePoints(auth.currentUser.uid, 'listings', listingCount);
           }
         } catch (pointsError) {
-          console.error('Error awarding points for listing:', pointsError);
           // Don't block navigation if points fail
         }
       }
@@ -1818,7 +1703,6 @@ const Payment = () => {
         }
       });
     } catch (error) {
-      console.error('❌ Error processing GetPay payment:', error);
       setIsProcessing(false);
       setUploadProgress('');
       alert(`Error processing payment: ${error.message}\n\nPlease try again or contact support if the issue persists.`);

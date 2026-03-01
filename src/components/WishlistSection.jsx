@@ -53,7 +53,6 @@ const WishlistSection = ({ listingId, listingTitle, listingType, hostName }) => 
         duration: 4000,
       });
     } catch (error) {
-      console.error('Error submitting wish:', error);
       toast.error('Failed to send wish. Please try again.');
     } finally {
       setIsSubmitting(false);

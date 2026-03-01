@@ -37,8 +37,7 @@ const ExperienceMaxGuests = () => {
           }
         }
       } catch (error) {
-        console.error("Error loading max guests data:", error);
-      }
+        }
     };
     loadData();
   }, [draftId, location.state?.experienceCategory]);
@@ -53,7 +52,6 @@ const ExperienceMaxGuests = () => {
   // Save data to draft
   const saveData = async () => {
     if (!draftId) {
-      console.warn("No draftId available for saving");
       return;
     }
 
@@ -66,9 +64,7 @@ const ExperienceMaxGuests = () => {
         "data.experienceCategory": mainCategory || location.state?.experienceCategory,
         lastModified: new Date(),
       });
-      console.log("✅ Saved max guests data");
-    } catch (error) {
-      console.error("Error saving max guests data:", error);
+      } catch (error) {
       throw error;
     }
   };
@@ -88,7 +84,6 @@ const ExperienceMaxGuests = () => {
         },
       });
     } catch (error) {
-      console.error("Error in handleNext:", error);
       // Navigate even on error
       navigate("/pages/experience-details", {
         state: {
@@ -127,8 +122,7 @@ const ExperienceMaxGuests = () => {
         },
       });
     } catch (error) {
-      console.error("Error saving and exiting:", error);
-    }
+      }
   };
 
   return (

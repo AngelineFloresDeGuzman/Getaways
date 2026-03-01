@@ -54,8 +54,6 @@ const Services = () => {
     const loadServices = async () => {
       try {
         setLoading(true);
-        console.log('📦 Services: Loading published listings...');
-        
         // Query listings collection for active services
         const listingsRef = collection(db, 'listings');
         
@@ -80,7 +78,6 @@ const Services = () => {
             );
             querySnapshot = await getDocs(q);
           } catch (indexError2) {
-            console.warn('⚠️ Index error for status filter, querying by category only:', indexError2.message);
             // Final fallback: query by category only, filter status in JavaScript
             const q = query(
               listingsRef,
@@ -146,11 +143,9 @@ const Services = () => {
           });
         }
         
-        console.log('✅ Services: Loaded', servicesData.length, 'listings');
         setServices(servicesData);
         setFilteredServices(servicesData);
       } catch (error) {
-        console.error('❌ Error loading services:', error);
         setServices([]);
         setFilteredServices([]);
       } finally {
@@ -257,7 +252,6 @@ const Services = () => {
 
         setUnavailableListings(unavailable);
       } catch (error) {
-        console.error('Error loading unavailable listings:', error);
         setUnavailableListings(new Set());
       }
     };
@@ -656,8 +650,7 @@ const Services = () => {
                         url: `${window.location.origin}/services/${activeShare}`,
                       });
                     } catch (error) {
-                      console.error("Share cancelled or failed:", error);
-                    }
+                      }
                   } else {
                     alert("Sharing via device apps is not supported on this browser.");
                   }

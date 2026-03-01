@@ -41,8 +41,7 @@ const OfferingPricePerGuest = () => {
               }
             }
           } catch (error) {
-            console.error("Error loading prices:", error);
-          }
+            }
         }
       }
       // When creating a new offering, start with empty value

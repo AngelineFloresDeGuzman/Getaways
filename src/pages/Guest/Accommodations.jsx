@@ -57,8 +57,6 @@ const Accommodations = () => {
         const loadAccommodations = async () => {
             try {
                 setLoading(true);
-                console.log('📦 Accommodations: Loading published listings...');
-                
                 // Query listings collection for active accommodations
                 const listingsRef = collection(db, 'listings');
                 
@@ -83,7 +81,6 @@ const Accommodations = () => {
                         );
                         querySnapshot = await getDocs(q);
                     } catch (indexError2) {
-                        console.warn('⚠️ Index error for status filter, querying by category only:', indexError2.message);
                         // Final fallback: query by category only, filter status in JavaScript
                         const q = query(
                             listingsRef,
@@ -126,19 +123,6 @@ const Accommodations = () => {
                     // Debug: Log photos data for this accommodation
                     const photosData = data.photos || [];
                     const firstPhoto = photosData[0];
-                    console.log(`📸 Accommodations: Listing ${doc.id} - Photos:`, {
-                        photosCount: photosData.length,
-                        firstPhoto: firstPhoto ? {
-                            id: firstPhoto.id,
-                            name: firstPhoto.name,
-                            hasBase64: !!firstPhoto.base64,
-                            hasUrl: !!firstPhoto.url,
-                            base64Length: firstPhoto.base64 ? firstPhoto.base64.length : 0,
-                            allKeys: Object.keys(firstPhoto)
-                        } : 'no first photo',
-                        imageField: data.image,
-                        hasImageField: !!data.image
-                    });
                     
                     return {
                         id: doc.id,
@@ -222,13 +206,9 @@ const Accommodations = () => {
                     });
                 }
                 
-                console.log('✅ Accommodations: Loaded', accommodationsData.length, 'listings');
-                console.log('📋 Accommodations data:', accommodationsData);
                 setAccommodations(accommodationsData);
                 setFilteredAccommodations(accommodationsData);
             } catch (error) {
-                console.error('❌ Error loading accommodations:', error);
-                console.error('Error details:', error.code, error.message);
                 setAccommodations([]);
                 setFilteredAccommodations([]);
             } finally {
@@ -338,7 +318,6 @@ const Accommodations = () => {
 
                 setUnavailableListings(unavailable);
             } catch (error) {
-                console.error('Error loading unavailable listings:', error);
                 setUnavailableListings(new Set());
             }
         };
@@ -778,8 +757,7 @@ const Accommodations = () => {
                                                 url: `${window.location.origin}/accommodations/${activeShare}`,
                                             });
                                         } catch (error) {
-                                            console.error("Share cancelled or failed:", error);
-                                        }
+                                            }
                                     } else {
                                         alert("Sharing via device apps is not supported on this browser.");
                                     }

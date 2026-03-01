@@ -36,12 +36,10 @@ const BathroomTypes = () => {
                 dedicated: savedBathroomTypes.dedicated || 0,
                 shared: savedBathroomTypes.shared || 0
               });
-              console.log('📍 BathroomTypes: Loaded from draft:', savedBathroomTypes);
-            }
+              }
           }
         } catch (error) {
-          console.error('❌ BathroomTypes: Error loading from draft:', error);
-        }
+          }
       }
     };
     loadBathroomTypes();
@@ -50,7 +48,6 @@ const BathroomTypes = () => {
   // Set current step
   useLayoutEffect(() => {
     if (actions?.setCurrentStep) {
-      console.log('📍 BathroomTypes: Setting currentStep to bathroomtypes');
       actions.setCurrentStep('bathroomtypes');
     }
   }, [actions]);
@@ -72,7 +69,6 @@ const BathroomTypes = () => {
     let draftIdToUse = state?.draftId || location.state?.draftId;
     
     if (!draftIdToUse || draftIdToUse.startsWith('temp_')) {
-      console.warn('📍 BathroomTypes: No valid draftId, cannot save');
       return;
     }
 
@@ -86,10 +82,8 @@ const BathroomTypes = () => {
           currentStep: 'occupancy',
           lastModified: new Date()
         });
-        console.log('✅ BathroomTypes: Saved to Firebase:', bathroomTypes);
-      }
+        }
     } catch (error) {
-      console.error('❌ BathroomTypes: Error saving to Firebase:', error);
       throw error;
     }
   };
@@ -205,7 +199,6 @@ const BathroomTypes = () => {
               }
             });
           } catch (error) {
-            console.error('❌ BathroomTypes: Error saving:', error);
             alert('Error saving bathroom types. Please try again.');
           }
         }}

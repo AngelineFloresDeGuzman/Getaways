@@ -151,8 +151,7 @@ export const useExperienceData = () => {
           hasLoadedRef.current = true;
         }
       } catch (error) {
-        console.error('Error loading experience data:', error);
-      } finally {
+        } finally {
         setIsLoading(false);
       }
     };
@@ -163,7 +162,6 @@ export const useExperienceData = () => {
   // Save data to draft
   const saveData = async (updates, stepName) => {
     if (!draftId) {
-      console.warn('No draftId available for saving');
       return;
     }
     
@@ -181,12 +179,9 @@ export const useExperienceData = () => {
       });
       
       await updateDoc(draftRef, updateObj);
-      console.log(`✅ Saved data for step: ${stepName}`);
-      
       // Update local state
       setData(prev => ({ ...prev, ...updates }));
     } catch (error) {
-      console.error('Error saving experience data:', error);
       throw error;
     }
   };

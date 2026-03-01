@@ -71,8 +71,6 @@ const Experiences = () => {
     const loadExperiences = async () => {
       try {
         setLoading(true);
-        console.log('📦 Experiences: Loading published listings...');
-        
         // Query listings collection for active experiences
         const listingsRef = collection(db, 'listings');
         
@@ -97,7 +95,6 @@ const Experiences = () => {
             );
             querySnapshot = await getDocs(q);
           } catch (indexError2) {
-            console.warn('⚠️ Index error for status filter, querying by category only:', indexError2.message);
             // Final fallback: query by category only, filter status in JavaScript
             const q = query(
               listingsRef,
@@ -164,11 +161,9 @@ const Experiences = () => {
           });
         }
         
-        console.log('✅ Experiences: Loaded', experiencesData.length, 'listings');
         setExperiences(experiencesData);
         setFilteredExperiences(experiencesData);
       } catch (error) {
-        console.error('❌ Error loading experiences:', error);
         setExperiences([]);
         setFilteredExperiences([]);
       } finally {
@@ -295,7 +290,6 @@ const Experiences = () => {
 
         setUnavailableListings(unavailable);
       } catch (error) {
-        console.error('Error loading unavailable listings:', error);
         setUnavailableListings(new Set());
       }
     };
@@ -658,8 +652,7 @@ const Experiences = () => {
                         url: `${window.location.origin}/experiences/${activeShare}`,
                       });
                     } catch (error) {
-                      console.error("Share cancelled or failed:", error);
-                    }
+                      }
                   } else {
                     alert("Sharing via device apps is not supported on this browser.");
                   }

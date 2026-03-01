@@ -36,8 +36,7 @@ const ServiceDescription = () => {
             }
           }
         } catch (error) {
-          console.error("Error loading description from draft:", error);
-        }
+          }
       }
     };
     loadDescription();
@@ -67,10 +66,8 @@ const ServiceDescription = () => {
           currentStep: "service-setup-complete", // Next step
           lastModified: new Date(),
         });
-        console.log("✅ Updated service description step in draft");
-      } catch (error) {
-        console.error("Error updating draft:", error);
-      }
+        } catch (error) {
+        }
     }
 
     // Navigate to finish setup page (or payment if that's the next step)
@@ -116,9 +113,7 @@ const ServiceDescription = () => {
             currentStep: "service-description", // Save CURRENT step
             lastModified: new Date(),
           });
-          console.log("✅ Saved service description to Firebase");
-        } catch (error) {
-          console.error("Error saving description:", error);
+          } catch (error) {
           alert("Failed to save. Please try again.");
           return;
         }
@@ -130,7 +125,6 @@ const ServiceDescription = () => {
         },
       });
     } catch (error) {
-      console.error("❌ Error saving draft:", error);
       alert("Failed to save. Please try again.");
     }
   };

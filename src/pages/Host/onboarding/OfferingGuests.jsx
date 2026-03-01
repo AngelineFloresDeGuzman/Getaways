@@ -42,8 +42,7 @@ const OfferingGuests = () => {
               }
             }
           } catch (error) {
-            console.error("Error loading max guests:", error);
-          }
+            }
         }
       }
       // When creating a new offering, start with default value (1)
@@ -102,8 +101,7 @@ const OfferingGuests = () => {
           lastModified: new Date(),
         });
       } catch (error) {
-        console.error("Error saving temporary max guests:", error);
-      }
+        }
     }
       navigate("/host/listings");
   };

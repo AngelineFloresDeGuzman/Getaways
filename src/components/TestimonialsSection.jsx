@@ -22,7 +22,6 @@ const TestimonialsSection = () => {
           );
           querySnapshot = await getDocs(q);
         } catch (indexError) {
-          console.log('Index error, trying without orderBy:', indexError);
           // Fallback: get all reviews and sort in JavaScript
           const q = query(reviewsRef, limit(50));
           querySnapshot = await getDocs(q);
@@ -56,7 +55,6 @@ const TestimonialsSection = () => {
         // Only show real reviews - no placeholders
         setTestimonials(reviews.slice(0, 6)); // Show up to 6 best reviews
       } catch (error) {
-        console.error('Error loading testimonials:', error);
         // Don't show fake data on error - just show empty state
         setTestimonials([]);
       } finally {

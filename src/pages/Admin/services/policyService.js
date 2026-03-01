@@ -49,7 +49,6 @@ export const getAllPolicies = async () => {
       snapshot = await getDocs(q);
     } catch (orderError) {
       // If orderBy fails (e.g., no documents or missing field), get all without ordering
-      console.warn('Could not order by updatedAt, fetching all policies:', orderError);
       snapshot = await getDocs(policiesRef);
     }
     
@@ -69,7 +68,6 @@ export const getAllPolicies = async () => {
     
     return policies;
   } catch (error) {
-    console.error('Error getting policies:', error);
     // Return empty array instead of throwing to prevent UI crashes
     return [];
   }
@@ -94,7 +92,6 @@ export const getPolicyById = async (policyId) => {
       ...policyDoc.data()
     };
   } catch (error) {
-    console.error('Error getting policy:', error);
     throw error;
   }
 };
@@ -126,7 +123,6 @@ export const getActivePolicyByType = async (policyType) => {
     
     return null;
   } catch (error) {
-    console.error('Error getting active policy:', error);
     throw error;
   }
 };
@@ -164,7 +160,6 @@ export const savePolicy = async (policyData, policyId = null) => {
       return newPolicyRef.id;
     }
   } catch (error) {
-    console.error('Error saving policy:', error);
     throw error;
   }
 };
@@ -179,7 +174,6 @@ export const deletePolicy = async (policyId) => {
     const policyRef = doc(db, POLICIES_COLLECTION, policyId);
     await deleteDoc(policyRef);
   } catch (error) {
-    console.error('Error deleting policy:', error);
     throw error;
   }
 };
@@ -198,7 +192,6 @@ export const togglePolicyStatus = async (policyId, isActive) => {
       updatedAt: serverTimestamp()
     });
   } catch (error) {
-    console.error('Error toggling policy status:', error);
     throw error;
   }
 };
@@ -229,7 +222,6 @@ export const initializeDefaultPolicies = async (force = false) => {
     const allExist = defaultPolicyTypes.every(type => existingTypes.has(type));
     
     if (allExist && !force) {
-      console.log('All default policies already exist, skipping initialization');
       return {
         created: 0,
         skipped: policies.length,
@@ -576,7 +568,6 @@ export const initializeDefaultPolicies = async (force = false) => {
           createdPolicies.push({ title: policy.title, id: policyId });
           console.log(`✅ Created default policy: ${policy.title} (ID: ${policyId})`);
         } catch (saveError) {
-          console.error(`❌ Failed to create policy ${policy.title}:`, saveError);
           throw new Error(`Failed to create policy "${policy.title}": ${saveError.message}`);
         }
       } else {
@@ -585,11 +576,8 @@ export const initializeDefaultPolicies = async (force = false) => {
       }
     }
 
-    console.log(`✅ Default policies initialization completed. Created: ${createdPolicies.length}, Skipped: ${skippedPolicies.length}`);
-    
     if (createdPolicies.length === 0 && skippedPolicies.length > 0) {
-      console.log('ℹ️ All default policies already exist');
-    }
+      }
     
     return {
       created: createdPolicies.length,
@@ -598,7 +586,6 @@ export const initializeDefaultPolicies = async (force = false) => {
       skippedPolicies
     };
   } catch (error) {
-    console.error('Error initializing default policies:', error);
     throw error;
   }
 };
@@ -640,11 +627,9 @@ export const subscribeToActivePolicies = (policyTypes, callback) => {
 
       callback(allPolicies);
     }, (error) => {
-      console.error('Error subscribing to policies:', error);
       callback({});
     });
   } catch (error) {
-    console.error('Error setting up policy subscription:', error);
     return () => {}; // Return empty unsubscribe function
   }
 };
@@ -687,7 +672,6 @@ export const getActiveFAQs = async () => {
     
     return faqs;
   } catch (error) {
-    console.error('Error getting FAQs:', error);
     return [];
   }
 };

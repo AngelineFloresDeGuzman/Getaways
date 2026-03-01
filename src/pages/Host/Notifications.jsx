@@ -22,8 +22,7 @@ const HostNotifications = () => {
         const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setNotifications(data);
       } catch (error) {
-        console.error('Error fetching notifications:', error);
-      } finally {
+        } finally {
         setLoading(false);
       }
     };

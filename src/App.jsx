@@ -151,8 +151,6 @@ const GoogleRedirectHandler = () => {
               updatedAt: serverTimestamp(),
             });
             
-            console.log("✅ [Global] New user document created");
-            
             // Navigate based on account type
             setTimeout(() => {
               if (savedAccountType === "host") {
@@ -169,7 +167,6 @@ const GoogleRedirectHandler = () => {
             // Check if account is terminated
             if (userData.isTerminated === true) {
               await signOut(auth);
-              console.log("❌ [Global] Account terminated - signed out");
               return;
             }
             
@@ -181,11 +178,8 @@ const GoogleRedirectHandler = () => {
                 });
               }
             } catch (err) {
-              console.warn("⚠️ Could not update emailVerified:", err.code);
-            }
+              }
 
-            console.log("✅ [Global] Existing user signed in");
-            
             // Navigate based on roles
             setTimeout(() => {
               if (userRoles.includes("host")) {
@@ -210,7 +204,6 @@ const GoogleRedirectHandler = () => {
           sessionStorage.removeItem('processingGoogleRedirect');
         }
       } catch (error) {
-        console.error("❌ [Global] Google redirect error:", error);
         sessionStorage.removeItem('processingGoogleRedirect');
         setIsProcessing(false);
       }
@@ -226,7 +219,6 @@ const GoogleRedirectHandler = () => {
         if (currentUser && currentUser.providerData.some(provider => provider.providerId === 'google.com')) {
           const hasPendingRedirect = localStorage.getItem('pendingGoogleSignUpAccountType');
           if (hasPendingRedirect) {
-            console.log("🔄 [Global] Auth state changed - processing Google redirect...");
             setTimeout(() => {
               handleGoogleRedirect();
             }, 500);

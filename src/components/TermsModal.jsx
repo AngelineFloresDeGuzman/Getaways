@@ -32,7 +32,6 @@ const TermsModal = ({ isOpen, onClose, onAgree }) => {
             const termsPolicy = await getActivePolicyByType(POLICY_TYPES.TERMS_CONDITIONS);
             setPolicy(termsPolicy);
         } catch (error) {
-            console.error('Error loading terms policy:', error);
             setPolicy(null);
         } finally {
             setLoading(false);

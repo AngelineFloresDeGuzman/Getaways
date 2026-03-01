@@ -523,7 +523,6 @@ const AdminDashboard = () => {
         loadCashOutRequests()
       ]);
     } catch (error) {
-      console.error('Error loading dashboard data:', error);
       toast.error('Failed to load dashboard data');
     } finally {
       setLoading(false);
@@ -637,8 +636,7 @@ const AdminDashboard = () => {
       });
       setAllUsers(usersList);
     } catch (error) {
-      console.error('Error loading all users:', error);
-    }
+      }
   };
 
   const loadAllListings = async () => {
@@ -673,8 +671,7 @@ const AdminDashboard = () => {
       });
       setAllListings(listingsList);
     } catch (error) {
-      console.error('Error loading all listings:', error);
-    }
+      }
   };
 
   const loadCashOutRequests = async () => {
@@ -703,8 +700,7 @@ const AdminDashboard = () => {
                   reviewedByName = `${reviewerData.firstName || ''} ${reviewerData.lastName || ''}`.trim() || reviewerData.email || 'Admin';
                 }
               } catch (e) {
-                console.error('Error loading reviewer info:', e);
-              }
+                }
             }
             
             return {
@@ -725,14 +721,12 @@ const AdminDashboard = () => {
             reviewedByName: 'N/A'
           };
         } catch (error) {
-          console.error('Error enriching cash out request:', error);
           return request;
         }
       }));
       
       setCashOutRequests(enrichedRequests);
     } catch (error) {
-      console.error('Error loading cash out requests:', error);
       toast.error('Failed to load cash out requests');
     } finally {
       setLoadingCashOutRequests(false);
@@ -755,7 +749,6 @@ const AdminDashboard = () => {
       // Reload requests and transactions
       await Promise.all([loadCashOutRequests(), loadAllMoneyTransactions()]);
     } catch (error) {
-      console.error('Error approving cash out request:', error);
       toast.error(error.message || 'Failed to approve cash out request');
     } finally {
       setProcessingCashOutRequest(false);
@@ -783,7 +776,6 @@ const AdminDashboard = () => {
       // Reload requests
       await loadCashOutRequests();
     } catch (error) {
-      console.error('Error rejecting cash out request:', error);
       toast.error(error.message || 'Failed to reject cash out request');
     } finally {
       setProcessingCashOutRequest(false);
@@ -797,7 +789,6 @@ const AdminDashboard = () => {
       const adminId = await getAdminUserId();
       
       if (!adminId) {
-        console.warn('⚠️ Admin user ID not found - cannot load transactions');
         setAllMoneyTransactions([]);
         setAdminUserId(null);
         return;
@@ -858,8 +849,7 @@ const AdminDashboard = () => {
             });
           }
         } catch (error) {
-          console.error(`Error loading user ${userId}:`, error);
-        }
+          }
       }
       
       // Enrich transactions with user details
@@ -881,9 +871,7 @@ const AdminDashboard = () => {
       });
       
       setAllMoneyTransactions(enrichedTransactions);
-      console.log('📊 Loaded', enrichedTransactions.length, 'money transactions');
-    } catch (error) {
-      console.error('Error loading all money transactions:', error);
+      } catch (error) {
       toast.error('Failed to load transactions');
     } finally {
       setLoadingTransactions(false);
@@ -924,8 +912,7 @@ const AdminDashboard = () => {
         return dateB - dateA;
       }));
     } catch (error) {
-      console.error('Error loading commission transactions:', error);
-    }
+      }
   };
 
 
@@ -1001,8 +988,6 @@ const AdminDashboard = () => {
           // Get all wallet transactions for admin user
           const transactions = await getWalletTransactions(adminUserId, 10000); // Get large number to ensure we get all
           
-          console.log('📊 Total admin wallet transactions loaded:', transactions.length);
-          
           // Filter for subscription payment transactions
           // Subscription payments are credits to admin wallet with paymentType: 'subscription_payment'
           const filteredSubscriptionTransactions = transactions.filter(t => {
@@ -1017,13 +1002,7 @@ const AdminDashboard = () => {
               t.metadata?.subscriptionType ||
               t.metadata?.subscriptionPlan
             )) {
-              console.warn('⚠️ Found credit transaction that looks like subscription but missing paymentType:', {
-                id: t.id,
-                description: t.description,
-                metadata: t.metadata,
-                type: t.type
-              });
-            }
+              }
             
             return matches;
           });
@@ -1042,7 +1021,6 @@ const AdminDashboard = () => {
             subscriptionRevenue += amount;
           });
           
-          console.log('📊 Subscription revenue calculated:', subscriptionRevenue, 'from', sortedTransactions.length, 'subscription transactions');
           console.log('📋 Subscription transaction details:', sortedTransactions.map(t => ({
             id: t.id,
             amount: t.amount,
@@ -1054,10 +1032,8 @@ const AdminDashboard = () => {
             description: t.description
           })));
         } else {
-          console.warn('⚠️ Admin user ID not found - cannot calculate subscription revenue');
-        }
+          }
       } catch (subscriptionError) {
-        console.error('Error loading subscription revenue:', subscriptionError);
         // Continue even if subscription query fails
       }
       
@@ -1074,8 +1050,7 @@ const AdminDashboard = () => {
       // Calculate analytics and trends
       await calculateAnalytics(usersSnapshot, bookingsSnapshot, listingsSnapshot, totalRevenue, totalBookings, activeListings);
     } catch (error) {
-      console.error('Error loading stats:', error);
-    }
+      }
   };
 
   const calculateAnalytics = async (usersSnapshot, bookingsSnapshot, listingsSnapshot, totalRevenue, totalBookings, activeListings) => {
@@ -1252,8 +1227,7 @@ const AdminDashboard = () => {
         bookingStatusDistribution
       });
     } catch (error) {
-      console.error('Error calculating analytics:', error);
-    }
+      }
   };
 
   const loadBookings = async () => {
@@ -1290,8 +1264,7 @@ const AdminDashboard = () => {
       
       setBookings(bookingsList.slice(0, 50)); // Limit to 50 most recent
     } catch (error) {
-      console.error('Error loading bookings:', error);
-    }
+      }
   };
 
   const loadReviews = async () => {
@@ -1341,8 +1314,7 @@ const AdminDashboard = () => {
       setBestReviews(sortedByRating.slice(0, 10));
       setLowestReviews(sortedByRating.slice(-10).reverse());
     } catch (error) {
-      console.error('Error loading reviews:', error);
-    }
+      }
   };
 
   const loadPayments = async () => {
@@ -1371,8 +1343,7 @@ const AdminDashboard = () => {
       
       setPayments(paymentsList);
     } catch (error) {
-      console.error('Error loading payments:', error);
-    }
+      }
   };
 
   const loadHosts = async () => {
@@ -1459,8 +1430,7 @@ const AdminDashboard = () => {
                   reviewCount++;
                 });
               } catch (error) {
-                console.error('Error loading reviews for host:', error);
-              }
+                }
             }
           }
           
@@ -1487,8 +1457,7 @@ const AdminDashboard = () => {
       hostsList.sort((a, b) => b.earnings - a.earnings);
       setHosts(hostsList);
     } catch (error) {
-      console.error('Error loading hosts:', error);
-    }
+      }
   };
 
   const loadGuests = async () => {
@@ -1534,8 +1503,7 @@ const AdminDashboard = () => {
       guestsList.sort((a, b) => b.totalSpent - a.totalSpent);
       setGuests(guestsList);
     } catch (error) {
-      console.error('Error loading guests:', error);
-    }
+      }
   };
 
   const handleTerminateHost = async (host) => {
@@ -1596,7 +1564,6 @@ const AdminDashboard = () => {
       setShowTerminateHostDialog(false);
       setSelectedHostForTermination(null);
     } catch (error) {
-      console.error('Error terminating host:', error);
       toast.error(`Failed to terminate host: ${error.message}`);
     } finally {
       setTerminatingHost(null);
@@ -1709,7 +1676,6 @@ const AdminDashboard = () => {
       setShowUnterminateHostDialog(false);
       setSelectedHostForUntermination(null);
     } catch (error) {
-      console.error('Error unterminating host:', error);
       toast.error(`Failed to restore host: ${error.message}`);
     } finally {
       setUnterminatingHost(null);
@@ -1810,7 +1776,6 @@ const AdminDashboard = () => {
       setShowDeleteHostDialog(false);
       setSelectedHostForDeletion(null);
     } catch (error) {
-      console.error('Error deleting host:', error);
       toast.error(`Failed to delete host: ${error.message}`);
     } finally {
       setDeletingHost(null);
@@ -1836,7 +1801,6 @@ const AdminDashboard = () => {
       setShowBlockGuestDialog(false);
       setSelectedGuestForBlocking(null);
     } catch (error) {
-      console.error('Error blocking guest:', error);
       toast.error(`Failed to block guest: ${error.message}`);
     } finally {
       setBlockingGuest(null);
@@ -1859,7 +1823,6 @@ const AdminDashboard = () => {
       // Reload guests
       await loadGuests();
     } catch (error) {
-      console.error('Error unblocking guest:', error);
       toast.error(`Failed to unblock guest: ${error.message}`);
     } finally {
       setBlockingGuest(null);
@@ -1927,7 +1890,6 @@ const AdminDashboard = () => {
       setShowDeleteGuestDialog(false);
       setSelectedGuestForDeletion(null);
     } catch (error) {
-      console.error('Error deleting guest:', error);
       toast.error(`Failed to delete guest: ${error.message}`);
     } finally {
       setDeletingGuest(null);
@@ -1951,8 +1913,7 @@ const AdminDashboard = () => {
       setPayPalEmailInput(settings.adminPayPalEmail || '');
       setPayPalAccountNameInput(settings.adminPayPalAccountName || '');
     } catch (error) {
-      console.error('Error loading platform settings:', error);
-    }
+      }
   };
 
   const handleSavePayPalSettings = async () => {
@@ -1968,7 +1929,6 @@ const AdminDashboard = () => {
       setIsEditingPayPal(false);
       toast.success('Admin PayPal account updated successfully!');
     } catch (error) {
-      console.error('Error saving PayPal settings:', error);
       toast.error(error.message || 'Failed to save PayPal settings');
     } finally {
       setIsSavingPayPal(false);
@@ -2111,7 +2071,6 @@ const AdminDashboard = () => {
       
       console.log('Preview - Essential Headers:', headers.map(h => h.label || h.key));
       console.log('Preview - Data Fields:', filteredData.length > 0 ? Object.keys(filteredData[0]) : []);
-      console.log('Preview - Record Count:', filteredData.length);
       setShowPreview(true);
       
       if (filteredData.length === 0) {
@@ -2120,7 +2079,6 @@ const AdminDashboard = () => {
         toast.success(`Loaded ${filteredData.length.toLocaleString()} record${filteredData.length !== 1 ? 's' : ''} matching your filters. This is exactly what will be exported/printed with essential fields only.`);
       }
     } catch (error) {
-      console.error('Error previewing report:', error);
       toast.error(`Failed to preview ${selectedReportType} report: ${error.message}`);
       setPreviewData([]);
       setPreviewHeaders([]);
@@ -2157,7 +2115,6 @@ const AdminDashboard = () => {
       // Don't reset state - keep modal and preview open so user can export again or print
       // Only reset generatingReport flag
     } catch (error) {
-      console.error('Error exporting report:', error);
       toast.error(`Failed to export ${selectedReportType} report: ${error.message}`);
     } finally {
       setGeneratingReport(false);
@@ -2213,7 +2170,6 @@ const AdminDashboard = () => {
       setFullReportData(null);
       setSelectedReportType(null);
     } catch (error) {
-      console.error('Error generating report:', error);
       toast.error(`Failed to generate ${selectedReportType} report: ${error.message}`);
     } finally {
       setGeneratingReport(false);
@@ -2351,7 +2307,6 @@ const AdminDashboard = () => {
       
       toast.success(`Service fees report exported successfully! ${filteredTransactions.length > 0 ? '2 files downloaded.' : '1 file downloaded.'}`);
     } catch (error) {
-      console.error('Error exporting service fees:', error);
       toast.error(`Failed to export service fees: ${error.message}`);
     } finally {
       setGeneratingReport(false);
@@ -2396,8 +2351,7 @@ const AdminDashboard = () => {
         doc.addImage(logoDataUrl, 'JPEG', 10, 5, 15, 15);
       }
     } catch (err) {
-      console.log('Logo not available');
-    }
+      }
 
     // Logo word "Getaways" in white
     doc.setFontSize(16);
@@ -2602,7 +2556,6 @@ const AdminDashboard = () => {
 
       toast.success(`Exported ${filtered.length} transaction(s) successfully!`);
     } catch (error) {
-      console.error('Error exporting transactions:', error);
       toast.error(`Failed to export transactions: ${error.message}`);
     } finally {
       setGeneratingReport(false);
@@ -2845,7 +2798,6 @@ const AdminDashboard = () => {
       }, 250);
       
     } catch (error) {
-      console.error('Error printing transactions:', error);
       toast.error(`Failed to print transactions: ${error.message}`);
       setIsPrinting(false);
     }
@@ -2932,7 +2884,6 @@ const AdminDashboard = () => {
       toast.success(`Exported ${filtered.length} transaction(s) successfully!`);
       setShowExportPrintModal(false);
     } catch (error) {
-      console.error('Error exporting transactions:', error);
       toast.error(`Failed to export transactions: ${error.message}`);
     } finally {
       setGeneratingReport(false);
@@ -3011,7 +2962,6 @@ const AdminDashboard = () => {
       }, 250);
       
     } catch (error) {
-      console.error('Error printing cash out requests:', error);
       toast.error(`Failed to print cash out requests: ${error.message}`);
       setIsPrinting(false);
     }
@@ -3112,7 +3062,6 @@ const AdminDashboard = () => {
       }, 250);
       
     } catch (error) {
-      console.error('Error printing transactions:', error);
       toast.error(`Failed to print transactions: ${error.message}`);
       setIsPrinting(false);
     }
@@ -3163,7 +3112,6 @@ const AdminDashboard = () => {
       day: 'numeric'
     });
     } catch (error) {
-      console.error('Error formatting date:', error);
       return 'N/A';
     }
   };
@@ -3332,7 +3280,6 @@ const AdminDashboard = () => {
                   `;
                 }
               } catch (error) {
-                console.error(`Error generating ${reportType.label}:`, error);
                 allReportsContent += `
                   <div class="print-section" style="page-break-after: always; margin-bottom: 30px;">
                     <div class="print-section-title" style="font-size: 20px; font-weight: bold; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid #2563eb;">
@@ -3359,7 +3306,6 @@ const AdminDashboard = () => {
               </div>
             `;
           } catch (error) {
-            console.error('Error generating all reports:', error);
             printContent = `
               <div class="print-section">
                 <div class="print-section-title">Error Generating Reports</div>
@@ -3581,7 +3527,6 @@ const AdminDashboard = () => {
       }, 250);
       
     } catch (error) {
-      console.error('Error printing:', error);
       toast.error('Failed to print: ' + error.message);
       setIsPrinting(false);
     }
@@ -4144,7 +4089,6 @@ const AdminDashboard = () => {
         ` : ''}
       `;
     } catch (error) {
-      console.error('Error generating service fees print content:', error);
       // Fallback to using local hosts data if service fails
       let filteredHosts = hosts;
       if (filters?.search) {
@@ -6738,7 +6682,6 @@ const AdminDashboard = () => {
                           
                           toast.success(`Exported ${filtered.length} cash out request(s) successfully!`);
                         } catch (error) {
-                          console.error('Error exporting cash out requests:', error);
                           toast.error(`Failed to export cash out requests: ${error.message}`);
                         } finally {
                           setGeneratingReport(false);
@@ -8604,7 +8547,6 @@ const AdminDashboard = () => {
                             
                             toast.success(`${userManagementView === 'hosts' ? 'Hosts' : 'Guests'} report generated and downloaded successfully!`);
                           } catch (error) {
-                            console.error('Error generating user management report:', error);
                             toast.error(`Failed to generate ${userManagementView === 'hosts' ? 'hosts' : 'guests'} report: ${error.message}`);
                           } finally {
                             setGeneratingReport(false);
@@ -11661,7 +11603,6 @@ const AdminDashboard = () => {
                             setIsPrinting(false);
                           }, 300);
                         } catch (error) {
-                          console.error('Error printing report:', error);
                           toast.error(`Failed to print: ${error.message}`);
                           setIsPrinting(false);
                         }

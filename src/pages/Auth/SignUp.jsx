@@ -82,7 +82,6 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
             }
             return { exists: false };
         } catch (error) {
-            console.error("Error checking existing user:", error);
             return { exists: false };
         }
     };
@@ -123,20 +122,16 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
 
         try {
             // Create new account directly - let Firebase handle email conflicts
-            console.log("🟡 Creating new user...");
             const userCredential = await createUserWithEmailAndPassword(auth, email, password);
             const users = userCredential.user;
-            console.log("✅ User created:", users.uid);
-            console.log("🔍 Current auth state:", auth.currentUser?.uid);  // Should match users.uid
+            // Should match users.uid
             
             // Wait for auth state to propagate (important for Firestore security rules)
-            console.log("⏳ Waiting for auth state to propagate...");
             if (!auth.currentUser || auth.currentUser.uid !== users.uid) {
                 // Reload user to ensure auth state is ready
                 try {
                     await users.reload();
-                    console.log("✅ User reloaded");
-                } catch (reloadError) {
+                    } catch (reloadError) {
                     console.log("⚠️ User reload failed (may not be necessary):", reloadError);
                 }
                 
@@ -145,7 +140,6 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
                     let resolved = false;
                     const unsubscribe = onAuthStateChanged(auth, (user) => {
                         if (user && user.uid === users.uid && !resolved) {
-                            console.log("✅ Auth state propagated:", user.uid);
                             resolved = true;
                             unsubscribe();
                             resolve();
@@ -156,19 +150,14 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
                         if (!resolved) {
                             resolved = true;
                             unsubscribe();
-                            console.log("⚠️ Auth state timeout, proceeding anyway...");
-                            console.log("⚠️ auth.currentUser:", auth.currentUser?.uid);
-                        }
+                            }
                         resolve();
                     }, 2000);
                 });
             }
             
             // Final check
-            console.log("🔍 Final auth check - auth.currentUser:", auth.currentUser?.uid);
-
             // Quick connection test before write (skips gracefully if Firestore helpers unavailable)
-            console.log("🧪 Testing Firestore connection...");
             try {
                 // Safely check if getDocs and collection are available (prevents import errors)
                 if (typeof getDocs === 'function' && typeof collection === 'function') {
@@ -176,26 +165,21 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
                     console.log("✅ Firestore connected (read test):", testSnap.size, "existing users");
                     connectionTestPassed = true;
                 } else {
-                    console.warn("⚠️ Firestore test skipped: Missing imports for getDocs/collection. Assuming connected for now.");
                     connectionTestPassed = true;  // Proceed but log warning
                 }
             } catch (connErr) {
-                console.error("❌ Firestore connection test failed:", connErr?.code || 'unknown', connErr?.message || 'no details');
                 // Don't throw yet—proceed to write and let setDoc fail if truly disconnected
                 connectionTestPassed = false;
             }
 
             // Now attempt the write
-            console.log("🟡 Saving to Firestore...");
-
             // Prepare user data with proper role structure
             const roles = accountType === "host" ? ["guest", "host"] : ["guest"];
             
             if (accountType === "host") {
                 console.log("🟡 Creating dual-role account (guest + host)");
             } else {
-                console.log("🟡 Creating guest account");
-            }
+                }
 
             // Save user document to Firestore
             const userDocRef = doc(db, "users", users.uid);
@@ -209,31 +193,16 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
                 updatedAt: serverTimestamp(),
             };
 
-            console.log("📝 Attempting to save user data:", {
-                uid: users.uid,
-                email: email,
-                roles: roles,
-                firstName: firstName,
-                lastName: lastName
-            });
-            console.log("📝 User document reference:", userDocRef.path);
             console.log("📝 Data to save:", JSON.stringify(userDataToSave, null, 2));
 
             try {
-                console.log("⏳ Calling setDoc...");
-                console.log("⏳ User from credential:", users.uid);
-                console.log("⏳ Auth current user:", auth.currentUser?.uid);
-                console.log("⏳ Document path: users/" + users.uid);
-                
                 // Ensure auth.currentUser is set before writing
                 if (!auth.currentUser || auth.currentUser.uid !== users.uid) {
-                    console.log("⚠️ auth.currentUser not set, waiting again...");
                     // Wait for auth state one more time
                     await new Promise((resolve) => {
                         let resolved = false;
                         const unsubscribe = onAuthStateChanged(auth, (user) => {
                             if (user && user.uid === users.uid && !resolved) {
-                                console.log("✅ Auth state ready for write:", user.uid);
                                 resolved = true;
                                 unsubscribe();
                                 resolve();
@@ -243,8 +212,7 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
                             if (!resolved) {
                                 resolved = true;
                                 unsubscribe();
-                                console.log("⚠️ Auth wait timeout, but proceeding with credential user");
-                            }
+                                }
                             resolve();
                         }, 1000);
                     });
@@ -276,8 +244,7 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
                 
                 try {
                     await Promise.race([setDocPromise, timeoutPromise]);
-                    console.log("✅ setDoc completed successfully");
-                } catch (raceError) {
+                    } catch (raceError) {
                     // Check if it's a permission error that got caught by timeout
                     if (raceError?.code === 'permission-denied') {
                         throw new Error("Permission denied: Firestore security rules are blocking this write. Update your rules to allow: allow create: if request.auth != null && request.auth.uid == userId;");
@@ -407,12 +374,10 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
             }
             
             try {
-                console.log("🔍 [SignUp] Checking for Google redirect result...");
                 const result = await getRedirectResult(auth);
                 
                 if (result) {
                     sessionStorage.setItem('processingGoogleRedirect', 'true');
-                    console.log("✅ [SignUp] Google redirect result found:", result.user.email);
                     // User signed in via redirect
                     const user = result.user;
                     
@@ -445,8 +410,7 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
                             updatedAt: serverTimestamp(),
                         });
                         
-                        console.log("✅ New user document created");
-                    } else {
+                        } else {
                         // User already exists, just update emailVerified
                         const userData = userDoc.data();
                         const userRoles = Array.isArray(userData.roles) ? userData.roles.flat() : ["guest"];
@@ -459,18 +423,14 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
                                 });
                             }
                         } catch (err) {
-                            console.warn("⚠️ Could not update emailVerified in Firestore:", err.code);
-                        }
+                            }
 
                         showToast("Signed in successfully!", "success");
-                        console.log("✅ Existing user signed in");
-                    }
+                        }
 
                     // Navigate based on account type
                     const savedAccountType = localStorage.getItem('pendingGoogleSignUpAccountType') || accountType;
                     localStorage.removeItem('pendingGoogleSignUpAccountType');
-                    
-                    console.log("🚀 Navigating user to:", savedAccountType === "host" ? "/pages/hostingsteps" : "/guest/index");
                     
                     if (isModal) {
                         onClose();
@@ -493,12 +453,6 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
                     console.log("ℹ️ [SignUp] No redirect result found (user may not have come from Google auth)");
                 }
             } catch (error) {
-                console.error("❌ [SignUp] Google redirect error:", error);
-                console.error("Error details:", {
-                    code: error.code,
-                    message: error.message,
-                    stack: error.stack
-                });
                 localStorage.removeItem('pendingGoogleSignUpAccountType');
                 sessionStorage.removeItem('processingGoogleRedirect');
                 setIsGoogleLoading(false);
@@ -512,7 +466,6 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
                 // Check if this is a Google sign-in by checking if there's a pending redirect
                 const hasPendingRedirect = localStorage.getItem('pendingGoogleSignUpAccountType');
                 if (hasPendingRedirect) {
-                    console.log("🔄 Auth state changed - processing Google sign-in...");
                     await handleRedirectResult();
                 }
             }
@@ -551,7 +504,6 @@ const SignUp = ({ isModal = false, onClose, onSwitchToLogin, defaultAccountType 
             // Note: The rest of the flow is handled in the useEffect above
             // when the user returns from Google authentication
         } catch (error) {
-            console.error("Google sign-up error:", error);
             localStorage.removeItem('pendingGoogleSignUpAccountType');
             setIsGoogleLoading(false);
             

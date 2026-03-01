@@ -32,7 +32,6 @@ const PrivacyModal = ({ isOpen, onClose, onAgree }) => {
             const privacyPolicy = await getActivePolicyByType(POLICY_TYPES.PRIVACY_POLICY);
             setPolicy(privacyPolicy);
         } catch (error) {
-            console.error('Error loading privacy policy:', error);
             setPolicy(null);
         } finally {
             setLoading(false);

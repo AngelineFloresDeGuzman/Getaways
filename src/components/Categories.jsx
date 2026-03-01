@@ -105,7 +105,6 @@ const Categories = () => {
                                 image: sampleImage || category.image // Use sample image from listings or fallback
                             };
                         } catch (error) {
-                            console.error(`Error loading count for ${category.id}:`, error);
                             return {
                                 ...category,
                                 stats: 'Loading...'
@@ -116,7 +115,6 @@ const Categories = () => {
 
                 setCategories(categoriesWithCounts);
             } catch (error) {
-                console.error('Error loading categories:', error);
                 // Fallback to default categories without counts
                 setCategories([
                     {

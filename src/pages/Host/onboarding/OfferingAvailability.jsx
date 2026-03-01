@@ -107,8 +107,7 @@ const OfferingAvailability = () => {
             }
           }
         } catch (error) {
-          console.error("Error loading availability data:", error);
-        }
+          }
       } else {
         // Load from location state if no draftId yet
         if (location.state?.tempOfferingTitle) {
@@ -276,28 +275,22 @@ const OfferingAvailability = () => {
           
           // Fallback: If ID is not in location state, try to find it by matching title
           if (!editingOfferingId) {
-            console.log("⚠️ No offering ID in location state, searching by title...");
             const currentOfferingTitle = offeringTitle || location.state?.tempOfferingTitle;
             if (currentOfferingTitle && offerings.length > 0) {
               const matchingOffering = offerings.find(o => o.title === currentOfferingTitle);
               if (matchingOffering) {
                 editingOfferingId = matchingOffering.id;
-                console.log("✅ Found offering by title:", editingOfferingId);
-              } else {
+                } else {
                 // If no match, use the most recent offering (last in array)
                 editingOfferingId = offerings[offerings.length - 1]?.id;
-                console.log("⚠️ Using most recent offering:", editingOfferingId);
-              }
+                }
             } else if (offerings.length > 0) {
               // Last resort: use the most recent offering
               editingOfferingId = offerings[offerings.length - 1]?.id;
-              console.log("⚠️ Using most recent offering as fallback:", editingOfferingId);
-            }
+              }
           }
           
           if (!editingOfferingId) {
-            console.error("❌ No offering ID found in location state or Firebase");
-            console.log("Location state:", location.state);
             console.log("Offerings in Firebase:", offerings.map(o => ({ id: o.id, title: o.title })));
             // Still navigate even if we can't save
             navigate("/pages/your-offerings", {
@@ -328,13 +321,10 @@ const OfferingAvailability = () => {
               "data.serviceOfferings": offerings,
               lastModified: new Date(),
             });
-            console.log("✅ Saved availability data to Firebase for offering:", editingOfferingId);
-          } else {
-            console.error("❌ Offering not found in Firebase with ID:", editingOfferingId);
+            } else {
             console.log("Available offerings:", offerings.map(o => ({ id: o.id, title: o.title })));
             
             // Try to create a new offering if it doesn't exist (fallback)
-            console.log("⚠️ Creating new offering as fallback");
             const newOffering = {
               id: editingOfferingId,
               title: offeringTitle || location.state?.tempOfferingTitle || 'Untitled Offering',
@@ -347,12 +337,10 @@ const OfferingAvailability = () => {
               "data.serviceOfferings": offerings,
               lastModified: new Date(),
             });
-            console.log("✅ Created new offering with availability data");
-          }
+            }
         }
       } catch (error) {
-        console.error("Error saving availability data:", error);
-      }
+        }
     }
 
     // Navigate back to Your offerings page
@@ -410,8 +398,7 @@ const OfferingAvailability = () => {
           }
         }
       } catch (error) {
-        console.error("Error saving availability data:", error);
-      }
+        }
     }
 
       navigate("/host/listings");

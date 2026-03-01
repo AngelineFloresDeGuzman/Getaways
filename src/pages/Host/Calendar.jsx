@@ -295,8 +295,7 @@ const CalendarPage = () => {
     setBookedDates(datesSet);
     setLoading(false);
 
-    console.log('✅ Calendar: Updated bookings -', allBookings.length, 'bookings,', datesSet.size, 'booked dates');
-  }, []);
+    }, []);
 
   // Load bookings with real-time updates
   const loadBookings = useCallback(() => {
@@ -304,8 +303,6 @@ const CalendarPage = () => {
       setLoading(false);
       return () => {}; // Return empty cleanup function
     }
-
-    console.log('📅 Calendar: Setting up real-time listener for bookings from all listings...');
 
     const bookingsCollection = collection(db, 'bookings');
     const listingsCollection = collection(db, 'listings');
@@ -325,13 +322,10 @@ const CalendarPage = () => {
         try {
           listingsSnapshot = await getDocs(listingsQuery);
         } catch (listingsError) {
-          console.error('❌ Error getting listings:', listingsError);
           listingsSnapshot = { docs: [] };
         }
 
         const hostListingIds = listingsSnapshot.docs.map(doc => doc.id);
-        console.log('📅 Calendar: Found', hostListingIds.length, 'listings for host:', hostListingIds);
-
         // Query bookings by ownerId (this should get all bookings for host's listings)
         // Note: We're NOT using orderBy to avoid index requirements
         const ownerIdQuery = query(
@@ -341,8 +335,6 @@ const CalendarPage = () => {
 
         // Process booking data helper
         const processBookingSnapshot = (querySnapshot, listingIds) => {
-          console.log('📅 Calendar: Received', querySnapshot.docs.length, 'bookings from snapshot');
-          
           const bookingsData = querySnapshot.docs.map(doc => {
             const data = doc.data();
             const checkIn = data.checkInDate?.toDate ? data.checkInDate.toDate() : new Date(data.checkInDate);
@@ -364,19 +356,11 @@ const CalendarPage = () => {
             const shouldInclude = matchesOwnerId || matchesListing;
             
             if (!shouldInclude) {
-              console.warn('⚠️ Calendar: Booking filtered out:', {
-                bookingId: booking.id,
-                bookingOwnerId: booking.ownerId,
-                hostId: auth.currentUser.uid,
-                bookingListingId: booking.listingId,
-                hostListingIds: listingIds
-              });
-            }
+              }
             
             return shouldInclude;
           });
 
-          console.log('📅 Calendar: Filtered to', filteredBookings.length, 'bookings for host\'s listings');
           if (filteredBookings.length > 0) {
             console.log('📅 Calendar: Bookings details:', filteredBookings.map(b => ({
               id: b.id,
@@ -387,9 +371,6 @@ const CalendarPage = () => {
               checkOut: b.checkOutDate?.toISOString?.() || b.checkOutDate
             })));
           } else {
-            console.warn('⚠️ Calendar: No bookings found! Check if bookings have correct ownerId or listingId');
-            console.log('📅 Calendar: Host ID:', auth.currentUser.uid);
-            console.log('📅 Calendar: Host listing IDs:', listingIds);
             console.log('📅 Calendar: All bookings received:', bookingsData.map(b => ({
               id: b.id,
               listingId: b.listingId,
@@ -411,14 +392,12 @@ const CalendarPage = () => {
         // Use onSnapshot for real-time updates
         // Check if onSnapshot is available
         if (typeof onSnapshot === 'undefined') {
-          console.error('❌ onSnapshot is not available. Falling back to getDocs with polling...');
           // Fallback: use getDocs with polling
           const pollBookings = async () => {
             try {
               const snapshot = await getDocs(ownerIdQuery);
               processBookingSnapshot(snapshot, hostListingIds);
             } catch (err) {
-              console.error('❌ Error in fallback getDocs:', err);
               setBookings([]);
               setBookedDates(new Set());
               setLoading(false);
@@ -436,7 +415,6 @@ const CalendarPage = () => {
                 processBookingSnapshot(querySnapshot, hostListingIds);
               },
               (error) => {
-                console.error('❌ Error in bookings snapshot:', error);
                 // If it's an index error, that's okay - we'll just work without it
                 if (error.code === 'failed-precondition' || error.message?.includes('index')) {
                   console.warn('⚠️ Index error (expected), continuing without index...');
@@ -452,12 +430,10 @@ const CalendarPage = () => {
               }
             );
           } catch (snapshotError) {
-            console.error('❌ Error setting up onSnapshot:', snapshotError);
             // Fallback: use getDocs
             getDocs(ownerIdQuery).then(snapshot => {
               processBookingSnapshot(snapshot, hostListingIds);
             }).catch(err => {
-              console.error('❌ Error in fallback getDocs:', err);
               setBookings([]);
               setBookedDates(new Set());
               setLoading(false);
@@ -465,7 +441,6 @@ const CalendarPage = () => {
           }
         }
       } catch (listingsError) {
-        console.error('❌ Error setting up bookings listener:', listingsError);
         setLoading(false);
       }
     };

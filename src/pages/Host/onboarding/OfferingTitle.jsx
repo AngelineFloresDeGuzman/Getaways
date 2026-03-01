@@ -52,8 +52,7 @@ const OfferingTitle = () => {
               }
             }
           } catch (error) {
-            console.error("Error loading offering data:", error);
-          }
+            }
         }
       }
       // When creating a new offering, always start with empty fields
@@ -98,8 +97,7 @@ const OfferingTitle = () => {
           }
         }
       } catch (error) {
-        console.error("Error loading service photos:", error);
-      }
+        }
     }
 
     // Save temporary title and description to location state for next step
@@ -141,8 +139,7 @@ const OfferingTitle = () => {
           lastModified: new Date(),
         });
       } catch (error) {
-        console.error("Error saving temporary title:", error);
-      }
+        }
     }
       navigate("/host/listings");
   };

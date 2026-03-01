@@ -114,8 +114,6 @@ const HostListings = () => {
         return;
       }
 
-      console.log('📦 Listings: Loading published listings...');
-
       const listingsRef = collection(db, 'listings');
       
       let querySnapshot;
@@ -248,7 +246,6 @@ const HostListings = () => {
       setListings(listingsData);
       setLoading(false);
     } catch (error) {
-      console.error('❌ Error loading listings:', error);
       setListings([]);
       setLoading(false);
     }
@@ -355,9 +352,7 @@ const HostListings = () => {
                   base64: photoData.base64,
                 };
               });
-              console.log(`✅ Loaded ${photos.length} photos from subcollection for service draft ${draft.id}`);
-            } catch (photoError) {
-              console.warn(`⚠️ Could not load photos from subcollection for draft ${draft.id}:`, photoError);
+              } catch (photoError) {
               // Fallback to old location (data.servicePhotos or data.photos)
               photos = Array.isArray(data.servicePhotos) ? data.servicePhotos : (Array.isArray(data.photos) ? data.photos : []);
             }
@@ -377,13 +372,11 @@ const HostListings = () => {
                     base64: photoData.base64,
                   };
                 });
-                console.log(`✅ Loaded ${photos.length} photos from subcollection for accommodation draft ${draft.id}`);
-              } else {
+                } else {
                 // Fallback to old location (data.photos)
                 photos = Array.isArray(data.photos) ? data.photos : [];
               }
             } catch (photoError) {
-              console.warn(`⚠️ Could not load photos from subcollection for draft ${draft.id}:`, photoError);
               // Fallback to old location (data.photos)
               photos = Array.isArray(data.photos) ? data.photos : [];
             }
@@ -507,7 +500,6 @@ const HostListings = () => {
       const unpublishedDrafts = transformedDrafts.filter(draft => !draft.published);
       setDrafts(unpublishedDrafts);
     } catch (error) {
-      console.error('❌ Error loading drafts:', error);
       setDrafts([]);
     }
   };
@@ -633,7 +625,6 @@ const HostListings = () => {
       
       setUnpublishedListings(unpublishedData);
     } catch (error) {
-      console.error('❌ Error loading unpublished listings:', error);
       setUnpublishedListings([]);
     }
   };
@@ -661,8 +652,6 @@ const HostListings = () => {
       if (!draftsSnapshot.empty) {
         existingDraft = { id: draftsSnapshot.docs[0].id, ...draftsSnapshot.docs[0].data() };
         draftId = existingDraft.id;
-        console.log('📝 Found existing draft for editing:', draftId);
-        
         // If editing an experience listing, update the draft to point to experience-details with step 16
         if (listing.category === 'experience') {
           const draftRef = doc(db, 'onboardingDrafts', draftId);
@@ -817,8 +806,6 @@ const HostListings = () => {
 
         const draftRef = await addDoc(draftsCollection, draftData);
         draftId = draftRef.id;
-        console.log('✅ Created draft for editing:', draftId);
-        
         // Save photos to subcollection (not in main document to avoid size limits)
         const photosToSave = listingData.photos || [];
         if (photosToSave.length > 0) {
@@ -837,9 +824,7 @@ const HostListings = () => {
               }
             });
             await Promise.all(savePromises);
-            console.log(`✅ Saved ${photosToSave.length} photos to subcollection for draft ${draftId}`);
-          } catch (photoError) {
-            console.error('⚠️ Error saving photos to subcollection:', photoError);
+            } catch (photoError) {
             // Non-critical - continue even if photo save fails
           }
         }
@@ -892,7 +877,6 @@ const HostListings = () => {
         state: navigationState
       });
     } catch (error) {
-      console.error('❌ Error preparing draft for editing:', error);
       alert('Failed to edit listing. Please try again.');
     }
   };
@@ -919,13 +903,9 @@ const HostListings = () => {
       // Deduct points/value for unpublished listing
       try {
         const { deductPointsForUnpublishedListing } = await import('@/pages/Host/services/pointsService');
-        console.log('🔍 Calling deductPointsForUnpublishedListing for listing:', listingToUnpublish.id);
         const deductionResult = await deductPointsForUnpublishedListing(auth.currentUser.uid, listingToUnpublish.id);
-        console.log('📊 Deduction result:', deductionResult);
-        
         if (deductionResult.success) {
           if (deductionResult.pointsDeducted > 0 || deductionResult.walletDeducted > 0) {
-            console.log('✅ Points/wallet deducted for unpublished listing:', deductionResult);
             if (deductionResult.remainingDebt > 0) {
               toast.success(`Listing unpublished. ₱${deductionResult.totalDeducted} deducted. ₱${deductionResult.remainingDebt} will be deducted from future credits.`);
             } else {
@@ -933,18 +913,14 @@ const HostListings = () => {
             }
           } else if (deductionResult.message) {
             // Show the message from the deduction function
-            console.log('ℹ️ Deduction info:', deductionResult.message);
             toast.info(deductionResult.message || 'Listing unpublished successfully');
           } else {
             toast.success('Listing unpublished successfully');
           }
         } else {
-          console.error('❌ Points deduction failed:', deductionResult.error);
           toast.warning(`Listing unpublished, but points deduction failed: ${deductionResult.error}`);
         }
       } catch (pointsError) {
-        console.error('❌ Error deducting points for unpublished listing:', pointsError);
-        console.error('Error stack:', pointsError.stack);
         toast.error(`Listing unpublished, but points deduction error: ${pointsError.message}`);
         // Don't fail unpublish if points deduction fails
       }
@@ -953,7 +929,6 @@ const HostListings = () => {
       setUnpublishModalOpen(false);
       setListingToUnpublish(null);
     } catch (error) {
-      console.error('❌ Error unpublishing listing:', error);
       toast.error('Failed to unpublish listing');
       setUnpublishModalOpen(false);
       setListingToUnpublish(null);
@@ -1123,16 +1098,6 @@ const HostListings = () => {
       }
     }
     
-    console.log('🔍 Continuing draft:', {
-      category,
-      currentStep,
-      currentStepNumber,
-      stepNumberToPass,
-      route,
-      draftId: draft.id,
-      hasStepNumber: stepNumberToPass !== undefined && stepNumberToPass !== null
-    });
-    
     // Prepare navigation state
     const navigationState = { 
       draftId: draft.id,
@@ -1142,7 +1107,6 @@ const HostListings = () => {
     // For experience-details, always pass the step number if we have it
     if (category === 'experience' && route === '/pages/experience-details' && stepNumberToPass !== undefined && stepNumberToPass !== null) {
       navigationState.currentStepNumber = stepNumberToPass;
-      console.log('✅ Passing currentStepNumber to experience-details:', stepNumberToPass);
       // Also pass experience category data if available
       if (draftData.experienceCategory) {
         navigationState.experienceCategory = draftData.experienceCategory;
@@ -1184,7 +1148,6 @@ const HostListings = () => {
       await loadDrafts();
       toast.success('Draft deleted successfully');
     } catch (error) {
-      console.error('Error deleting draft:', error);
       toast.error('Failed to delete draft.');
     }
   };
@@ -1239,7 +1202,6 @@ const HostListings = () => {
         
         if (restoreResult.success) {
           if (restoreResult.restored) {
-            console.log('✅ Points restored for republished listing:', restoreResult);
             toast.success(`Listing republished. ${restoreResult.pointsRestored} points restored.`);
           } else {
             toast.success('Listing republished successfully');
@@ -1248,7 +1210,6 @@ const HostListings = () => {
           toast.success('Listing republished successfully');
         }
       } catch (pointsError) {
-        console.error('Error restoring points for republished listing:', pointsError);
         toast.success('Listing republished successfully');
         // Don't fail republish if points restoration fails
       }
@@ -1256,7 +1217,6 @@ const HostListings = () => {
       await loadListings();
       await loadUnpublishedListings();
     } catch (error) {
-      console.error('❌ Error republishing listing:', error);
       toast.error('Failed to republish listing. Please try again.');
     }
   };
@@ -1282,7 +1242,6 @@ const HostListings = () => {
       toast.success('Listing deleted successfully');
       await loadUnpublishedListings();
     } catch (error) {
-      console.error('❌ Error deleting listing:', error);
       toast.error('Failed to delete listing. Please try again.');
     }
   };

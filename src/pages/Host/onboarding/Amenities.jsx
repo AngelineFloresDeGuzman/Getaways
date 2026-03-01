@@ -42,13 +42,10 @@ const Amenities = () => {
       const draftIdToLoad = location.state?.draftId || state?.draftId;
       if (draftIdToLoad && actions.loadDraft) {
         try {
-          console.log('📍 Amenities: Loading draft with ID:', draftIdToLoad);
           actions.setLoading(true);
           await actions.loadDraft(draftIdToLoad);
-          console.log('✅ Amenities: Draft loaded successfully');
-        } catch (error) {
-          console.error('❌ Error loading draft in Amenities:', error);
-        } finally {
+          } catch (error) {
+          } finally {
           actions.setLoading(false);
         }
       }
@@ -60,7 +57,6 @@ const Amenities = () => {
   // Update selectedAmenities when state changes (after loading draft)
   useEffect(() => {
     if (state.selectedAmenities && Array.isArray(state.selectedAmenities)) {
-      console.log('📍 Amenities: Updating selectedAmenities from context:', state.selectedAmenities);
       setSelectedAmenities(state.selectedAmenities);
     }
   }, [state.selectedAmenities]);
@@ -159,10 +155,8 @@ const Amenities = () => {
               currentStep: 'photos',
               lastModified: new Date()
             });
-            console.log('📍 Amenities: ✅ Saved amenities to Firebase with 3 subcategories:', amenitiesData);
-          }
+            }
         } catch (saveError) {
-          console.error('📍 Amenities: Error saving to Firebase:', saveError);
           // Continue navigation even if save fails
         }
       }
@@ -178,7 +172,6 @@ const Amenities = () => {
         }
       });
     } catch (error) {
-      console.error('Error navigating to next step:', error);
       // Continue navigation even if save fails
       navigate('/pages/photos');
     }
@@ -191,15 +184,11 @@ const Amenities = () => {
     }
     
     try {
-      console.log('📍 Amenities: Save & Exit clicked');
-      console.log('Current selectedAmenities:', selectedAmenities);
-      
       // Update context with latest amenities
       actions.updateState({ selectedAmenities });
       
       // Set current step before saving so "Continue Editing" returns to this page
       if (actions.setCurrentStep) {
-        console.log('📍 Amenities: Setting currentStep to amenities');
         actions.setCurrentStep('amenities');
       }
       
@@ -208,7 +197,6 @@ const Amenities = () => {
       
       // If draftId is temp, reset it to find/create a real one
       if (draftIdToUse && draftIdToUse.startsWith('temp_')) {
-        console.log('📍 Amenities: Found temp ID, resetting to find/create real draft');
         draftIdToUse = null;
       }
       
@@ -221,14 +209,11 @@ const Amenities = () => {
           if (drafts.length > 0) {
             // Use the most recent draft
             draftIdToUse = drafts[0].id;
-            console.log('📍 Amenities: Using existing draft:', draftIdToUse);
             if (actions.setDraftId) {
               actions.setDraftId(draftIdToUse);
             }
           } else {
             // No drafts exist, create a new one
-            console.log('📍 Amenities: No existing drafts, creating new draft');
-            
             // Categorize selected amenities
             const favoritesIds = ['wifi', 'tv', 'kitchen', 'washer', 'free_parking', 'paid_parking', 'air_conditioning', 'dedicated_workspace'];
             const standoutIds = ['pool', 'hot_tub', 'patio', 'bbq_grill', 'outdoor_dining', 'fire_pit', 'pool_table', 'indoor_fireplace', 'piano', 'exercise_equipment', 'lake_access', 'beach_access', 'ski_in_out', 'outdoor_shower'];
@@ -252,13 +237,11 @@ const Amenities = () => {
               }
             };
             draftIdToUse = await saveDraft(newDraftData, null);
-            console.log('📍 Amenities: ✅ Created new draft:', draftIdToUse);
             if (actions.setDraftId) {
               actions.setDraftId(draftIdToUse);
             }
           }
         } catch (error) {
-          console.error('📍 Amenities: Error finding/creating draft:', error);
           throw error;
         }
       }
@@ -291,10 +274,8 @@ const Amenities = () => {
               currentStep: 'amenities',
               lastModified: new Date()
             });
-            console.log('📍 Amenities: ✅ Saved amenities to Firebase on Save & Exit:', amenitiesData);
-          } else {
+            } else {
             // Document doesn't exist, create it
-            console.log('📍 Amenities: Document not found, creating new one');
             const { saveDraft } = await import('@/pages/Host/services/draftService');
             
             const favoritesIds = ['wifi', 'tv', 'kitchen', 'washer', 'free_parking', 'paid_parking', 'air_conditioning', 'dedicated_workspace'];
@@ -319,19 +300,16 @@ const Amenities = () => {
               }
             };
             draftIdToUse = await saveDraft(newDraftData, draftIdToUse);
-            console.log('📍 Amenities: ✅ Created new draft with amenities:', draftIdToUse);
             if (actions.setDraftId) {
               actions.setDraftId(draftIdToUse);
             }
           }
         } catch (saveError) {
-          console.error('📍 Amenities: Error saving to Firebase on Save & Exit:', saveError);
           alert('Error saving progress: ' + saveError.message);
           return;
         }
       } else if (state.user?.uid) {
         // User authenticated but no draftId - this shouldn't happen after ensureDraftAndSave logic
-        console.warn('📍 Amenities: ⚠️ User authenticated but no valid draftId after ensureDraftAndSave');
         throw new Error('Failed to create draft for authenticated user');
       }
       
@@ -346,7 +324,6 @@ const Amenities = () => {
         }
       });
     } catch (error) {
-      console.error('Error saving and exiting:', error);
       alert('Error saving progress: ' + error.message);
     }
   };

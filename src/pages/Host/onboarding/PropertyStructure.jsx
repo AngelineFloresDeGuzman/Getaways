@@ -250,8 +250,7 @@ const PropertyStructure = () => {
             setDraftRef(ref);
           }
         } catch (error) {
-          console.error('Error restoring draftId:', error);
-        }
+          }
       }
     };
     restoreDraftId();
@@ -275,8 +274,7 @@ const PropertyStructure = () => {
             }
           }
         } catch (error) {
-          console.error('Error loading draft:', error);
-        }
+          }
       };
       fetchDraft();
     }
@@ -286,7 +284,6 @@ const PropertyStructure = () => {
   // Set current step for progress bar when component mounts or route changes
   useEffect(() => {
     if (actions.setCurrentStep && state.currentStep !== 'propertystructure') {
-      console.log('📍 PropertyStructure page - Setting currentStep to propertystructure');
       actions.setCurrentStep('propertystructure');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -322,7 +319,6 @@ const PropertyStructure = () => {
         }
         navigate('/pages/privacytype', { state: { draftId } });
       } catch (error) {
-        console.error('Error saving draft:', error);
         navigate('/pages/privacytype', { state: { draftId } });
       } finally {
         setIsLoading(false);
@@ -365,8 +361,7 @@ const PropertyStructure = () => {
             }
           }
         } catch (error) {
-          console.error('Error creating/finding draft:', error);
-        }
+          }
       }
       
       if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
@@ -380,8 +375,7 @@ const PropertyStructure = () => {
             currentStep: 'propertystructure',
             lastModified: new Date(),
           });
-          console.log('📍 PropertyStructure: ✅ Saved propertyStructure to Firebase on Save & Exit:', selectedType);
-        } else {
+          } else {
           // Create new draft
           const { saveDraft } = await import('@/pages/Host/services/draftService');
           const newDraftData = {
@@ -405,7 +399,6 @@ const PropertyStructure = () => {
         }
       });
     } catch (error) {
-      console.error('Error saving and exiting:', error);
       alert('Error saving progress: ' + error.message);
     } finally {
       setIsLoading(false);

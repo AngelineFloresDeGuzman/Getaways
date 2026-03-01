@@ -511,7 +511,6 @@ export const sendCancellationEmail = async (email, firstName, lastName, cancella
           refundAmountFormatted = `PHP ${formatted}`;
         }
       } catch (e) {
-        console.warn('Error formatting refund amount:', e);
         refundAmountFormatted = 'PHP 0.00';
       }
     }
@@ -572,7 +571,6 @@ export const sendCancellationEmail = async (email, firstName, lastName, cancella
     Object.keys(templateParams).forEach(key => {
       const value = templateParams[key];
       if (value === undefined || value === null || value === '') {
-        console.warn(`⚠️ Template param ${key} is empty, using fallback`);
         // Use appropriate fallback based on key
         if (key.includes('email')) {
           templateParams[key] = 'noreply@getaways.com';
@@ -611,7 +609,6 @@ export const sendCancellationEmail = async (email, firstName, lastName, cancella
       if (typeof value === 'string' && value.match(problematicChars)) {
         // Check if it's NOT a template variable pattern
         if (!value.match(/^{{[a-zA-Z_][a-zA-Z0-9_]*}}$/)) {
-          console.warn(`⚠️ Template param ${key} contains potentially problematic characters:`, value);
           hasProblematicChars = true;
           // Remove standalone curly braces
           templateParams[key] = value.replace(/[{}]/g, '');
@@ -620,8 +617,7 @@ export const sendCancellationEmail = async (email, firstName, lastName, cancella
     });
     
     if (hasProblematicChars) {
-      console.warn('⚠️ Some template params had problematic characters and were cleaned');
-    }
+      }
 
     // Initialize EmailJS with booking public key if not already initialized with it
     if (EMAILJS_BOOKING_PUBLIC_KEY) {
@@ -656,19 +652,9 @@ export const sendCancellationEmail = async (email, firstName, lastName, cancella
       templateParams
     );
 
-    console.log('✅ Cancellation email sent successfully:', response);
     return { success: true };
   } catch (error) {
     // Log the full error for debugging
-    console.error('❌ EmailJS Error Details:', {
-      status: error?.status,
-      statusText: error?.statusText,
-      text: error?.text,
-      message: error?.message,
-      name: error?.name,
-      stack: error?.stack,
-    });
-    
     // Try to parse error text if it's JSON
     let errorDetails = null;
     if (error?.text) {
@@ -693,8 +679,6 @@ export const sendCancellationEmail = async (email, firstName, lastName, cancella
                                       error?.message?.includes('dynamic variables');
     
     if (isCorruptedVariablesError) {
-      console.error('❌ EmailJS template variable corruption error detected!');
-      console.error('❌ Full error:', error);
       console.error('❌ Template params that were sent:', Object.keys(templateParams).reduce((acc, key) => {
         const value = templateParams[key];
         acc[key] = {
@@ -712,11 +696,6 @@ export const sendCancellationEmail = async (email, firstName, lastName, cancella
     }
     
     if (isConfigError) {
-      console.warn('⚠️ EmailJS is not properly configured for cancellation emails. Email sending skipped.', {
-        serviceId: EMAILJS_BOOKING_SERVICE_ID,
-        templateId: EMAILJS_CANCELLATION_TEMPLATE_ID,
-        error: error.text || error.message
-      });
       return { success: false, error: 'EmailJS not configured', skipped: true };
     }
     

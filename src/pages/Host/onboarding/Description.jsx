@@ -20,7 +20,6 @@ const Description = () => {
   const [propertyStructure, setPropertyStructure] = useState(() => {
     // Initialize from context if available
     if (state.propertyStructure) {
-      console.log('📍 Description: Initializing propertyStructure from context:', state.propertyStructure);
       return state.propertyStructure.toLowerCase();
     }
     return null;
@@ -112,7 +111,6 @@ const Description = () => {
     
     // If draftId is temp, reset it to find/create a real one
     if (draftIdToUse && draftIdToUse.startsWith('temp_')) {
-      console.log('📍 Description: Found temp ID, resetting to find/create real draft');
       draftIdToUse = null;
     }
     
@@ -125,13 +123,11 @@ const Description = () => {
         if (drafts.length > 0) {
           // Use the most recent draft
           draftIdToUse = drafts[0].id;
-          console.log('📍 Description: Using existing draft:', draftIdToUse);
           if (actions.setDraftId) {
             actions.setDraftId(draftIdToUse);
           }
         } else {
           // No drafts exist, create a new one
-          console.log('📍 Description: No existing drafts, creating new draft');
           const nextStep = targetRoute === '/pages/descriptiondetails' ? 'descriptiondetails' : 'description';
           const newDraftData = {
             currentStep: nextStep,
@@ -141,13 +137,11 @@ const Description = () => {
             }
           };
           draftIdToUse = await saveDraft(newDraftData, null);
-          console.log('📍 Description: ✅ Created new draft:', draftIdToUse);
           if (actions.setDraftId) {
             actions.setDraftId(draftIdToUse);
           }
         }
       } catch (error) {
-        console.error('📍 Description: Error finding/creating draft:', error);
         throw error;
       }
     }
@@ -166,10 +160,8 @@ const Description = () => {
             currentStep: nextStep,
             lastModified: new Date()
           });
-          console.log('📍 Description: ✅ Saved highlights to data.descriptionHighlights and currentStep to Firebase:', draftIdToUse, '- highlights:', highlightsData || [], ', currentStep:', nextStep);
-        } else {
+          } else {
           // Document doesn't exist, create it
-          console.log('📍 Description: Document not found, creating new one');
           const { saveDraft } = await import('@/pages/Host/services/draftService');
           const nextStep = targetRoute === '/pages/descriptiondetails' ? 'descriptiondetails' : 'description';
           const newDraftData = {
@@ -180,32 +172,24 @@ const Description = () => {
             }
           };
           draftIdToUse = await saveDraft(newDraftData, draftIdToUse);
-          console.log('📍 Description: ✅ Created new draft with highlights:', draftIdToUse);
           if (actions.setDraftId) {
             actions.setDraftId(draftIdToUse);
           }
         }
         return draftIdToUse;
       } catch (error) {
-        console.error('📍 Description: ❌ Error saving to Firebase:', error);
         throw error;
       }
     } else if (state.user?.uid) {
-      console.warn('📍 Description: ⚠️ User authenticated but no valid draftId after ensureDraftAndSave');
       throw new Error('Failed to create draft for authenticated user');
     } else {
-      console.warn('📍 Description: ⚠️ User not authenticated, cannot save to Firebase');
       return null;
     }
   };
 
   // Custom Save & Exit handler
   const handleSaveAndExitClick = async () => {
-    console.log('Description Save & Exit clicked');
-    console.log('Current highlights:', selectedHighlights);
-    
     if (!auth.currentUser) {
-      console.error('Description: No authenticated user');
       alert('Please log in to save your progress');
       return;
     }
@@ -215,7 +199,6 @@ const Description = () => {
     try {
       // Set current step before saving so "Continue Editing" returns to this page
       if (actions.setCurrentStep) {
-        console.log('Description: Setting currentStep to description');
         actions.setCurrentStep('description');
       }
       
@@ -226,9 +209,7 @@ const Description = () => {
       let draftIdToUse;
       try {
         draftIdToUse = await ensureDraftAndSave(selectedHighlights, '/pages/description');
-        console.log('📍 Description: ✅ Saved highlights to Firebase on Save & Exit');
-      } catch (saveError) {
-        console.error('📍 Description: Error saving to Firebase on Save & Exit:', saveError);
+        } catch (saveError) {
         // Continue with save & exit even if Firebase save fails
       }
         
@@ -241,7 +222,6 @@ const Description = () => {
         });
       
     } catch (error) {
-      console.error('Error in Description save:', error);
       alert('Failed to save progress: ' + error.message);
     } finally {
       setIsSaving(false);
@@ -254,12 +234,6 @@ const Description = () => {
   // Try multiple times: on mount, when draftId becomes available, and when navigating
   useEffect(() => {
     const loadPropertyStructure = async () => {
-      console.log('📍 Description: loadPropertyStructure effect triggered');
-      console.log('📍 Description: state.propertyStructure:', state.propertyStructure);
-      console.log('📍 Description: propertyStructure state:', propertyStructure);
-      console.log('📍 Description: state?.draftId:', state?.draftId);
-      console.log('📍 Description: location.state?.draftId:', location.state?.draftId);
-      
       let draftIdToUse = state?.draftId || location.state?.draftId;
       
       // If no draftId yet, try to get it from user's drafts
@@ -269,15 +243,13 @@ const Description = () => {
           const drafts = await getUserDrafts();
           if (drafts.length > 0) {
             draftIdToUse = drafts[0].id;
-            console.log('📍 Description: Found draftId from getUserDrafts:', draftIdToUse);
             // Also update context draftId if it's not set
             if (!state.draftId && actions.setDraftId) {
               actions.setDraftId(draftIdToUse);
             }
           }
         } catch (error) {
-          console.error('📍 Description: Error getting user drafts:', error);
-        }
+          }
       }
       
       console.log('📍 Description: draftIdToUse (final):', draftIdToUse);
@@ -285,29 +257,20 @@ const Description = () => {
       // ALWAYS try loading from Firebase if we have a draftId (most reliable)
       if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
         try {
-          console.log('📍 Description: Loading propertyStructure from Firebase with draftId:', draftIdToUse);
           const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
           const docSnap = await getDoc(draftRef);
           
           if (docSnap.exists()) {
             const draftData = docSnap.data();
-            console.log('📍 Description: Draft data exists');
-            console.log('📍 Description: draftData.data:', draftData.data);
-            console.log('📍 Description: draftData.data?.propertyStructure:', draftData.data?.propertyStructure);
-            
             // Check nested data first (where PropertyStructure saves it), then top-level
             const structure = draftData.data?.propertyStructure || draftData.propertyStructure;
-            console.log('📍 Description: Found structure in Firebase:', structure);
-            
             if (structure) {
               const structureLower = structure.toLowerCase();
-              console.log('📍 Description: ✅ Setting propertyStructure to:', structureLower);
               setPropertyStructure(structureLower);
               
               // Also update context if it's not set there yet or is different
               // Wrap in setTimeout to avoid setState during render
               if (!state.propertyStructure || state.propertyStructure.toLowerCase() !== structureLower) {
-                console.log('📍 Description: Updating context with propertyStructure:', structure);
                 setTimeout(() => {
                   if (actions?.updatePropertyStructure) {
                     actions.updatePropertyStructure(structure);
@@ -316,22 +279,15 @@ const Description = () => {
               }
               return; // Exit early if we found it in Firebase
             } else {
-              console.log('📍 Description: ⚠️ No propertyStructure found in Firebase draft');
               console.log('📍 Description: Available keys in data:', draftData.data ? Object.keys(draftData.data) : 'no data object');
               console.log('📍 Description: Full draftData keys:', Object.keys(draftData));
             }
           } else {
-            console.log('📍 Description: ⚠️ Draft document does not exist for draftId:', draftIdToUse);
-          }
+            }
         } catch (error) {
-          console.error('📍 Description: ❌ Error loading propertyStructure from Firebase:', error);
-          console.error('📍 Description: Error details:', error.message, error.stack);
-        }
+          }
       } else {
-        console.log('📍 Description: ⚠️ No valid draftId available - draftIdToUse:', draftIdToUse);
-        console.log('📍 Description: User authenticated:', !!state.user);
-        console.log('📍 Description: User UID:', state.user?.uid);
-      }
+        }
       
       // Fallback: check context state if Firebase didn't have it
       if (state.propertyStructure && !propertyStructure) {
@@ -351,7 +307,6 @@ const Description = () => {
       const structure = state.propertyStructure.toLowerCase();
       // Always update if different or not set
       if (!propertyStructure || propertyStructure !== structure) {
-        console.log('📍 Description - propertyStructure changed in context, updating:', structure);
         setPropertyStructure(structure);
       }
     }
@@ -360,24 +315,17 @@ const Description = () => {
   
   // Compute property type reactively - ONLY use propertyStructure (not propertyType)
   const propertyType = useMemo(() => {
-    console.log('📍 Description useMemo: RECOMPUTING propertyType');
-    console.log('📍 Description useMemo: propertyStructure state:', propertyStructure);
-    console.log('📍 Description useMemo: state.propertyStructure:', state.propertyStructure);
-    
     // Use local state first (most up-to-date)
     if (propertyStructure) {
-      console.log('📍 Description useMemo: ✅ Using propertyStructure state:', propertyStructure);
       return propertyStructure;
     }
     
     // Fallback to context
     if (state.propertyStructure) {
       const structure = state.propertyStructure.toLowerCase();
-      console.log('📍 Description useMemo: ✅ Using propertyStructure from context:', structure);
       return structure;
     }
     
-    console.log('📍 Description useMemo: ⚠️ Using default "house" - propertyStructure not found!');
     return 'house'; // Default fallback
   }, [
     propertyStructure, 
@@ -387,22 +335,16 @@ const Description = () => {
   ]);
 
   // Debug: Log the location state
-  console.log('Description - location.state:', location.state);
-  console.log('Description - propertyType:', propertyType);
-
   // Load draft data when navigating from "Continue Editing"
   useEffect(() => {
     const loadDraftData = async () => {
       // Only load draft if user is authenticated and we have a draftId
       if (location.state?.draftId && !hasInitialized.current && actions.loadDraft && state.user) {
-        console.log('Description - Loading draft with ID:', location.state.draftId);
         try {
           await actions.loadDraft(location.state.draftId);
           hasInitialized.current = true;
-          console.log('Description - Draft loaded successfully');
-        } catch (error) {
-          console.error('Description - Error loading draft:', error);
-        }
+          } catch (error) {
+          }
       }
     };
 
@@ -414,7 +356,6 @@ const Description = () => {
     // Use setTimeout to ensure this runs after render
     const timer = setTimeout(() => {
       if (actions?.setCurrentStep && state.currentStep !== 'description') {
-      console.log('📍 Description page - Setting currentStep to description');
       actions.setCurrentStep('description');
     }
     }, 0);
@@ -431,7 +372,6 @@ const Description = () => {
       // If we have a draftId, load highlights from Firebase
       if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
         try {
-          console.log('📍 Description: Loading descriptionHighlights from Firebase with draftId:', draftIdToUse);
           const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
           const docSnap = await getDoc(draftRef);
           
@@ -440,7 +380,6 @@ const Description = () => {
             const highlightsFromFirebase = draftData.data?.descriptionHighlights || [];
             
             if (highlightsFromFirebase.length > 0) {
-              console.log('📍 Description: ✅ Loaded highlights from Firebase:', highlightsFromFirebase);
               setSelectedHighlights(highlightsFromFirebase);
               
               // Also update context
@@ -452,8 +391,7 @@ const Description = () => {
             }
           }
         } catch (error) {
-          console.error('📍 Description: ❌ Error loading highlights from Firebase:', error);
-        }
+          }
       }
     };
     
@@ -464,7 +402,6 @@ const Description = () => {
   // Initialize from context if available (after draft loading or direct navigation)
   useEffect(() => {
     if (state.descriptionHighlights && (hasInitialized.current || !location.state?.draftId)) {
-      console.log('Description - Initializing from context:', state.descriptionHighlights);
       setSelectedHighlights(state.descriptionHighlights);
       if (!hasInitialized.current) {
         hasInitialized.current = true;
@@ -474,7 +411,6 @@ const Description = () => {
 
   // Real-time context updates
   const updateHighlightsContext = (highlights) => {
-    console.log('Description - Updating context with:', highlights);
     if (actions.updateDescriptionHighlights) {
       actions.updateDescriptionHighlights(highlights);
     }
@@ -569,9 +505,7 @@ const Description = () => {
               let draftIdToUse;
               try {
                 draftIdToUse = await ensureDraftAndSave(selectedHighlights, '/pages/descriptiondetails');
-                console.log('📍 Description: ✅ Saved highlights to Firebase on Next click');
-              } catch (saveError) {
-                console.error('📍 Description: Error saving to Firebase on Next:', saveError);
+                } catch (saveError) {
                 // Continue navigation even if save fails - data is in context
               }
               
@@ -590,7 +524,6 @@ const Description = () => {
             });
               }, 0);
             } catch (error) {
-              console.error('Error saving highlights:', error);
               alert('Error saving progress. Please try again.');
             }
           }

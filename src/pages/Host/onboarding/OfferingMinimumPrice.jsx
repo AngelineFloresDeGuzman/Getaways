@@ -28,12 +28,6 @@ const OfferingMinimumPrice = () => {
   // Load saved minimum price and pricing info if editing
   useEffect(() => {
     const loadMinimumPrice = async () => {
-      console.log('🔍 Loading pricing info:', {
-        tempOfferingPricePerGuest: location.state?.tempOfferingPricePerGuest,
-        tempOfferingFixedPrice: location.state?.tempOfferingFixedPrice,
-        tempOfferingPricingType: location.state?.tempOfferingPricingType,
-      });
-      
       // Get pricing type from location state FIRST
       if (location.state?.tempOfferingPricingType) {
         setPricingType(location.state.tempOfferingPricingType);
@@ -49,8 +43,7 @@ const OfferingMinimumPrice = () => {
         });
         if (!isNaN(parsedPrice) && parsedPrice > 0) {
           setPricePerGuest(parsedPrice);
-          console.log('✅ Set pricePerGuest to:', parsedPrice);
-        }
+          }
       }
       
       // Get fixed price from location state
@@ -88,8 +81,7 @@ const OfferingMinimumPrice = () => {
               }
             }
           } catch (error) {
-            console.error("Error loading minimum price:", error);
-          }
+            }
         }
       }
       // Don't autofill minimumPrice when creating new offering - user must type it manually
@@ -244,11 +236,9 @@ const OfferingMinimumPrice = () => {
             "data.serviceOfferings": offerings,
             lastModified: new Date(),
           });
-          console.log("✅ Saved offering to Firebase");
-        }
+          }
       } catch (error) {
-        console.error("Error saving offering to Firebase:", error);
-      }
+        }
     }
   };
 
@@ -318,36 +308,21 @@ const OfferingMinimumPrice = () => {
         : (parseFloat(location.state?.tempOfferingFixedPrice) || 0);
     }
     
-    console.log('🔐 Validation check:', {
-      minimumPrice,
-      minPriceValue,
-      pricePerGuest,
-      fixedPrice,
-      pricingType: currentPricingType,
-      currentBasePrice,
-      error,
-      comparison: minPriceValue < currentBasePrice
-    });
-    
     // Must have base price available - if not loaded yet, disable button
     if (currentBasePrice <= 0) {
-      console.log('❌ Base price not loaded:', currentBasePrice);
       return false;
     }
     
     // Minimum price must be >= base price (per guest or fixed)
     if (minPriceValue < currentBasePrice) {
-      console.log('❌ Minimum price too low:', minPriceValue, '<', currentBasePrice);
       return false;
     }
     
     // Must not have validation error
     if (error) {
-      console.log('❌ Has error:', error);
       return false;
     }
     
-    console.log('✅ Validation passed - button enabled');
     return true;
   }, [
     minimumPrice || '', 

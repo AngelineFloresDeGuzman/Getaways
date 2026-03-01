@@ -81,8 +81,7 @@ const fetchWithProxy = async (nominatimUrl) => {
     }
   } catch (proxyError) {
     // Vite proxy failed (might be production build), try direct or other proxies
-    console.log('Vite proxy failed, trying alternatives...', proxyError.message);
-  }
+    }
   
   // Try direct request (works in some browsers/environments)
   try {
@@ -100,8 +99,7 @@ const fetchWithProxy = async (nominatimUrl) => {
     }
   } catch (directError) {
     // Direct request failed (likely CORS), try public proxies
-    console.log('Direct request failed, trying public proxies...', directError.message);
-  }
+    }
   
   // Try alternative proxy services as last resort
   // Note: These are unreliable public proxies, but used as fallback
@@ -153,10 +151,8 @@ const fetchWithProxy = async (nominatimUrl) => {
       }
     } catch (error) {
       if (error.name === 'AbortError') {
-        console.log(`Proxy ${proxyUrl} timed out`);
-      } else {
-        console.log(`Proxy ${proxyUrl} failed:`, error.message);
-      }
+        } else {
+        }
       lastError = error;
     } finally {
       // Ensure timeout is always cleared
@@ -166,7 +162,6 @@ const fetchWithProxy = async (nominatimUrl) => {
   
   // All methods failed
   const errorMsg = lastError?.message || 'All methods failed to fetch from Nominatim';
-  console.error('❌ All geocoding methods failed:', errorMsg);
   throw new Error(errorMsg);
 };
 
@@ -290,16 +285,13 @@ const Location = () => {
   useEffect(() => {
     const draftId = location.state?.draftId || state?.draftId;
     if (draftId && !isLoading) {
-      console.log('📍 Location: Loading draft on mount/edit:', draftId);
       loadDraftIfNeeded(draftId).then((loaded) => {
         if (loaded) {
-          console.log('📍 Location: Draft loaded successfully');
           // After draft loads, state.locationData should be populated
           // The existing useEffect hooks will handle syncing it to the UI
         }
       }).catch((error) => {
-        console.error('📍 Location: Error loading draft:', error);
-      });
+        });
     }
   }, [location.state?.draftId, state?.draftId]); // Only re-run when draftId changes
 
@@ -331,11 +323,8 @@ const Location = () => {
         selectedLocation.city === state.locationData.city &&
         selectedLocation.street === state.locationData.street &&
         selectedLocation.latitude === state.locationData.latitude) {
-      console.log('📍 Location: Data already synced, skipping');
       return;
     }
-    
-    console.log('📍 Location: Syncing locationData from context to local state:', state.locationData);
     
     // Update selectedLocation with loaded data
     setSelectedLocation(prev => {
@@ -365,7 +354,6 @@ const Location = () => {
                          Math.abs(currentPosition[1] - newPosition[1]) > 0.0001;
       
       if (isDifferent) {
-        console.log('📍 Location: Updating position from loaded data:', newPosition);
         isManuallySettingPositionRef.current = true;
         setPosition(newPosition);
         setLocationFilled(true);
@@ -376,7 +364,6 @@ const Location = () => {
     // Update search bar with formatted address
     const formattedAddress = formatAddressForSearch(state.locationData);
     if (formattedAddress && !searchValue) {
-      console.log('📍 Location: Updating search bar with loaded address:', formattedAddress);
       setSearchValue(formattedAddress);
     }
     
@@ -394,7 +381,6 @@ const Location = () => {
         state.locationData.longitude && 
         !location.state?.fromLocationConfirmation &&
         !showAddressForm) {
-      console.log('📍 Location: Showing confirmation modal for existing location data');
       setShowConfirmation(true);
     }
   }, [state?.locationData, location.state?.fromLocationConfirmation, showAddressForm]); // Sync when locationData changes
@@ -406,7 +392,6 @@ const Location = () => {
     
     // If draftId is temp, reset it to find/create a real one
     if (draftIdToUse && draftIdToUse.startsWith('temp_')) {
-      console.log('📍 Location: Found temp ID, resetting to find/create real draft');
       draftIdToUse = null;
     }
     
@@ -419,13 +404,11 @@ const Location = () => {
         if (drafts.length > 0) {
           // Use the most recent draft
           draftIdToUse = drafts[0].id;
-          console.log('📍 Location: Using existing draft:', draftIdToUse);
           if (actions.setDraftId) {
             actions.setDraftId(draftIdToUse);
           }
         } else {
           // No drafts exist, create a new one
-          console.log('📍 Location: No existing drafts, creating new draft');
           const newDraftData = {
             currentStep: currentStep,
             category: state.category || 'accommodation',
@@ -434,13 +417,11 @@ const Location = () => {
             }
           };
           draftIdToUse = await saveDraft(newDraftData, null);
-          console.log('📍 Location: ✅ Created new draft:', draftIdToUse);
           if (actions.setDraftId) {
             actions.setDraftId(draftIdToUse);
           }
         }
       } catch (error) {
-        console.error('📍 Location: Error finding/creating draft:', error);
         throw error;
       }
     }
@@ -458,10 +439,8 @@ const Location = () => {
             currentStep: currentStep,
             lastModified: new Date()
           });
-          console.log('📍 Location: ✅ Saved locationData to Firebase:', draftIdToUse);
-        } else {
+          } else {
           // Document doesn't exist, create it
-          console.log('📍 Location: Document not found, creating new one');
           const { saveDraft } = await import('@/pages/Host/services/draftService');
           const newDraftData = {
             currentStep: currentStep,
@@ -471,22 +450,18 @@ const Location = () => {
             }
           };
           draftIdToUse = await saveDraft(newDraftData, draftIdToUse);
-          console.log('📍 Location: ✅ Created new draft with locationData:', draftIdToUse);
           if (actions.setDraftId) {
             actions.setDraftId(draftIdToUse);
           }
         }
         return draftIdToUse;
       } catch (error) {
-        console.error('📍 Location: ❌ Error saving to Firebase:', error);
         throw error;
       }
     } else if (state.user?.uid) {
       // User authenticated but no draftId - this shouldn't happen after ensureDraftAndSave logic
-      console.warn('📍 Location: ⚠️ User authenticated but no valid draftId after ensureDraftAndSave');
       throw new Error('Failed to create draft for authenticated user');
     } else {
-      console.warn('📍 Location: ⚠️ User not authenticated, cannot save to Firebase');
       return null; // Return null instead of throwing - data is in context
     }
   };
@@ -494,8 +469,6 @@ const Location = () => {
   // Handle navigation state from LocationConfirmation page
   useEffect(() => {
     if (location.state?.fromLocationConfirmation) {
-      console.log('📍 Location: Navigating back from LocationConfirmation, received state:', location.state);
-      
       // If coming from LocationConfirmation with showAddressForm flag, set it
       if (location.state.showAddressForm !== undefined) {
         setShowAddressForm(location.state.showAddressForm);
@@ -503,7 +476,6 @@ const Location = () => {
       
       // If location data is passed from LocationConfirmation, use it
       if (location.state.locationData) {
-        console.log('📍 Location: Setting selectedLocation from navigation state:', location.state.locationData);
         // Ensure all fields are properly set, including defaults for missing fields
         const locationDataFromBack = {
           street: location.state.locationData.street || '',
@@ -583,7 +555,6 @@ const Location = () => {
       const isSignificantlyDifferent = Math.abs(currentLat - savedLat) > 0.001 || Math.abs(currentLng - savedLng) > 0.001;
       
       if (isDefaultPosition || isSignificantlyDifferent) {
-        console.log('📍 Location: Updating position from context state:', [savedLat, savedLng]);
         setPosition([savedLat, savedLng]);
         setLocationFilled(true);
         positionInitializedRef.current = true;
@@ -600,14 +571,11 @@ const Location = () => {
   useEffect(() => {
     // Skip if we just came back from LocationConfirmation (data already set in previous effect)
     if (location.state?.fromLocationConfirmation && location.state?.locationData) {
-      console.log('📍 Location: Skipping address form prefilling - data already set from LocationConfirmation');
       return;
     }
     
     if (showAddressForm && state?.locationData && !addressFormPrefilledRef.current) {
       const d = state.locationData;
-      
-      console.log('📍 Location: Prefilling address form from context state:', d);
       
       // Update position if we have saved coordinates and they're different from current
       if (d.latitude && d.longitude) {
@@ -668,7 +636,6 @@ const Location = () => {
         
         // Update position if it's default or different from saved location
         if (isDefaultPosition || isDifferent) {
-          console.log('📍 Location: Address form closed, restoring map position to saved location:', [savedLat, savedLng]);
           isManuallySettingPositionRef.current = true;
           setPosition([savedLat, savedLng]);
           setLocationFilled(true);
@@ -740,8 +707,7 @@ const Location = () => {
           }
         }
       } catch (bigDataError) {
-        console.log('BigDataCloud failed, trying Nominatim:', bigDataError);
-      }
+        }
       
       // Fallback to Nominatim via CORS proxy
       const nominatimUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&addressdetails=1`;
@@ -749,7 +715,6 @@ const Location = () => {
       try {
         data = await fetchWithProxy(nominatimUrl);
       } catch (proxyError) {
-        console.error('Error fetching from Nominatim:', proxyError);
         data = {};
       }
       
@@ -768,7 +733,6 @@ const Location = () => {
         country: addr.country || 'Philippines'
       });
     } catch (error) {
-      console.error('Error reverse geocoding on map click:', error);
       // At minimum, set coordinates even if geocoding fails
       setSearchValue(`${lat.toFixed(6)}, ${lng.toFixed(6)}`);
       setSelectedLocation(prev => ({
@@ -804,10 +768,6 @@ const Location = () => {
     }
     
     try {
-      console.log('📍 Location: Save & Exit clicked');
-      console.log('Current selectedLocation:', selectedLocation);
-      console.log('Current position:', position);
-      
       // Build location data from current state
       const currentLocationData = normalizeLocationData({
         ...selectedLocation,
@@ -829,9 +789,7 @@ const Location = () => {
       let draftIdToUse;
       try {
         draftIdToUse = await ensureDraftAndSave(currentLocationData, 'location');
-        console.log('📍 Location: ✅ Saved locationData to Firebase on Save & Exit');
-      } catch (saveError) {
-        console.error('📍 Location: Error saving to Firebase on Save & Exit:', saveError);
+        } catch (saveError) {
         alert('Error saving progress: ' + saveError.message);
         return;
       }
@@ -847,7 +805,6 @@ const Location = () => {
         }
       });
     } catch (error) {
-      console.error('Error saving and exiting:', error);
       alert('Error saving progress: ' + error.message);
     }
   };
@@ -930,8 +887,7 @@ const Location = () => {
         }
       }
     } catch (error) {
-      console.error('Error geocoding address:', error);
-    } finally {
+      } finally {
       setIsGeocoding(false);
     }
   };
@@ -981,8 +937,7 @@ const Location = () => {
             results = [];
         }
         } catch (error) {
-          console.log('Bounded search failed, trying fallback:', error.message);
-        }
+          }
         
         // If no results found in bounded area, try again without bounds
         if (!Array.isArray(results) || results.length === 0) {
@@ -1000,7 +955,6 @@ const Location = () => {
               results = [];
           }
           } catch (error) {
-            console.log('Fallback search also failed:', error.message);
             results = [];
           }
         }
@@ -1008,7 +962,6 @@ const Location = () => {
         setSuggestions(results);
         setIsSearching(false);
       } catch (error) {
-        console.error('Error fetching location suggestions:', error);
         // On CORS error or other failures, show empty suggestions gracefully
         setSuggestions([]);
         setIsSearching(false);
@@ -1118,10 +1071,7 @@ const Location = () => {
       longitude: lon
     });
     
-    console.log('Location page: Parsed location data from suggestion:', {
-      street, barangay, city, province, country, zipCode, unit, building, lat, lon
-    });
-  };
+    };
 
   // Use current location - pin and show confirmation
   const handleUseCurrentLocation = () => {
@@ -1180,8 +1130,7 @@ const Location = () => {
               }
             }
           } catch (bigDataError) {
-            console.log('BigDataCloud failed, trying Nominatim:', bigDataError);
-          }
+            }
           
           // Fallback to Nominatim via CORS proxy
           const nominatimUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&addressdetails=1`;
@@ -1189,7 +1138,6 @@ const Location = () => {
           try {
             data = await fetchWithProxy(nominatimUrl);
           } catch (proxyError) {
-            console.error('Error fetching from Nominatim:', proxyError);
             data = {};
           }
           
@@ -1260,7 +1208,6 @@ const Location = () => {
             longitude: lng
           });
         } catch (error) {
-          console.error('Error reverse geocoding current location:', error);
           // At minimum, set coordinates even if geocoding fails
           setSearchValue(`${lat.toFixed(6)}, ${lng.toFixed(6)}`);
           setSelectedLocation(prev => ({
@@ -1270,7 +1217,6 @@ const Location = () => {
           }));
         }
       }, (error) => {
-        console.error('Error getting current location:', error);
         alert('Unable to get your current location. Please check your browser settings and try again.');
       });
     }
@@ -1612,8 +1558,7 @@ const Location = () => {
                             longitude: lng
                           };
                           setSelectedLocation(normalizedLocationData);
-                          console.log('Location page: Using existing location data from search suggestion');
-                        } else {
+                          } else {
                           // Need to reverse geocode to get complete address data
                           try {
                             // Try BigDataCloud first for better accuracy
@@ -1681,7 +1626,6 @@ const Location = () => {
                               try {
                                 nominatimData = await fetchWithProxy(nominatimUrl);
                               } catch (proxyError) {
-                                console.error('Error fetching from Nominatim:', proxyError);
                                 nominatimData = {};
                               }
                               const addr = nominatimData.address || {};
@@ -1751,9 +1695,7 @@ const Location = () => {
                               };
                               setSelectedLocation(normalizedLocationData);
                             }
-                            console.log('Location page: Reverse geocoded location data');
-                          } catch (error) {
-                            console.error('Error geocoding location on Confirm:', error);
+                            } catch (error) {
                             // At minimum, ensure coordinates are set and preserve existing data
                             normalizedLocationData = {
                               ...selectedLocation,
@@ -1783,9 +1725,7 @@ const Location = () => {
                         let draftIdToUse;
                         try {
                           draftIdToUse = await ensureDraftAndSave(currentLocationData, 'location');
-                          console.log('📍 Location page: ✅ Saved locationData to Firebase on Confirm click');
-                        } catch (saveError) {
-                          console.error('📍 Location page: Error saving to Firebase on Confirm:', saveError);
+                          } catch (saveError) {
                           // Continue navigation even if save fails - data is in context
                         }
                         
@@ -2215,14 +2155,11 @@ const Location = () => {
           <OnboardingFooter
             onBack={() => {
               // When going back from address form, restore the saved location on the map
-              console.log('📍 Location: Going back from address form, restoring saved location');
-              
               // Use saved location data if available
               const savedLocationData = state?.locationData || selectedLocation;
               
               // Update position if we have saved coordinates
               if (savedLocationData?.latitude && savedLocationData?.longitude) {
-                console.log('📍 Location: Restoring position from saved location:', [savedLocationData.latitude, savedLocationData.longitude]);
                 isManuallySettingPositionRef.current = true;
                 setPosition([savedLocationData.latitude, savedLocationData.longitude]);
                 setTimeout(() => { isManuallySettingPositionRef.current = false; }, 500);
@@ -2335,8 +2272,6 @@ const Location = () => {
                         };
 
                         // Log what we're about to normalize to debug
-                        console.log('📍 Location page: selectedLocation before normalization:', selectedLocation);
-
                         const currentLocationData = normalizeLocationData({
                           ...selectedLocation,
                           latitude: position[0],
@@ -2344,8 +2279,6 @@ const Location = () => {
                         });
                         
                         // Log normalized data to ensure fields are preserved
-                        console.log('📍 Location page: currentLocationData after normalization:', currentLocationData);
-                        
                         // Update context first
                         actions.updateLocationData(currentLocationData);
                         // Ensure currentStep is 'location' before navigating (LocationConfirmation will update it)
@@ -2374,9 +2307,7 @@ const Location = () => {
                         let draftIdToUse;
                         try {
                           draftIdToUse = await ensureDraftAndSave(currentLocationData, 'location');
-                          console.log('📍 Location page: ✅ Saved locationData to Firebase on "Yes, it\'s correct"');
-                        } catch (saveError) {
-                          console.error('📍 Location page: Error saving to Firebase on "Yes, it\'s correct":', saveError);
+                          } catch (saveError) {
                           // Continue navigation even if save fails - data is in context
                         }
                         
@@ -2391,7 +2322,6 @@ const Location = () => {
                           } 
                         });
                       } catch (e) {
-                        console.error('Failed to persist location before navigating to confirmation:', e);
                         // Fallback: navigate with selectedLocation as-is
                         const fallbackLocationData = {
                           ...selectedLocation,

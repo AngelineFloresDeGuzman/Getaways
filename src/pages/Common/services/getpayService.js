@@ -44,7 +44,6 @@ export const getAdminUserId = async () => {
     
     return null;
   } catch (error) {
-    console.error('Error getting admin user ID:', error);
     return null;
   }
 };
@@ -68,7 +67,6 @@ export const getWalletBalance = async (userId) => {
     
     return 0;
   } catch (error) {
-    console.error('Error getting wallet balance:', error);
     return 0;
   }
 };
@@ -96,7 +94,6 @@ export const initializeWallet = async (userId) => {
       }
     }
   } catch (error) {
-    console.error('Error initializing wallet:', error);
     throw error;
   }
 };
@@ -182,7 +179,6 @@ export const cashInFromPayPal = async (userId, amount, paypalTransactionId, payp
       balanceAfter: transactionData.balanceAfter
     };
   } catch (error) {
-    console.error('Error cashing in from PayPal:', error);
     throw error;
   }
 };
@@ -197,21 +193,7 @@ export const cashInFromPayPal = async (userId, amount, paypalTransactionId, payp
  */
 export const deductFromWallet = async (userId, amount, description, metadata = {}, skipAuthCheck = false) => {
   // Allow system-level deductions (like points deduction) to skip auth check
-  console.log('🔍 deductFromWallet called:', {
-    userId,
-    amount,
-    currentUserId: auth.currentUser?.uid,
-    skipAuthCheck,
-    willSkipAuth: skipAuthCheck
-  });
-  
   if (!skipAuthCheck && (!auth.currentUser || auth.currentUser.uid !== userId)) {
-    console.error('❌ Auth check failed:', {
-      skipAuthCheck,
-      hasCurrentUser: !!auth.currentUser,
-      currentUserId: auth.currentUser?.uid,
-      targetUserId: userId
-    });
     throw new Error('User not authenticated');
   }
 
@@ -269,7 +251,6 @@ export const deductFromWallet = async (userId, amount, description, metadata = {
       balanceAfter: transactionData.balanceAfter
     };
   } catch (error) {
-    console.error('Error deducting from wallet:', error);
     throw error;
   }
 };
@@ -452,7 +433,6 @@ export const addToWallet = async (userId, amount, description, metadata = {}) =>
       netCredit: remainingCredit
     };
   } catch (error) {
-    console.error('Error adding to wallet:', error);
     throw error;
   }
 };
@@ -486,7 +466,6 @@ export const getWalletTransactions = async (userId, limit = 100) => {
 
     return transactions.slice(0, limit);
   } catch (error) {
-    console.error('Error getting wallet transactions:', error);
     // If index doesn't exist, try without orderBy
     try {
       const transactionsRef = collection(db, 'walletTransactions');
@@ -617,8 +596,6 @@ export const cashOutToPayPal = async (userId, amount, paypalEmail) => {
     // Create request record (NO deduction yet)
     await setDoc(requestRef, requestData);
 
-    console.log('Cash-out request created. Waiting for admin approval.');
-
     return {
       requestId: requestRef.id,
       cashOutTransactionId,
@@ -626,7 +603,6 @@ export const cashOutToPayPal = async (userId, amount, paypalEmail) => {
       message: `Cash-out request submitted! ₱${amount.toLocaleString()} is pending admin approval. Your wallet balance will be deducted only after admin approves your request. You will receive the money in your PayPal account (${paypalEmail}) within 1-3 business days after approval.`
     };
   } catch (error) {
-    console.error('Error cashing out to PayPal:', error);
     throw error;
   }
 };

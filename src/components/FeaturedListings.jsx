@@ -98,7 +98,6 @@ const FeaturedListings = () => {
             setListings(listingsData);
             setLoading(false);
         } catch (error) {
-            console.error('Error loading listings:', error);
             setListings([]);
             setLoading(false);
         }

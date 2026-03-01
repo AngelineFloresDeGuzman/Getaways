@@ -23,14 +23,11 @@ const MakeItStandOut = () => {
   useEffect(() => {
     const loadDraftData = async () => {
       if (location.state?.draftId && !draftLoaded.current && actions.loadDraft) {
-        console.log('MakeItStandOut - Loading draft with ID:', location.state.draftId);
         try {
           await actions.loadDraft(location.state.draftId);
           draftLoaded.current = true;
-          console.log('MakeItStandOut - Draft loaded successfully');
-        } catch (error) {
-          console.error('MakeItStandOut - Error loading draft:', error);
-        }
+          } catch (error) {
+          }
       }
     };
 
@@ -51,7 +48,6 @@ const MakeItStandOut = () => {
     if (actions?.setCurrentStep) {
       // Always set currentStep to makeitstandout to ensure progress bar updates
       if (state.currentStep !== 'makeitstandout') {
-        console.log('📍 MakeItStandOut: Resetting currentStep to makeitstandout after mount');
         actions.setCurrentStep('makeitstandout');
       }
       
@@ -84,7 +80,6 @@ const MakeItStandOut = () => {
     
     // If draftId is temp, reset it to find/create a real one
     if (draftIdToUse && draftIdToUse.startsWith('temp_')) {
-      console.log('📍 MakeItStandOut: Found temp ID, resetting to find/create real draft');
       draftIdToUse = null;
     }
     
@@ -97,27 +92,22 @@ const MakeItStandOut = () => {
         if (drafts.length > 0) {
           // Use the most recent draft
           draftIdToUse = drafts[0].id;
-          console.log('📍 MakeItStandOut: Using existing draft:', draftIdToUse);
           if (actions.setDraftId) {
             actions.setDraftId(draftIdToUse);
           }
         } else {
           // No drafts exist, create a new one
-          console.log('📍 MakeItStandOut: No existing drafts, creating new draft');
-          
           const newDraftData = {
             currentStep: targetStep,
             category: state.category || 'accommodation',
             data: {}
           };
           draftIdToUse = await saveDraft(newDraftData, null);
-          console.log('📍 MakeItStandOut: ✅ Created new draft:', draftIdToUse);
           if (actions.setDraftId) {
             actions.setDraftId(draftIdToUse);
           }
         }
       } catch (error) {
-        console.error('📍 MakeItStandOut: Error finding/creating draft:', error);
         throw error;
       }
     }
@@ -137,7 +127,6 @@ const MakeItStandOut = () => {
           console.log('📍 MakeItStandOut: ✅ Saved currentStep to Firebase (currentStep:', targetStep, ')');
         } else {
           // Document doesn't exist, create it
-          console.log('📍 MakeItStandOut: Document not found, creating new one');
           const { saveDraft } = await import('@/pages/Host/services/draftService');
           
           const newDraftData = {
@@ -146,22 +135,18 @@ const MakeItStandOut = () => {
             data: {}
           };
           draftIdToUse = await saveDraft(newDraftData, draftIdToUse);
-          console.log('📍 MakeItStandOut: ✅ Created new draft with currentStep:', draftIdToUse);
           if (actions.setDraftId) {
             actions.setDraftId(draftIdToUse);
           }
         }
         return draftIdToUse;
       } catch (error) {
-        console.error('📍 MakeItStandOut: ❌ Error saving to Firebase:', error);
         throw error;
       }
     } else if (state.user?.uid) {
       // User authenticated but no draftId - this shouldn't happen after ensureDraftAndSave logic
-      console.warn('📍 MakeItStandOut: ⚠️ User authenticated but no valid draftId after ensureDraftAndSave');
       throw new Error('Failed to create draft for authenticated user');
     } else {
-      console.warn('📍 MakeItStandOut: ⚠️ User not authenticated, cannot save to Firebase');
       return null;
     }
   };
@@ -174,11 +159,8 @@ const MakeItStandOut = () => {
     }
     
     try {
-      console.log('📍 MakeItStandOut: Save & Exit clicked');
-      
       // Set current step before saving so "Continue Editing" returns to this page
       if (actions.setCurrentStep) {
-        console.log('📍 MakeItStandOut: Setting currentStep to makeitstandout');
         actions.setCurrentStep('makeitstandout');
       }
       
@@ -186,9 +168,7 @@ const MakeItStandOut = () => {
       let draftIdToUse;
       try {
         draftIdToUse = await ensureDraftAndSave('makeitstandout');
-        console.log('📍 MakeItStandOut: ✅ Saved currentStep to Firebase on Save & Exit');
-      } catch (saveError) {
-        console.error('📍 MakeItStandOut: Error saving to Firebase on Save & Exit:', saveError);
+        } catch (saveError) {
         alert('Error saving progress: ' + saveError.message);
         return;
       }
@@ -204,7 +184,6 @@ const MakeItStandOut = () => {
         }
       });
     } catch (error) {
-      console.error('Error in MakeItStandOut save:', error);
       alert('Failed to save progress: ' + error.message);
     }
   };
@@ -367,10 +346,8 @@ const MakeItStandOut = () => {
                   currentStep: 'amenities',
                   lastModified: new Date()
                 });
-                console.log('📍 MakeItStandOut: ✅ Updated currentStep to amenities in Firebase');
-              }
+                }
             } catch (error) {
-              console.error('📍 MakeItStandOut: Error updating currentStep in Firebase:', error);
               // Continue navigation even if save fails
             }
           }

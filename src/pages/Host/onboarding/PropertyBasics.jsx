@@ -72,7 +72,6 @@ const PropertyBasics = () => {
     
     // If draftId is temp, reset it to find/create a real one
     if (draftIdToUse && draftIdToUse.startsWith('temp_')) {
-      console.log('📍 PropertyBasics: Found temp ID, resetting to find/create real draft');
       draftIdToUse = null;
     }
     
@@ -85,14 +84,11 @@ const PropertyBasics = () => {
         if (drafts.length > 0) {
           // Use the most recent draft
           draftIdToUse = drafts[0].id;
-          console.log('📍 PropertyBasics: Using existing draft:', draftIdToUse);
           if (actions.setDraftId) {
             actions.setDraftId(draftIdToUse);
           }
         } else {
           // No drafts exist, create a new one
-          console.log('📍 PropertyBasics: No existing drafts, creating new draft');
-          
           const newDraftData = {
             currentStep: currentStep,
             category: state.category || 'accommodation',
@@ -101,13 +97,11 @@ const PropertyBasics = () => {
             }
           };
           draftIdToUse = await saveDraft(newDraftData, null);
-          console.log('📍 PropertyBasics: ✅ Created new draft:', draftIdToUse);
           if (actions.setDraftId) {
             actions.setDraftId(draftIdToUse);
           }
         }
       } catch (error) {
-        console.error('📍 PropertyBasics: Error finding/creating draft:', error);
         throw error;
       }
     }
@@ -129,7 +123,6 @@ const PropertyBasics = () => {
           console.log('📍 PropertyBasics: ✅ Saved propertyBasics to Firebase (currentStep:', currentStep, ', privacyType:', privacyType || state.privacyType, '):', propertyBasicsToSave);
         } else {
           // Document doesn't exist, create it
-          console.log('📍 PropertyBasics: Document not found, creating new one');
           const { saveDraft } = await import('@/pages/Host/services/draftService');
           
           const newDraftData = {
@@ -140,22 +133,18 @@ const PropertyBasics = () => {
             }
           };
           draftIdToUse = await saveDraft(newDraftData, draftIdToUse);
-          console.log('📍 PropertyBasics: ✅ Created new draft with propertyBasics:', draftIdToUse);
           if (actions.setDraftId) {
             actions.setDraftId(draftIdToUse);
           }
         }
         return draftIdToUse;
       } catch (error) {
-        console.error('📍 PropertyBasics: ❌ Error saving to Firebase:', error);
         throw error;
       }
     } else if (state.user?.uid) {
       // User authenticated but no draftId - this shouldn't happen after ensureDraftAndSave logic
-      console.warn('📍 PropertyBasics: ⚠️ User authenticated but no valid draftId after ensureDraftAndSave');
       throw new Error('Failed to create draft for authenticated user');
     } else {
-      console.warn('📍 PropertyBasics: ⚠️ User not authenticated, cannot save to Firebase');
       return null; // Return null instead of throwing - data is in context
     }
   };
@@ -190,12 +179,9 @@ const PropertyBasics = () => {
     const initializePage = async () => {
       if (location.state?.draftId && actions.loadDraft) {
         try {
-          console.log('PropertyBasics: Loading draft with ID:', location.state.draftId);
           actions.setLoading(true);
           await actions.loadDraft(location.state.draftId);
           setHasLoadedDraft(true);
-          console.log('PropertyBasics: Draft loaded successfully');
-          
           // Load privacyType from draft data
           if (state.draftId || location.state?.draftId) {
             const draftIdToUse = state.draftId || location.state.draftId;
@@ -206,12 +192,10 @@ const PropertyBasics = () => {
               const privacyTypeFromDraft = draftData.data?.privacyType || draftData.privacyType || null;
               if (privacyTypeFromDraft) {
                 setPrivacyType(privacyTypeFromDraft);
-                console.log('PropertyBasics: Loaded privacyType from draft:', privacyTypeFromDraft);
-              }
+                }
             }
           }
         } catch (error) {
-          console.error('Error loading draft in PropertyBasics:', error);
           setHasLoadedDraft(true); // Set to true even on error to allow step correction
         } finally {
           actions.setLoading(false);
@@ -240,8 +224,6 @@ const PropertyBasics = () => {
     if (hasLoadedDraft && actions?.setCurrentStep) {
       // Only set if it's not already correct (to avoid unnecessary updates)
       if (state.currentStep !== 'propertybasics') {
-        console.log('📍 PropertyBasics: Resetting currentStep to propertybasics after draft load');
-        console.log('📍 PropertyBasics: Draft loaded with currentStep:', state.currentStep, '- correcting to propertybasics');
         actions.setCurrentStep('propertybasics');
         
         // CRITICAL: Also update sessionStorage to ensure progress bar uses correct previous step
@@ -251,7 +233,6 @@ const PropertyBasics = () => {
         
         // Only update if previous step is not 'locationconfirmation' (our expected previous step)
         if (currentPrevStep !== 'locationconfirmation') {
-          console.log('📍 PropertyBasics: Correcting sessionStorage previous step from', currentPrevStep, 'to locationconfirmation');
           sessionStorage.setItem(storagePrevStepKey, 'locationconfirmation');
           
           // Also ensure progress step and value are correct
@@ -287,7 +268,6 @@ const PropertyBasics = () => {
 
   // Real-time context updates (moved to handleCounterChange)
   const updatePropertyBasics = (newBasics) => {
-    console.log('PropertyBasics - Updating context with:', newBasics);
     const currentPrivacyType = privacyType || state.privacyType || 'An entire place';
     
     // Map local state structure to context structure based on privacyType
@@ -364,7 +344,6 @@ const PropertyBasics = () => {
           contextBasics.bedroomLock = updatedBasics.bedroomLock || null;
         }
         
-        console.log('Counter changed, updating context:', contextBasics);
         actions.updatePropertyBasics(contextBasics);
         // Remove setCurrentStep from counter changes to prevent infinite loops
       }, 0);
@@ -381,15 +360,11 @@ const PropertyBasics = () => {
     }
     
     try {
-      console.log('📍 PropertyBasics: Save & Exit clicked');
-      console.log('Current propertyBasics:', propertyBasics);
-      
       // Update context with current values first
       updatePropertyBasics(propertyBasics);
       
       // Set current step before saving so "Continue Editing" returns to this page
       if (actions.setCurrentStep) {
-        console.log('📍 PropertyBasics: Setting currentStep to propertybasics');
         actions.setCurrentStep('propertybasics');
       }
       
@@ -398,9 +373,7 @@ const PropertyBasics = () => {
       let draftIdToUse;
       try {
         draftIdToUse = await ensureDraftAndSave(propertyBasics, 'propertybasics');
-        console.log('📍 PropertyBasics: ✅ Saved propertyBasics to Firebase on Save & Exit');
-      } catch (saveError) {
-        console.error('📍 PropertyBasics: Error saving to Firebase on Save & Exit:', saveError);
+        } catch (saveError) {
         alert('Error saving progress: ' + saveError.message);
         return;
       }
@@ -416,7 +389,6 @@ const PropertyBasics = () => {
         }
       });
     } catch (error) {
-      console.error('Error saving and exiting:', error);
       alert('Error saving progress: ' + error.message);
     }
   };
@@ -668,9 +640,7 @@ const PropertyBasics = () => {
           let draftIdToUse;
           try {
             draftIdToUse = await ensureDraftAndSave(propertyBasics);
-            console.log('📍 PropertyBasics: ✅ Saved propertyBasics to Firebase on Next click');
-          } catch (saveError) {
-            console.error('📍 PropertyBasics: Error saving to Firebase on Next:', saveError);
+            } catch (saveError) {
             // Continue navigation even if save fails - data is in context
           }
           

@@ -118,13 +118,10 @@ const HostTypeModal = ({ isOpen, onClose, currentUser, forceHostTypeSelection, f
 
     try {
       if (!currentUser) {
-        console.log('User not authenticated, showing signup modal');
         setShowSignUpModal(true);
         return;
       }
 
-      console.log('🚀 Starting draft creation for category:', category);
-      
       // Set initial step based on category
       const initialStep = category === "experience" 
         ? "experience-category-selection" 
@@ -141,27 +138,20 @@ const HostTypeModal = ({ isOpen, onClose, currentUser, forceHostTypeSelection, f
 
       // Always create a new draftId
       const newDraftId = `${currentUser.uid}_${Date.now()}`;
-      console.log('📝 Creating draft with ID:', newDraftId);
-      
       // Save draft to Firestore
       await saveDraft(draftData, newDraftId);
-      console.log('✅ Draft saved successfully to Firestore');
-
       // Update onboarding context with draft info
       if (actions.setDraftId) {
         actions.setDraftId(newDraftId);
-        console.log('✅ Draft ID set in context');
-      }
+        }
       
       if (actions.updateCategory) {
         actions.updateCategory(category);
-        console.log('✅ Category set in context:', category);
-      }
+        }
       
       if (actions.setCurrentStep) {
         actions.setCurrentStep(initialStep);
-        console.log('✅ Current step set to', initialStep);
-      }
+        }
 
       // Check if user already has host role
       const userDocRef = doc(db, "users", currentUser.uid);
@@ -173,19 +163,14 @@ const HostTypeModal = ({ isOpen, onClose, currentUser, forceHostTypeSelection, f
         
         // Only update if not already a host
         if (!currentRoles.includes('host')) {
-          console.log('🔄 Adding host role to user');
           await updateDoc(userDocRef, {
             roles: ["guest", "host"],
             updatedAt: new Date().toISOString(),
           });
-          console.log('✅ User roles updated to include host');
-        } else {
-          console.log('ℹ️ User already has host role');
-        }
+          } else {
+          }
       }
 
-      console.log('🎯 Navigating to onboarding steps');
-      
       // Clear the signup flag since user has now selected their hosting type
       localStorage.removeItem('justSignedUpForHosting');
       
@@ -218,16 +203,7 @@ const HostTypeModal = ({ isOpen, onClose, currentUser, forceHostTypeSelection, f
       }
       
       onClose();
-      console.log('✅ Draft creation flow completed successfully');
-      
-    } catch (err) {
-      console.error("❌ Error creating host draft:", err);
-      console.error("Error details:", {
-        message: err.message,
-        code: err.code,
-        stack: err.stack
-      });
-      
+      } catch (err) {
       // Show user-friendly error message
       alert(`Failed to create listing draft: ${err.message || 'Unknown error'}. Please try again.`);
     }
@@ -281,16 +257,12 @@ const HostTypeModal = ({ isOpen, onClose, currentUser, forceHostTypeSelection, f
 
   const handleSwitchToLogin = () => {
     // User switching from signup to login (they just signed up)
-    console.log('🔄 HostTypeModal: handleSwitchToLogin called');
-    console.log('🔄 Setting explicitLoginSwitch.current = true');
     localStorage.setItem('justSignedUpForHosting', 'true');
     // Don't set cameFromSignup here - let them login first
     explicitLoginSwitch.current = true; // Prevent useEffect from overriding
-    console.log('🔄 Setting showSignUpModal = false, showLoginModal = true');
     setShowSignUpModal(false);
     setShowLoginModal(true);
-    console.log('✅ HostTypeModal: Modal states updated');
-  };
+    };
 
   const handleContinueAsHost = async () => {
     if (!currentUser) return;
@@ -310,14 +282,12 @@ const HostTypeModal = ({ isOpen, onClose, currentUser, forceHostTypeSelection, f
         });
         navigate('/pages/hostingsteps');
         onClose();
-        console.log('✅ Host role set to ["guest", "host"]');
         return;
       }
       navigate('/pages/hostingsteps');
       onClose();
     } catch (error) {
-      console.error('❌ Error upgrading user to host:', error);
-    }
+      }
   };
 
 

@@ -227,7 +227,6 @@ const Navigation = () => {
             setUserRoles(['guest']);
           }
         } catch (error) {
-          console.error("Error fetching user roles:", error);
           setUserRoles(['guest']); // Default to guest on error
         }
         

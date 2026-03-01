@@ -97,7 +97,6 @@ export const createCoupon = async (couponData) => {
   const couponsCollection = collection(db, 'coupons');
   const docRef = await addDoc(couponsCollection, couponDoc);
   
-  console.log('✅ Coupon created successfully:', docRef.id);
   return docRef.id;
 };
 
@@ -134,7 +133,6 @@ export const getHostCoupons = async (hostId) => {
 
     return coupons;
   } catch (error) {
-    console.error('❌ Error getting host coupons:', error);
     throw error;
   }
 };
@@ -163,7 +161,6 @@ export const getCouponById = async (couponId) => {
       updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() : new Date(data.updatedAt)
     };
   } catch (error) {
-    console.error('❌ Error getting coupon by ID:', error);
     throw error;
   }
 };
@@ -238,9 +235,7 @@ export const updateCoupon = async (couponId, updates) => {
     cleanUpdates.updatedAt = serverTimestamp();
 
     await updateDoc(couponRef, cleanUpdates);
-    console.log('✅ Coupon updated successfully:', couponId);
-  } catch (error) {
-    console.error('❌ Error updating coupon:', error);
+    } catch (error) {
     throw error;
   }
 };
@@ -263,9 +258,7 @@ export const deleteCoupon = async (couponId) => {
 
     const couponRef = doc(db, 'coupons', couponId);
     await deleteDoc(couponRef);
-    console.log('✅ Coupon deleted successfully:', couponId);
-  } catch (error) {
-    console.error('❌ Error deleting coupon:', error);
+    } catch (error) {
     throw error;
   }
 };
@@ -378,7 +371,6 @@ export const validateCoupon = async (couponCode, listingId, bookingAmount) => {
       couponId: coupon.id
     };
   } catch (error) {
-    console.error('❌ Error validating coupon:', error);
     return { valid: false, error: 'Error validating coupon' };
   }
 };
@@ -403,7 +395,6 @@ export const incrementCouponUsage = async (couponId) => {
       updatedAt: serverTimestamp()
     });
   } catch (error) {
-    console.error('❌ Error incrementing coupon usage:', error);
     throw error;
   }
 };

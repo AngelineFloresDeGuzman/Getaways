@@ -33,12 +33,8 @@ const WeekendPricing = () => {
   
   // CRITICAL CHECK: If weekdayPrice is NOT in location.state, log a warning
   if (!location.state?.weekdayPrice) {
-    console.warn('⚠️ WeekendPricing: weekdayPrice NOT found in location.state!');
-    console.warn('⚠️ This means Pricing page did NOT pass weekdayPrice correctly');
-    console.warn('⚠️ location.state:', location.state);
-  } else {
-    console.log('✅ WeekendPricing: weekdayPrice FOUND in location.state:', location.state.weekdayPrice);
-  }
+    } else {
+    }
   
   // Debug: Log weekdayPrice source whenever location.state changes
   useEffect(() => {
@@ -79,13 +75,10 @@ const WeekendPricing = () => {
       const draftIdToLoad = location.state?.draftId || state?.draftId;
       // Only load draft if user is authenticated and we have a draftId
       if (draftIdToLoad && actions.loadDraft && state.user) {
-        console.log('📍 WeekendPricing: Loading draft with ID:', draftIdToLoad);
         try {
           await actions.loadDraft(draftIdToLoad);
-          console.log('✅ WeekendPricing: Draft loaded successfully');
-        } catch (error) {
-          console.error('❌ WeekendPricing: Error loading draft:', error);
-        }
+          } catch (error) {
+          }
       }
     };
 
@@ -95,7 +88,6 @@ const WeekendPricing = () => {
   // Set current step when component mounts or route changes
   useEffect(() => {
     if (actions.setCurrentStep && state.currentStep !== 'weekendpricing') {
-      console.log('📍 WeekendPricing page - Setting currentStep to weekendpricing');
       actions.setCurrentStep('weekendpricing');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -105,21 +97,13 @@ const WeekendPricing = () => {
   // This MUST happen immediately when WeekendPricing receives weekdayPrice from Pricing page's Next button
   useEffect(() => {
     if (location.state?.weekdayPrice) {
-      console.log('📍 WeekendPricing: ✅ RECEIVED weekdayPrice from Pricing page:', location.state.weekdayPrice);
-      console.log('📍 WeekendPricing: location.state object:', location.state);
-      
       // Always update context if weekdayPrice is in location.state (from Pricing page's Next button)
       if (location.state.weekdayPrice !== state.weekdayPrice) {
-      console.log('📍 WeekendPricing: Updating context with weekdayPrice from Pricing page:', location.state.weekdayPrice);
       actions.updatePricing(location.state.weekdayPrice, state.weekendPrice || 0);
       } else {
-        console.log('📍 WeekendPricing: weekdayPrice already matches context, no update needed');
-      }
+        }
     } else {
-      console.warn('📍 WeekendPricing: ⚠️ weekdayPrice NOT found in location.state - Pricing page may not have passed it correctly');
-      console.warn('📍 WeekendPricing: location.state:', location.state);
-      console.warn('📍 WeekendPricing: Falling back to state.weekdayPrice:', state.weekdayPrice);
-    }
+      }
   }, [location.state?.weekdayPrice, state.weekdayPrice, state.weekendPrice, actions]);
 
   // Load weekend pricing from Firebase when component mounts or draftId changes
@@ -133,29 +117,21 @@ const WeekendPricing = () => {
       
       // Skip if no draftId or temp draftId
       if (!draftIdToUse || draftIdToUse.startsWith('temp_')) {
-        console.log('📍 WeekendPricing: No valid draftId, skipping Firebase load');
         return;
       }
 
       try {
-        console.log('📍 WeekendPricing: Loading weekend pricing from Firebase with draftId:', draftIdToUse);
         const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
         const docSnap = await getDoc(draftRef);
         
         if (docSnap.exists()) {
           const draftData = docSnap.data();
-          console.log('📍 WeekendPricing: Draft data exists');
-          console.log('📍 WeekendPricing: draftData.data:', draftData.data);
-          console.log('📍 WeekendPricing: draftData.data?.pricing:', draftData.data?.pricing);
-          
           // Check nested data.pricing.weekendPrice first (where we save it), then context
           const savedWeekendPrice = draftData.data?.pricing?.weekendPrice || state.weekendPrice;
           // Use location.state.weekdayPrice first (from Pricing page), then state, then Firebase, then default
           const currentWeekdayPrice = location.state?.weekdayPrice || state.weekdayPrice || draftData.data?.pricing?.weekdayPrice || 1511;
           
           if (savedWeekendPrice !== undefined && currentWeekdayPrice > 0) {
-            console.log('📍 WeekendPricing: ✅ Found saved weekendPrice:', savedWeekendPrice, 'with weekdayPrice:', currentWeekdayPrice);
-            
             // Store the exact saved weekend price
             setSavedWeekendPrice(savedWeekendPrice);
             
@@ -164,17 +140,14 @@ const WeekendPricing = () => {
               const calculatedPremium = ((savedWeekendPrice / currentWeekdayPrice) - 1) * 100;
               const roundedPremium = Math.round(calculatedPremium);
               const validPremium = Math.max(0, Math.min(99, roundedPremium));
-              console.log('📍 WeekendPricing: Calculated premium percentage:', validPremium, 'from exact weekendPrice:', savedWeekendPrice);
               setPremiumPercentage(validPremium);
               
               // Also update context with the exact saved weekend price
               if (!state.weekendPrice || state.weekendPrice !== savedWeekendPrice) {
-                console.log('📍 WeekendPricing: Updating context with exact saved weekendPrice:', savedWeekendPrice);
                 actions.updateWeekendPricing(true, savedWeekendPrice);
               }
             } else {
               // If weekendPrice is 0, set premium to 0
-              console.log('📍 WeekendPricing: Weekend price is 0, setting premium to 0');
               setPremiumPercentage(0);
               setSavedWeekendPrice(0);
             }
@@ -182,14 +155,11 @@ const WeekendPricing = () => {
             hasInitialized.current = true;
             return; // Exit early if we found it in Firebase
           } else {
-            console.log('📍 WeekendPricing: ⚠️ No weekendPrice found in Firebase draft or weekdayPrice is 0');
-          }
+            }
         } else {
-          console.log('📍 WeekendPricing: ⚠️ Draft document does not exist for draftId:', draftIdToUse);
-        }
+          }
       } catch (error) {
-        console.error('📍 WeekendPricing: ❌ Error loading weekend pricing from Firebase:', error);
-      }
+        }
     };
 
     loadWeekendPricingFromFirebase();
@@ -215,11 +185,9 @@ const WeekendPricing = () => {
         const calculatedPremium = ((state.weekendPrice / currentWeekdayPrice) - 1) * 100;
         const roundedPremium = Math.round(calculatedPremium);
         const validPremium = Math.max(0, Math.min(99, roundedPremium));
-        console.log('📍 WeekendPricing: Calculated premium percentage:', validPremium, 'from exact weekendPrice:', state.weekendPrice, 'and weekdayPrice:', currentWeekdayPrice);
         setPremiumPercentage(validPremium);
       } else if (state.weekendPrice === 0) {
         // If weekendPrice is 0, set premium to 0
-        console.log('📍 WeekendPricing: Weekend price is 0, setting premium to 0');
         setPremiumPercentage(0);
         setSavedWeekendPrice(0);
       }
@@ -230,11 +198,6 @@ const WeekendPricing = () => {
   // Real-time context updates
   const updateWeekendPricingContext = (percentage) => {
     const calculatedWeekendPrice = Math.round(weekdayPrice * (1 + percentage / 100));
-    console.log('WeekendPricing - Updating context with:', {
-      enabled: true,
-      price: calculatedWeekendPrice,
-      percentage
-    });
     // Update saved weekend price when user changes the premium
     setSavedWeekendPrice(calculatedWeekendPrice);
     actions.updateWeekendPricing(true, calculatedWeekendPrice);
@@ -282,16 +245,12 @@ const WeekendPricing = () => {
   };
 
   // Debug: Log the location state
-  console.log('WeekendPricing - location.state:', location.state);
-  console.log('WeekendPricing - weekdayPrice:', weekdayPrice);
-
   // Helper function to ensure we have a valid draftId and save weekend pricing to Firebase
   const ensureDraftAndSave = async (weekendPricingData, targetRoute = '/pages/discounts') => {
     let draftIdToUse = state?.draftId || location.state?.draftId;
     
     // If draftId is temp, reset it to find/create a real one
     if (draftIdToUse && draftIdToUse.startsWith('temp_')) {
-      console.log('📍 WeekendPricing: Found temp ID, resetting to find/create real draft');
       draftIdToUse = null;
     }
     
@@ -304,13 +263,11 @@ const WeekendPricing = () => {
         if (drafts.length > 0) {
           // Use the most recent draft
           draftIdToUse = drafts[0].id;
-          console.log('📍 WeekendPricing: Using existing draft:', draftIdToUse);
           if (actions.setDraftId) {
             actions.setDraftId(draftIdToUse);
           }
         } else {
           // No drafts exist, create a new one
-          console.log('📍 WeekendPricing: No existing drafts, creating new draft');
           const nextStep = targetRoute === '/pages/discounts' ? 'discounts' : 'weekendpricing';
           const newDraftData = {
             currentStep: nextStep,
@@ -320,13 +277,11 @@ const WeekendPricing = () => {
             }
           };
           draftIdToUse = await saveDraft(newDraftData, null);
-          console.log('📍 WeekendPricing: ✅ Created new draft:', draftIdToUse);
           if (actions.setDraftId) {
             actions.setDraftId(draftIdToUse);
           }
         }
       } catch (error) {
-        console.error('📍 WeekendPricing: Error finding/creating draft:', error);
         throw error;
       }
     }
@@ -358,10 +313,8 @@ const WeekendPricing = () => {
             currentStep: nextStep,
             lastModified: new Date()
           });
-          console.log('📍 WeekendPricing: ✅ Saved weekend pricing to data.pricing and currentStep to Firebase:', draftIdToUse, '- pricing:', { weekdayPrice: preservedWeekdayPrice, weekendPrice: weekendPricingData.weekendPrice }, ', currentStep:', nextStep);
-        } else {
+          } else {
           // Document doesn't exist, create it
-          console.log('📍 WeekendPricing: Document not found, creating new one');
           const { saveDraft } = await import('@/pages/Host/services/draftService');
           const nextStep = targetRoute === '/pages/discounts' ? 'discounts' : 'weekendpricing';
           
@@ -378,33 +331,24 @@ const WeekendPricing = () => {
             }
           };
           draftIdToUse = await saveDraft(newDraftData, draftIdToUse);
-          console.log('📍 WeekendPricing: ✅ Created new draft with pricing:', draftIdToUse, '- weekdayPrice:', weekdayPrice, ', weekendPrice:', weekendPricingData.weekendPrice);
           if (actions.setDraftId) {
             actions.setDraftId(draftIdToUse);
           }
         }
         return draftIdToUse;
       } catch (error) {
-        console.error('📍 WeekendPricing: ❌ Error saving to Firebase:', error);
         throw error;
       }
     } else if (state.user?.uid) {
-      console.warn('📍 WeekendPricing: ⚠️ User authenticated but no valid draftId after ensureDraftAndSave');
       throw new Error('Failed to create draft for authenticated user');
     } else {
-      console.warn('📍 WeekendPricing: ⚠️ User not authenticated, cannot save to Firebase');
       return null;
     }
   };
 
   // Save & Exit handler
   const handleSaveAndExitClick = async () => {
-    console.log('WeekendPricing Save & Exit clicked');
-    console.log('Current premium percentage:', premiumPercentage);
-    console.log('Current weekend price:', weekendPrice);
-    
     if (!auth.currentUser) {
-      console.error('WeekendPricing: No authenticated user');
       alert('Please log in to save your progress');
       return;
     }
@@ -412,7 +356,6 @@ const WeekendPricing = () => {
     try {
       // Set current step before saving so "Continue Editing" returns to this page
       if (actions.setCurrentStep) {
-        console.log('WeekendPricing: Setting currentStep to weekendpricing');
         actions.setCurrentStep('weekendpricing');
       }
       
@@ -429,9 +372,7 @@ const WeekendPricing = () => {
       let draftIdToUse;
       try {
         draftIdToUse = await ensureDraftAndSave(weekendPricingData, '/pages/weekendpricing');
-        console.log('📍 WeekendPricing: ✅ Saved weekend pricing to Firebase on Save & Exit');
-      } catch (saveError) {
-        console.error('📍 WeekendPricing: Error saving to Firebase on Save & Exit:', saveError);
+        } catch (saveError) {
         // Continue with save & exit even if Firebase save fails
       }
       
@@ -446,7 +387,6 @@ const WeekendPricing = () => {
         }
       });
     } catch (error) {
-      console.error('Error during save and exit:', error);
       alert('Error saving progress: ' + error.message);
     }
   };
@@ -605,8 +545,6 @@ const WeekendPricing = () => {
           sessionStorage.setItem(storageStepKey, '3');
           sessionStorage.setItem(storageKey, '62.5');
           
-          console.log('📍 WeekendPricing Back: Set sessionStorage - prevStep: weekendpricing, step: 3, progress: 62.5%');
-          
           // Navigate back - OnboardingHeader will detect backward navigation (weekendpricing index 4 > pricing index 3)
           navigate('/pages/pricing');
         }}
@@ -626,9 +564,7 @@ const WeekendPricing = () => {
               let draftIdToUse;
               try {
                 draftIdToUse = await ensureDraftAndSave(weekendPricingData, '/pages/discounts');
-                console.log('📍 WeekendPricing: ✅ Saved weekend pricing to Firebase on Next click');
-              } catch (saveError) {
-                console.error('📍 WeekendPricing: Error saving to Firebase on Next:', saveError);
+                } catch (saveError) {
                 // Continue navigation even if save fails - data is in context
               }
               
@@ -669,7 +605,6 @@ const WeekendPricing = () => {
                 state: discountsState
               });
             } catch (error) {
-              console.error('Error saving weekend pricing:', error);
               alert('Error saving progress. Please try again.');
             }
                   }

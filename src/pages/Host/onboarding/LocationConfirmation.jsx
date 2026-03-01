@@ -112,7 +112,6 @@ const LocationConfirmation = () => {
   try {
     contextData = useOnboarding();
   } catch (error) {
-    console.error('LocationConfirmation must be used within OnboardingProvider');
     return null;
   }
 
@@ -185,7 +184,6 @@ const LocationConfirmation = () => {
   // Normalize the initial data to ensure all fields are properly formatted
   const initialLocationData = normalizeLocationData(initialLocationDataRaw);
   
-  console.log('📍 LocationConfirmation: initialLocationDataRaw:', initialLocationDataRaw);
   console.log('📍 LocationConfirmation: initialLocationData (normalized):', initialLocationData);
   
   const [locationData, setLocationData] = useState(initialLocationData);
@@ -232,13 +230,11 @@ const LocationConfirmation = () => {
       
       if (draftIdToLoad && !hasLoadedDraft) {
         try {
-          console.log('Loading draft in LocationConfirmation:', draftIdToLoad);
           await actionsRef.current.loadDraft(draftIdToLoad);
           // Note: currentStep correction is handled by useEffect after hasLoadedDraft becomes true
           setHasLoadedDraft(true);
         } catch (error) {
-          console.error('Failed to load draft:', error);
-        }
+          }
       } else if (!draftIdToLoad && !hasLoadedDraft) {
         // If no draftId but we have locationData in context, use it
         if (state.locationData && (state.locationData.latitude || state.locationData.city || state.locationData.country)) {
@@ -309,17 +305,6 @@ const LocationConfirmation = () => {
     if (location.state?.locationData) {
       console.log('📍 LocationConfirmation: Using locationData from navigation state (from confirmation modal):', location.state.locationData);
       const normalizedData = normalizeLocationData(location.state.locationData);
-      console.log('📍 LocationConfirmation: Normalized locationData:', normalizedData);
-      console.log('📍 LocationConfirmation: Address fields in normalized data:', {
-        unit: normalizedData.unit,
-        building: normalizedData.building,
-        street: normalizedData.street,
-        barangay: normalizedData.barangay,
-        city: normalizedData.city,
-        zipCode: normalizedData.zipCode,
-        province: normalizedData.province,
-        country: normalizedData.country
-      });
       setLocationData(normalizedData);
       if (location.state.locationData.latitude && location.state.locationData.longitude) {
         setPosition([location.state.locationData.latitude, location.state.locationData.longitude]);
@@ -349,7 +334,6 @@ const LocationConfirmation = () => {
       // Only set if it's not already correct (to avoid unnecessary updates)
       if (state.currentStep !== 'locationconfirmation') {
         console.log('📍 LocationConfirmation: Resetting currentStep to locationconfirmation after draft load (useEffect)');
-        console.log('📍 LocationConfirmation: Draft loaded with currentStep:', state.currentStep, '- correcting to locationconfirmation');
         actions.setCurrentStep('locationconfirmation');
         
         // CRITICAL: Also update sessionStorage to ensure progress bar uses correct previous step
@@ -360,7 +344,6 @@ const LocationConfirmation = () => {
         
         // Only update if previous step is not 'location' (our expected previous step)
         if (currentPrevStep !== 'location') {
-          console.log('📍 LocationConfirmation: Correcting sessionStorage previous step from', currentPrevStep, 'to location');
           sessionStorage.setItem(storagePrevStepKey, 'location');
           
           // Also ensure progress step and value are correct
@@ -382,7 +365,6 @@ const LocationConfirmation = () => {
         latitude: position[0],
         longitude: position[1]
       });
-      console.log('Syncing location data with context:', locationWithCoords);
       actionsRef.current.updateLocationData(locationWithCoords);
     }
   }, []); // Only run once on mount
@@ -402,7 +384,6 @@ const LocationConfirmation = () => {
       const hasDraftIdToLoad = location.state?.draftId || state?.draftId;
       
       if (hasNavLocationData || hasFirebaseLocationData || hasDraftIdToLoad) {
-        console.log('LocationConfirmation: Skipping initialization - have location data from nav, Firebase, or draftId');
         return;
       }
       
@@ -434,8 +415,7 @@ const LocationConfirmation = () => {
             return;
           }
         } catch (error) {
-          console.log('Failed to initialize location:', error);
-      }
+          }
     };
 
     // Wait a bit to see if Firebase data loads first
@@ -452,15 +432,10 @@ const LocationConfirmation = () => {
     setPosition([lat, lng]);
 
     // Update display address for search bar (performs reverse geocoding for display only)
-    console.log('LocationConfirmation: Map clicked, fetching new address at:', lat, lng);
     const displayAddr = await getDisplayAddressAtLocation(lat, lng);
-    console.log('LocationConfirmation: New display address received:', displayAddr);
     setDisplayAddressAtPin(displayAddr);
-    console.log('LocationConfirmation: displayAddressAtPin state updated');
-
     // ALWAYS preserve existing address fields - only update coordinates
     // The address was confirmed by the user, so we should never auto-update it from geocoding
-    console.log('Map clicked - only updating coordinates, preserving ALL address fields');
     const updatedLocation = normalizeLocationData({
       ...locationData,
       latitude: lat,
@@ -509,7 +484,6 @@ const LocationConfirmation = () => {
           setSuggestions(results);
         }
       } catch (error) {
-        console.error('Error fetching location suggestions in LocationConfirmation:', error);
         setSuggestions([]);
       } finally {
         setIsSearching(false);
@@ -739,12 +713,10 @@ const LocationConfirmation = () => {
           }
         }
       } catch (nominatimError) {
-        console.log('Nominatim fallback failed:', nominatimError);
-      }
+        }
       
       return `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
     } catch (error) {
-      console.error('Error getting display address:', error);
       return `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
     }
   };
@@ -763,27 +735,12 @@ const LocationConfirmation = () => {
     
     // Update display address for search bar (performs reverse geocoding for display only)
     // This is ONLY for display purposes in the search bar, NOT for the actual address data
-    console.log('LocationConfirmation: Pin dragged, fetching new display address at:', lat, lng);
     const displayAddr = await getDisplayAddressAtLocation(lat, lng);
-    console.log('LocationConfirmation: New display address received:', displayAddr);
     setDisplayAddressAtPin(displayAddr);
-    console.log('LocationConfirmation: displayAddressAtPin state updated');
-    
     // CRITICAL: ALWAYS preserve ALL existing address fields when pin is moved - ONLY update coordinates
     // The address was confirmed by the user, so we should NEVER auto-update it from geocoding
     // We explicitly spread locationData first to preserve all fields, then ONLY override lat/lng
     console.log(`Pin moved ${distanceMoved.toFixed(2)} meters - ONLY updating coordinates (lat/lng), preserving ALL address fields`);
-    console.log('LocationConfirmation: Preserving address fields:', {
-      street: locationData.street,
-      barangay: locationData.barangay,
-      city: locationData.city,
-      province: locationData.province,
-      country: locationData.country,
-      zipCode: locationData.zipCode,
-      unit: locationData.unit,
-      building: locationData.building
-    });
-    
     const updatedLocation = normalizeLocationData({
       // Preserve ALL address fields exactly as they were
       street: locationData.street || '',
@@ -844,13 +801,6 @@ const LocationConfirmation = () => {
     const addressString = filteredParts.join(', ');
     
     // Debug logging to see what's being displayed
-    console.log('📍 LocationConfirmation: displayAddress calculation:', {
-      locationData,
-      addressParts,
-      filteredParts,
-      addressString
-    });
-    
     // Fallback to coordinates if no address
     return addressString || (position && position.length === 2 
       ? `Location: ${position[0].toFixed(6)}, ${position[1].toFixed(6)}`
@@ -885,11 +835,6 @@ const LocationConfirmation = () => {
 
   // Save handler for Save & Exit functionality
   const handleSaveAndExitClick = async () => {
-    console.log('LocationConfirmation Save & Exit clicked');
-    console.log('Current locationData:', locationData);
-    console.log('Current position:', position);
-    console.log('Current context state:', state);
-    
     // Check if we have meaningful location data
     if (!locationData || (!locationData.country && !locationData.city && !position[0])) {
       alert('Please ensure location data is set before saving.');
@@ -904,12 +849,10 @@ const LocationConfirmation = () => {
         longitude: position[1]
       });
       
-      console.log('Updating context with:', currentLocationData);
       actionsRef.current.updateLocationData(currentLocationData);
       
       // Set current step before saving
       if (actionsRef.current.setCurrentStep) {
-        console.log('LocationConfirmation: Setting currentStep to locationconfirmation');
         actionsRef.current.setCurrentStep('locationconfirmation');
       }
       
@@ -917,7 +860,6 @@ const LocationConfirmation = () => {
       let draftIdToUse = state?.draftId || location.state?.draftId;
       
       if (!draftIdToUse) {
-        console.error('LocationConfirmation: No draftId found, cannot save');
         alert('Error: No draft found to update. Please start over.');
         return;
       }
@@ -927,7 +869,6 @@ const LocationConfirmation = () => {
       const docSnap = await getDoc(draftRef);
       
       if (!docSnap.exists()) {
-        console.error('LocationConfirmation: Document does not exist:', draftIdToUse);
         alert('Error: Draft document not found. Please start over.');
         return;
       }
@@ -940,9 +881,7 @@ const LocationConfirmation = () => {
         lastModified: new Date()
       });
       
-      console.log('LocationConfirmation: ✅ Successfully updated existing document:', draftIdToUse);
-        
-        // Navigate to dashboard
+      // Navigate to dashboard
         navigate('/host/listings', { 
           state: { 
             message: 'Draft saved successfully!',
@@ -951,7 +890,6 @@ const LocationConfirmation = () => {
         });
       
     } catch (error) {
-      console.error('Error in LocationConfirmation save:', error);
       alert('Failed to save progress: ' + error.message);
     }
   };
@@ -1101,8 +1039,7 @@ const LocationConfirmation = () => {
             let draftIdToUse = state?.draftId || location.state?.draftId;
             
             if (!draftIdToUse) {
-              console.warn('LocationConfirmation: No draftId found on Next click, skipping Firebase update');
-            } else {
+              } else {
               // Update the existing document directly
               const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
               const docSnap = await getDoc(draftRef);
@@ -1112,14 +1049,11 @@ const LocationConfirmation = () => {
                   'data.locationData': currentLocationData,
                   lastModified: new Date()
                 });
-                console.log('LocationConfirmation: ✅ Updated existing document on Next click:', draftIdToUse);
-              } else {
-                console.error('LocationConfirmation: Document does not exist:', draftIdToUse);
-              }
+                } else {
+                }
             }
           } catch (e) {
-            console.error('Failed to persist location before navigating:', e);
-          }
+            }
           navigate('/pages/propertybasics', { 
                     state: { 
                       ...location.state,

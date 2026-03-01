@@ -29,12 +29,10 @@ const Occupancy = () => {
             const savedOccupancy = draftData.data?.occupancy || [];
             if (Array.isArray(savedOccupancy) && savedOccupancy.length > 0) {
               setSelectedOccupancy(savedOccupancy);
-              console.log('📍 Occupancy: Loaded from draft:', savedOccupancy);
-            }
+              }
           }
         } catch (error) {
-          console.error('❌ Occupancy: Error loading from draft:', error);
-        }
+          }
       }
     };
     loadOccupancy();
@@ -43,7 +41,6 @@ const Occupancy = () => {
   // Set current step
   useLayoutEffect(() => {
     if (actions?.setCurrentStep) {
-      console.log('📍 Occupancy: Setting currentStep to occupancy');
       actions.setCurrentStep('occupancy');
     }
   }, [actions]);
@@ -104,7 +101,6 @@ const Occupancy = () => {
     let draftIdToUse = state?.draftId || location.state?.draftId;
     
     if (!draftIdToUse || draftIdToUse.startsWith('temp_')) {
-      console.warn('📍 Occupancy: No valid draftId, cannot save');
       return;
     }
 
@@ -118,10 +114,8 @@ const Occupancy = () => {
           currentStep: 'makeitstandout',
           lastModified: new Date()
         });
-        console.log('✅ Occupancy: Saved to Firebase:', selectedOccupancy);
-      }
+        }
     } catch (error) {
-      console.error('❌ Occupancy: Error saving to Firebase:', error);
       throw error;
     }
   };
@@ -216,7 +210,6 @@ const Occupancy = () => {
               }
             });
           } catch (error) {
-            console.error('❌ Occupancy: Error saving:', error);
             alert('Error saving occupancy. Please try again.');
           }
         }}

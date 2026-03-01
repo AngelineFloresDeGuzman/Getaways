@@ -36,8 +36,7 @@ const ServiceOfferings = () => {
             }
           }
         } catch (error) {
-          console.error("Error loading offerings from draft:", error);
-        }
+          }
       }
     };
     loadOfferings();
@@ -76,8 +75,7 @@ const ServiceOfferings = () => {
           }
         }
       } catch (error) {
-        console.error("Error loading service photos:", error);
-      }
+        }
     }
     
     navigate("/pages/offering-title", {
@@ -122,10 +120,8 @@ const ServiceOfferings = () => {
           "data.serviceOfferings": offeringsToSave,
           lastModified: new Date(),
         });
-        console.log("✅ Saved service offerings to Firebase");
-      } catch (error) {
-        console.error("Error saving offerings to Firebase:", error);
-      }
+        } catch (error) {
+        }
     }
   };
 
@@ -152,10 +148,8 @@ const ServiceOfferings = () => {
             currentStep: "service-description",
             lastModified: new Date(),
           });
-          console.log("✅ Updated service offerings step in draft");
-        } catch (error) {
-          console.error("Error updating draft:", error);
-        }
+          } catch (error) {
+          }
       }
 
       // Navigate to service what provide page (next step after offerings)
@@ -182,8 +176,7 @@ const ServiceOfferings = () => {
             lastModified: new Date(),
           });
         } catch (error) {
-          console.error("Error updating draft:", error);
-        }
+          }
       }
 
       navigate("/pages/create-your-offerings", {
@@ -233,8 +226,7 @@ const ServiceOfferings = () => {
             lastModified: new Date(),
           });
         } catch (error) {
-          console.error("Error saving currentStep:", error);
-        }
+          }
       }
       
       navigate("/host/listings", {
@@ -244,7 +236,6 @@ const ServiceOfferings = () => {
         },
       });
     } catch (error) {
-      console.error("❌ Error saving draft:", error);
       alert("Failed to save. Please try again.");
     }
   };

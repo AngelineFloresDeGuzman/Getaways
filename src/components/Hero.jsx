@@ -117,7 +117,6 @@ const Hero = ({ darkMode }) => {
                 // Convert Set to Array and limit to top 20 unique locations
                 setAvailableDestinations(Array.from(locations).slice(0, 20));
             } catch (error) {
-                console.error('Error loading destinations:', error);
                 setAvailableDestinations([]);
             } finally {
                 setLoadingDestinations(false);

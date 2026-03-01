@@ -35,8 +35,7 @@ const ServiceOnlineProfiles = () => {
             setProfiles(draftSnap.data().data.serviceProfiles);
           }
         } catch (error) {
-          console.error("Error loading profiles from draft:", error);
-        }
+          }
       }
     };
     loadProfiles();
@@ -104,10 +103,8 @@ const ServiceOnlineProfiles = () => {
           "data.serviceProfiles": profilesToSave,
           lastModified: new Date(),
         });
-        console.log("✅ Updated service profiles in draft");
-      } catch (error) {
-        console.error("Error saving profiles:", error);
-      }
+        } catch (error) {
+        }
     }
   };
 
@@ -120,7 +117,6 @@ const ServiceOnlineProfiles = () => {
         const { auth } = await import("@/lib/firebase");
         const currentUser = auth.currentUser;
         if (!currentUser) {
-          console.warn("⚠️ ServiceOnlineProfiles: User not authenticated, cannot create draft");
           return null;
         }
         
@@ -133,14 +129,11 @@ const ServiceOnlineProfiles = () => {
           }
         };
         draftId = await saveDraft(newDraftData, null);
-        console.log("✅ ServiceOnlineProfiles: Created new draft:", draftId);
-        
         // Update state with new draftId
         if (actions?.setDraftId) {
           actions.setDraftId(draftId);
         }
       } catch (error) {
-        console.error("❌ ServiceOnlineProfiles: Error creating draft:", error);
         throw error;
       }
     }
@@ -153,9 +146,7 @@ const ServiceOnlineProfiles = () => {
           "data.serviceProfiles": profiles,
           lastModified: new Date(),
         });
-        console.log("✅ ServiceOnlineProfiles: Draft saved successfully");
-      } catch (error) {
-        console.error("❌ ServiceOnlineProfiles: Error saving data:", error);
+        } catch (error) {
         throw error;
       }
     }
@@ -181,7 +172,6 @@ const ServiceOnlineProfiles = () => {
         },
       });
     } catch (error) {
-      console.error("❌ Error saving draft:", error);
       alert("Failed to save. Please try again.");
     }
   };
@@ -210,7 +200,6 @@ const ServiceOnlineProfiles = () => {
       },
     });
     } catch (error) {
-      console.error("❌ Error in handleNext:", error);
       alert("Failed to save progress. Please try again.");
     }
   };

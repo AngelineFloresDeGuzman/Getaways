@@ -43,7 +43,6 @@ const VerifyEmail = () => {
 
         setStatus("success");
       } catch (error) {
-        console.error("Verification error:", error);
         setStatus("error");
       }
     };

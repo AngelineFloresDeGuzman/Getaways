@@ -78,7 +78,6 @@ export const autoCompleteBookings = async () => {
     
     return { success: true, updated: updates.length };
   } catch (error) {
-    console.error('Error auto-completing bookings:', error);
     return { success: false, error: error.message };
   }
 };
@@ -176,7 +175,6 @@ export const releaseHostEarnings = async (bookingId) => {
       
       console.log(`✅ Released ₱${hostEarnings.toLocaleString()} to host's GetPay wallet (Admin commission: ₱${adminCommission.toFixed(2)})`);
     } catch (walletError) {
-      console.error('Error transferring earnings to host wallet:', walletError);
       return { success: false, message: `Failed to transfer earnings: ${walletError.message}` };
     }
     
@@ -199,7 +197,6 @@ export const releaseHostEarnings = async (bookingId) => {
       adminCommission
     };
   } catch (error) {
-    console.error('Error releasing host earnings:', error);
     return { success: false, message: error.message };
   }
 };
@@ -268,7 +265,6 @@ export const getPendingEarnings = async () => {
     
     return pendingEarnings;
   } catch (error) {
-    console.error('Error getting pending earnings:', error);
     return [];
   }
 };
@@ -310,8 +306,7 @@ export const getReleasedEarningsSummary = async () => {
           };
         }
       } catch (error) {
-        console.error(`Error fetching host ${hostId}:`, error);
-      }
+        }
     }
     
     bookingsSnapshot.forEach(bookingDoc => {
@@ -344,7 +339,6 @@ export const getReleasedEarningsSummary = async () => {
       byHost: Object.values(byHost)
     };
   } catch (error) {
-    console.error('Error getting released earnings summary:', error);
     return { totalReleased: 0, totalServiceFees: 0, byHost: [] };
   }
 };
@@ -357,14 +351,12 @@ export const getReleasedEarningsSummary = async () => {
 export const getEarningsReleaseHistory = async (adminUserId) => {
   try {
     if (!adminUserId) {
-      console.warn('⚠️ Admin user ID not provided for earnings history');
       return [];
     }
 
     const { getWalletTransactions } = await import('@/pages/Common/services/getpayService');
     const transactions = await getWalletTransactions(adminUserId, 1000); // Get more transactions to filter
     
-    console.log(`📊 Loaded ${transactions.length} total transactions for admin ${adminUserId}`);
     console.log('📋 Transaction types:', transactions.map(t => ({ type: t.type, paymentType: t.metadata?.paymentType })));
     
     // Filter for earnings release transactions (type: 'payment' with paymentType: 'host_earnings_release')
@@ -374,17 +366,10 @@ export const getEarningsReleaseHistory = async (adminUserId) => {
       const matches = isPayment && isEarningsRelease;
       
       if (isPayment && !isEarningsRelease) {
-        console.log('⚠️ Found payment transaction but not earnings release:', {
-          type: t.type,
-          paymentType: t.metadata?.paymentType,
-          description: t.description
-        });
-      }
+        }
       
       return matches;
     });
-    
-    console.log(`✅ Found ${earningsReleases.length} earnings release transactions`);
     
     // Sort by date (newest first)
     earningsReleases.sort((a, b) => {
@@ -395,7 +380,6 @@ export const getEarningsReleaseHistory = async (adminUserId) => {
     
     return earningsReleases;
   } catch (error) {
-    console.error('❌ Error getting earnings release history:', error);
     return [];
   }
 };

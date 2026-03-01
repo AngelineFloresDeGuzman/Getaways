@@ -37,8 +37,7 @@ const ExperiencePricePerGuest = () => {
           }
         }
       } catch (error) {
-        console.error("Error loading price per guest data:", error);
-      }
+        }
     };
     loadData();
   }, [draftId, location.state?.experienceCategory]);
@@ -53,7 +52,6 @@ const ExperiencePricePerGuest = () => {
   // Save data to draft
   const saveData = async () => {
     if (!draftId) {
-      console.warn("No draftId available for saving");
       return;
     }
 
@@ -66,9 +64,7 @@ const ExperiencePricePerGuest = () => {
         "data.experienceCategory": mainCategory || location.state?.experienceCategory,
         lastModified: new Date(),
       });
-      console.log("✅ Saved price per guest data");
-    } catch (error) {
-      console.error("Error saving price per guest data:", error);
+      } catch (error) {
       throw error;
     }
   };
@@ -92,7 +88,6 @@ const ExperiencePricePerGuest = () => {
         },
       });
     } catch (error) {
-      console.error("Error in handleNext:", error);
       // Navigate even on error
       navigate("/pages/experience-details", {
         state: {
@@ -131,8 +126,7 @@ const ExperiencePricePerGuest = () => {
         },
       });
     } catch (error) {
-      console.error("Error saving and exiting:", error);
-    }
+      }
   };
 
   const canProceed =

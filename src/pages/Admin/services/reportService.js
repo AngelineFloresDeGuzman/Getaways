@@ -37,7 +37,6 @@ const formatValueForPDF = (value) => {
     try {
       value = value.toDate();
     } catch (e) {
-      console.warn('Error converting Firestore timestamp:', e);
       return 'N/A';
     }
   }
@@ -53,7 +52,6 @@ const formatValueForPDF = (value) => {
         minute: '2-digit'
       });
     } catch (e) {
-      console.warn('Error formatting date:', e);
       return 'N/A';
     }
   }
@@ -128,8 +126,7 @@ export const exportToPDF = async (data, headers, filename, title = 'Report') => 
       }
     } catch (err) {
       // Logo image failed, continue without it
-      console.log('Logo image not available, using text only');
-    }
+      }
     
     // Compact header text matching preview
     doc.setFontSize(9);
@@ -166,8 +163,7 @@ export const exportToPDF = async (data, headers, filename, title = 'Report') => 
     
     // Validate that all rows are included
     if (tableRows.length !== data.length) {
-      console.warn(`Row count mismatch: expected ${data.length} rows, got ${tableRows.length} rows`);
-    }
+      }
     
     // Store data length for use in didDrawPage callback
     const totalRecords = data.length;
@@ -279,7 +275,6 @@ export const exportToPDF = async (data, headers, filename, title = 'Report') => 
     const finalFilename = `${filename}_${timestamp}.pdf`;
     doc.save(finalFilename);
   } catch (error) {
-    console.error('Error generating PDF:', error);
     throw error;
   }
 };
@@ -326,7 +321,6 @@ export const generateComprehensiveReport = async () => {
 
     return reportData;
   } catch (error) {
-    console.error('Error generating comprehensive report:', error);
     throw error;
   }
 };
@@ -477,16 +471,8 @@ export const generateBookingsReport = async (dateFilter = null, filters = null) 
     }
 
     // Debug logging
-    console.log('generateBookingsReport - Results:', {
-      totalProcessed,
-      filteredOut,
-      included: bookingsData.length,
-      filtersApplied: filters
-    });
-
     return bookingsData;
   } catch (error) {
-    console.error('Error generating bookings report:', error);
     throw error;
   }
 };
@@ -590,7 +576,6 @@ export const generateServiceFeesReport = async (dateFilter = null, filters = nul
 
     return hostsData;
   } catch (error) {
-    console.error('Error generating service fees report:', error);
     throw error;
   }
 };
@@ -669,7 +654,6 @@ export const generatePaymentsReport = async (dateFilter = null, filters = null) 
 
     return paymentsData;
   } catch (error) {
-    console.error('Error generating payments report:', error);
     throw error;
   }
 };
@@ -759,7 +743,6 @@ export const generateAnalyticsReport = async () => {
       generatedAt: new Date().toISOString()
     };
   } catch (error) {
-    console.error('Error generating analytics report:', error);
     throw error;
   }
 };
@@ -929,7 +912,6 @@ export const generateComplianceReport = async (dateFilter = null, filters = null
 
     return filteredViolations;
   } catch (error) {
-    console.error('Error generating compliance report:', error);
     throw error;
   }
 };
@@ -1332,11 +1314,8 @@ export const getReportData = async (reportType, dateFilter = null, filters = nul
     const finalData = Array.isArray(data) ? data : [];
     const finalHeaders = Array.isArray(headers) ? headers : [];
     
-    console.log(`Report ${reportType}: Returning ${finalData.length} records with ${finalHeaders.length} headers`);
-    
     return { data: finalData, headers: finalHeaders };
   } catch (error) {
-    console.error('Error getting report data:', error);
     throw error;
   }
 };
@@ -1746,7 +1725,6 @@ export const generateReport = async (reportType, dateFilter = null, filters = nu
       await exportToPDF(data, headers, filename, reportTitle);
     }
   } catch (error) {
-    console.error('Error generating report:', error);
     throw error;
   }
 };

@@ -40,7 +40,6 @@ const FinalDetails = () => {
   // Set current step for progress bar when component mounts or route changes
   useEffect(() => {
     if (actions.setCurrentStep && state.currentStep !== 'finaldetails') {
-      console.log('📍 FinalDetails page - Setting currentStep to finaldetails');
       actions.setCurrentStep('finaldetails');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -67,37 +66,27 @@ const FinalDetails = () => {
       
       // Skip if no draftId or temp draftId
       if (!draftIdToUse || draftIdToUse.startsWith('temp_')) {
-        console.log('📍 FinalDetails: No valid draftId, skipping Firebase load');
         return;
       }
 
       try {
-        console.log('📍 FinalDetails: Loading final details from Firebase with draftId:', draftIdToUse);
         const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
         const docSnap = await getDoc(draftRef);
         
         if (docSnap.exists()) {
           const draftData = docSnap.data();
-          console.log('📍 FinalDetails: Draft data exists');
-          console.log('📍 FinalDetails: draftData.data:', draftData.data);
-          console.log('📍 FinalDetails: draftData.data?.finalDetails:', draftData.data?.finalDetails);
-          
           // Check for publishedListingId to detect edit mode
           if (draftData.publishedListingId) {
             setIsEditMode(true);
             setListingId(draftData.publishedListingId);
-            console.log('📍 FinalDetails: Detected edit mode from draft:', { isEditMode: true, listingId: draftData.publishedListingId });
-          }
+            }
           
           // Check nested data.finalDetails first (where we save it), then context
           const savedFinalDetails = draftData.data?.finalDetails || state.finalDetails;
           
           if (savedFinalDetails) {
-            console.log('📍 FinalDetails: ✅ Found saved finalDetails:', savedFinalDetails);
-            
             // Extract residentialAddress and isBusinessHost
             if (savedFinalDetails.residentialAddress) {
-              console.log('📍 FinalDetails: Restoring residential address:', savedFinalDetails.residentialAddress);
               setAddress(prev => ({
                 ...prev,
                 ...savedFinalDetails.residentialAddress
@@ -105,13 +94,11 @@ const FinalDetails = () => {
             }
             
             if (savedFinalDetails.isBusinessHost !== undefined) {
-              console.log('📍 FinalDetails: Restoring isBusinessHost:', savedFinalDetails.isBusinessHost);
               setIsBusinessHost(savedFinalDetails.isBusinessHost);
             }
             
             // Also update context if it's not set there yet or is different
             if (!state.finalDetails || JSON.stringify(state.finalDetails) !== JSON.stringify(savedFinalDetails)) {
-              console.log('📍 FinalDetails: Updating context with saved finalDetails');
               if (actions.updateFinalDetails) {
                 actions.updateFinalDetails(savedFinalDetails);
               }
@@ -120,14 +107,11 @@ const FinalDetails = () => {
             hasInitialized.current = true;
             return; // Exit early if we found it in Firebase
           } else {
-            console.log('📍 FinalDetails: ⚠️ No finalDetails found in Firebase draft');
-          }
+            }
         } else {
-          console.log('📍 FinalDetails: ⚠️ Draft document does not exist for draftId:', draftIdToUse);
-        }
+          }
       } catch (error) {
-        console.error('📍 FinalDetails: ❌ Error loading final details from Firebase:', error);
-      }
+        }
     };
 
     loadFinalDetailsFromFirebase();
@@ -161,7 +145,6 @@ const FinalDetails = () => {
     
     // If draftId is temp, reset it to find/create a real one
     if (draftIdToUse && draftIdToUse.startsWith('temp_')) {
-      console.log('📍 FinalDetails: Found temp ID, resetting to find/create real draft');
       draftIdToUse = null;
     }
     
@@ -174,13 +157,11 @@ const FinalDetails = () => {
         if (drafts.length > 0) {
           // Use the most recent draft
           draftIdToUse = drafts[0].id;
-          console.log('📍 FinalDetails: Using existing draft:', draftIdToUse);
           if (actions.setDraftId) {
             actions.setDraftId(draftIdToUse);
           }
         } else {
           // No drafts exist, create a new one
-          console.log('📍 FinalDetails: No existing drafts, creating new draft');
           const nextStep = targetRoute === '/pages/finaldetails' ? 'finaldetails' : 'completed';
           const newDraftData = {
             currentStep: nextStep,
@@ -190,13 +171,11 @@ const FinalDetails = () => {
             }
           };
           draftIdToUse = await saveDraft(newDraftData, null);
-          console.log('📍 FinalDetails: ✅ Created new draft:', draftIdToUse);
           if (actions.setDraftId) {
             actions.setDraftId(draftIdToUse);
           }
         }
       } catch (error) {
-        console.error('📍 FinalDetails: Error finding/creating draft:', error);
         throw error;
       }
     }
@@ -215,10 +194,8 @@ const FinalDetails = () => {
             currentStep: nextStep,
             lastModified: new Date()
           });
-          console.log('📍 FinalDetails: ✅ Saved finalDetails to data.finalDetails and currentStep to Firebase:', draftIdToUse, '- finalDetails:', finalDetailsData, ', currentStep:', nextStep);
-        } else {
+          } else {
           // Document doesn't exist, create it
-          console.log('📍 FinalDetails: Document not found, creating new one');
           const { saveDraft } = await import('@/pages/Host/services/draftService');
           const nextStep = targetRoute === '/pages/finaldetails' ? 'finaldetails' : 'completed';
           const newDraftData = {
@@ -229,33 +206,24 @@ const FinalDetails = () => {
             }
           };
           draftIdToUse = await saveDraft(newDraftData, draftIdToUse);
-          console.log('📍 FinalDetails: ✅ Created new draft with finalDetails:', draftIdToUse);
           if (actions.setDraftId) {
             actions.setDraftId(draftIdToUse);
           }
         }
         return draftIdToUse;
       } catch (error) {
-        console.error('📍 FinalDetails: ❌ Error saving to Firebase:', error);
         throw error;
       }
     } else if (state.user?.uid) {
-      console.warn('📍 FinalDetails: ⚠️ User authenticated but no valid draftId after ensureDraftAndSave');
       throw new Error('Failed to create draft for authenticated user');
     } else {
-      console.warn('📍 FinalDetails: ⚠️ User not authenticated, cannot save to Firebase');
       return null;
     }
   };
 
   // Save & Exit handler
   const handleSaveAndExitClick = async () => {
-    console.log('FinalDetails Save & Exit clicked');
-    console.log('Current address:', address);
-    console.log('Current isBusinessHost:', isBusinessHost);
-    
     if (!auth.currentUser) {
-      console.error('FinalDetails: No authenticated user');
       alert('Please log in to save your progress');
       return;
     }
@@ -263,7 +231,6 @@ const FinalDetails = () => {
     try {
       // Set current step before saving so "Continue Editing" returns to this page
       if (actions.setCurrentStep) {
-        console.log('FinalDetails: Setting currentStep to finaldetails');
         actions.setCurrentStep('finaldetails');
       }
       
@@ -277,9 +244,7 @@ const FinalDetails = () => {
       let draftIdToUse;
       try {
         draftIdToUse = await ensureDraftAndSave(finalDetailsData, '/pages/finaldetails');
-        console.log('📍 FinalDetails: ✅ Saved finalDetails to Firebase on Save & Exit');
-      } catch (saveError) {
-        console.error('📍 FinalDetails: Error saving to Firebase on Save & Exit:', saveError);
+        } catch (saveError) {
         // Continue with save & exit even if Firebase save fails
       }
       
@@ -294,14 +259,11 @@ const FinalDetails = () => {
         }
       });
     } catch (error) {
-      console.error('Error during save and exit:', error);
       alert('Error saving progress: ' + error.message);
     }
   };
 
   // Debug: Log the location state
-  console.log('FinalDetails - location.state:', location.state);
-
   return (
     <div className="min-h-screen bg-white">
       <OnboardingHeader customSaveAndExit={handleSaveAndExitClick} />
@@ -452,9 +414,7 @@ const FinalDetails = () => {
                       let draftIdToUse;
                       try {
                         draftIdToUse = await ensureDraftAndSave(finalDetailsData, '/host/hostdashboard');
-                        console.log('📍 FinalDetails: ✅ Saved finalDetails to Firebase on Create listing click');
-                      } catch (saveError) {
-                        console.error('📍 FinalDetails: Error saving to Firebase on Create listing:', saveError);
+                        } catch (saveError) {
                         // Continue navigation even if save fails
                       }
                       
@@ -475,12 +435,10 @@ const FinalDetails = () => {
                               currentListingId = draftData.publishedListingId;
                               setIsEditMode(true);
                               setListingId(currentListingId);
-                              console.log('📍 FinalDetails: Detected edit mode from draft:', { isEditMode: true, listingId: currentListingId });
-                            }
+                              }
                           }
                         } catch (error) {
-                          console.error('📍 FinalDetails: Error checking draft for edit mode:', error);
-                        }
+                          }
                       }
                       
                       // If edit mode and listing exists, check if it's already paid
@@ -498,7 +456,6 @@ const FinalDetails = () => {
                             const userPayment = userSnap.exists() ? (userSnap.data().payment || {}) : {};
                             
                             if (userPayment.status === 'active' && listingData.status === 'active') {
-                              console.log('📍 FinalDetails: User has active payment, skipping payment');
                               // Update listing directly without payment
                               await ensureDraftAndSave(finalDetailsData, '/host/hostdashboard');
                               
@@ -539,12 +496,9 @@ const FinalDetails = () => {
                                 };
                                 
                                 await createListing(listingDataToSave, currentListingId);
-                                console.log('✅ Listing updated directly without payment');
-                                
                                 // Delete the draft document since listing is now published
                                 await deleteDoc(draftRef);
-                                console.log('✅ Draft deleted after successful listing update');
-                              }
+                                }
                               
                               // Navigate directly to dashboard
                               updateSessionStorageBeforeNav('finaldetails', 'payment');
@@ -564,7 +518,6 @@ const FinalDetails = () => {
                             }
                           }
                         } catch (error) {
-                          console.error('📍 FinalDetails: Error checking listing subscription:', error);
                           // Continue to payment if check fails (better safe than sorry)
                         }
                       }
@@ -595,7 +548,6 @@ const FinalDetails = () => {
                     });
                       }, 0);
                     } catch (error) {
-                      console.error('Error saving final details:', error);
                       alert('Error saving progress. Please try again.');
                     }
                   }

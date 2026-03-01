@@ -52,8 +52,7 @@ const ServiceYearsOfExperience = () => {
               setMainCategory(draftSnap.data().data.serviceCategory);
             }
           } catch (error) {
-            console.error("Error loading service category from draft:", error);
-          }
+            }
         }
       }
     };
@@ -72,8 +71,7 @@ const ServiceYearsOfExperience = () => {
             setYearsOfExperience(draftSnap.data().data.serviceYearsOfExperience);
           }
         } catch (error) {
-          console.error("Error loading service years of experience from draft:", error);
-        }
+          }
       }
     };
     loadYearsOfExperience();
@@ -98,7 +96,6 @@ const ServiceYearsOfExperience = () => {
         const { auth } = await import("@/lib/firebase");
         const currentUser = auth.currentUser;
         if (!currentUser) {
-          console.warn("⚠️ ServiceYearsOfExperience: User not authenticated, cannot create draft");
           return null;
         }
         
@@ -113,14 +110,11 @@ const ServiceYearsOfExperience = () => {
           }
         };
         draftId = await saveDraft(newDraftData, null);
-        console.log("✅ ServiceYearsOfExperience: Created new draft:", draftId);
-        
         // Update state with new draftId
         if (actions?.setDraftId) {
           actions.setDraftId(draftId);
         }
       } catch (error) {
-        console.error("❌ ServiceYearsOfExperience: Error creating draft:", error);
         throw error;
       }
     }
@@ -133,9 +127,7 @@ const ServiceYearsOfExperience = () => {
           "data.serviceYearsOfExperience": yearsOfExperience,
           lastModified: new Date(),
         });
-        console.log("✅ ServiceYearsOfExperience: Draft saved successfully");
-      } catch (error) {
-        console.error("❌ ServiceYearsOfExperience: Error saving data:", error);
+        } catch (error) {
         throw error;
       }
     }
@@ -161,7 +153,6 @@ const ServiceYearsOfExperience = () => {
         },
       });
     } catch (error) {
-      console.error("❌ Error saving draft:", error);
       alert("Failed to save. Please try again.");
     }
   };
@@ -186,7 +177,6 @@ const ServiceYearsOfExperience = () => {
         },
       });
     } catch (error) {
-      console.error("❌ Error in handleNext:", error);
       alert("Failed to save progress. Please try again.");
     }
   };

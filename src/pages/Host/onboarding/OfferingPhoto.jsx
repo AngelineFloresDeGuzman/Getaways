@@ -20,10 +20,8 @@ const OfferingPhoto = () => {
 
   // Debug: Log photos state changes
   useEffect(() => {
-    console.log('📸 Photos state updated:', photos.length, 'photos');
     if (photos.length > 0) {
-      console.log('📸 Sample photo structure:', photos[0]);
-    }
+      }
   }, [photos]);
 
   // Ensure progress bar shows correct step
@@ -37,8 +35,6 @@ const OfferingPhoto = () => {
   useEffect(() => {
     const loadData = async () => {
       const draftId = state.draftId || location.state?.draftId;
-      console.log('📷 Loading photos from draft:', draftId);
-      
       if (draftId) {
         try {
           // First, try loading from subcollection (new method)
@@ -55,20 +51,16 @@ const OfferingPhoto = () => {
                 base64: doc.data().base64,
               }));
               
-              console.log('✅ Loaded photos from subcollection:', loadedPhotos.length, 'photos');
               setPhotos(loadedPhotos);
             } else {
-              console.log('❌ No photos in subcollection, checking main document...');
               // Fallback: check main document for old photos
               const draftRef = doc(db, "onboardingDrafts", draftId);
               const draftSnap = await getDoc(draftRef);
               if (draftSnap.exists()) {
                 const data = draftSnap.data().data || {};
                 if (data.servicePhotos && Array.isArray(data.servicePhotos) && data.servicePhotos.length > 0) {
-                  console.log('✅ Found old photos in main document:', data.servicePhotos.length);
                   setPhotos(data.servicePhotos);
                 } else if (location.state?.servicePhotos && Array.isArray(location.state.servicePhotos) && location.state.servicePhotos.length > 0) {
-                  console.log('✅ Found photos in location.state:', location.state.servicePhotos.length);
                   setPhotos(location.state.servicePhotos);
                 }
               } else if (location.state?.servicePhotos && Array.isArray(location.state.servicePhotos) && location.state.servicePhotos.length > 0) {
@@ -77,17 +69,14 @@ const OfferingPhoto = () => {
               }
             }
           } catch (subcollectionError) {
-            console.log('⚠️ Error loading from subcollection, trying main document...', subcollectionError);
             // Fallback to main document
             const draftRef = doc(db, "onboardingDrafts", draftId);
             const draftSnap = await getDoc(draftRef);
             if (draftSnap.exists()) {
               const data = draftSnap.data().data || {};
               if (data.servicePhotos && Array.isArray(data.servicePhotos) && data.servicePhotos.length > 0) {
-                console.log('✅ Found photos in main document:', data.servicePhotos.length);
                 setPhotos(data.servicePhotos);
               } else if (location.state?.servicePhotos && Array.isArray(location.state.servicePhotos) && location.state.servicePhotos.length > 0) {
-                console.log('✅ Found photos in location.state:', location.state.servicePhotos.length);
                 setPhotos(location.state.servicePhotos);
               }
             } else if (location.state?.servicePhotos && Array.isArray(location.state.servicePhotos) && location.state.servicePhotos.length > 0) {
@@ -120,7 +109,6 @@ const OfferingPhoto = () => {
             }
           }
         } catch (error) {
-          console.error("Error loading data:", error);
           // Fallback to location.state on error
           if (location.state?.servicePhotos && Array.isArray(location.state.servicePhotos) && location.state.servicePhotos.length > 0) {
             console.log('✅ Loading photos from location.state (fallback):', location.state.servicePhotos.length);
@@ -128,7 +116,6 @@ const OfferingPhoto = () => {
           }
         }
       } else {
-        console.log('❌ No draftId found');
         // Load from location.state if no draftId
         if (location.state?.servicePhotos && Array.isArray(location.state.servicePhotos) && location.state.servicePhotos.length > 0) {
           console.log('✅ Loading photos from location.state (no draftId):', location.state.servicePhotos.length);
@@ -158,7 +145,6 @@ const OfferingPhoto = () => {
     const draftId = state.draftId || location.state?.draftId;
     
     if (!draftId) {
-      console.log("⚠️ Cannot save photo: missing draftId");
       return;
     }
 
@@ -185,10 +171,8 @@ const OfferingPhoto = () => {
               "data.serviceOfferings": offerings,
               lastModified: new Date(),
             });
-            console.log("✅ Saved photo to Firebase for offering:", editingOfferingId);
-          } else {
-            console.log("⚠️ Offering not found, will be saved in next step");
-          }
+            } else {
+            }
         } else {
           // Creating new offering - find the most recent offering that matches title or create a new one
           const currentTitle = offeringTitle || location.state?.tempOfferingTitle;
@@ -212,14 +196,12 @@ const OfferingPhoto = () => {
                 "data.serviceOfferings": offerings,
                 lastModified: new Date(),
               });
-              console.log("✅ Saved photo to Firebase for new offering");
-            }
+              }
           }
         }
       }
     } catch (error) {
-      console.error("Error saving photo to Firebase:", error);
-    }
+      }
   };
 
   const handleNext = async () => {

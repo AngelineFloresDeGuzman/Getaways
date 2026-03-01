@@ -96,16 +96,12 @@ const HostDashboard = () => {
       const { getWalletTransactions } = await import('@/pages/Common/services/getpayService');
       const transactions = await getWalletTransactions(userId, 1000); // Get more transactions to filter
       
-      console.log(`💰 Loaded ${transactions.length} total transactions for host ${userId}`);
-      
       // Filter for host earnings transactions (type: 'credit' with paymentType: 'host_earnings')
       const earningsTransactions = transactions.filter(t => {
         const isCredit = t.type === 'credit';
         const isHostEarnings = t.metadata?.paymentType === 'host_earnings';
         return isCredit && isHostEarnings;
       });
-      
-      console.log(`✅ Found ${earningsTransactions.length} earnings transactions`);
       
       // Sort by date (newest first)
       earningsTransactions.sort((a, b) => {
@@ -119,7 +115,6 @@ const HostDashboard = () => {
       setTotalEarningsFromWallet(total);
       setEarningsHistory(earningsTransactions);
     } catch (error) {
-      console.error('❌ Error loading earnings history:', error);
       setEarningsHistory([]);
       setTotalEarningsFromWallet(0);
     } finally {
@@ -156,14 +151,12 @@ const HostDashboard = () => {
               }
             }
           } catch (birthdayError) {
-            console.error('Error checking birthday points:', birthdayError);
             // Don't block profile loading if birthday check fails
           }
         }
       }
     } catch (error) {
-      console.error('Error loading user profile:', error);
-    }
+      }
   };
 
   useEffect(() => {
@@ -195,8 +188,7 @@ const HostDashboard = () => {
                 const appeal = await getAppealByHostId(user.uid);
                 setExistingAppeal(appeal);
               } catch (error) {
-                console.error('Error checking for existing appeal:', error);
-              }
+                }
             } else {
               setIsTerminated(false);
             }
@@ -205,8 +197,7 @@ const HostDashboard = () => {
             // This prevents spam checking, we'll check it when profile loads
           }
         }, (error) => {
-          console.error('Error listening to user points:', error);
-        });
+          });
       } else {
         setDrafts([]);
         setListings([]);
@@ -261,11 +252,9 @@ const HostDashboard = () => {
 
     const currentIndex = stepOrder.indexOf(currentStep);
     if (currentIndex === -1) {
-      console.warn('⚠️ HostDashboard: currentStep not found in stepOrder:', currentStep, 'Available steps:', stepOrder);
       return 0;
     }
     const progress = Math.round(((currentIndex + 1) / stepOrder.length) * 100);
-    console.log('📊 HostDashboard: Progress calculation for', currentStep, '- Index:', currentIndex, 'Total steps:', stepOrder.length, 'Progress:', progress + '%');
     return progress;
   };
 
@@ -273,20 +262,11 @@ const HostDashboard = () => {
     try {
       setLoading(true);
       const userDrafts = await getUserDrafts();
-      console.log('📦 HostDashboard: Raw drafts from Firebase:', userDrafts);
-      
       // Transform drafts to include properly formatted data from Firebase structure
       const transformedDrafts = userDrafts.map(draft => {
         // Firebase structure: { id, userId, status, currentStep, category, lastModified, createdAt, data: {...} }
         // All form data is nested under 'data' object
         const data = draft.data || {};
-        
-        console.log('📋 Processing draft:', draft.id, {
-          hasData: !!draft.data,
-          dataKeys: draft.data ? Object.keys(draft.data) : [],
-          currentStep: draft.currentStep,
-          category: draft.category
-        });
         
         // Extract title from data.title or top-level title (fallback for backward compatibility)
         const title = data.title || draft.title || 'Untitled Draft';
@@ -379,7 +359,6 @@ const HostDashboard = () => {
               });
             }
           } catch (dateError) {
-            console.warn('Error formatting date for draft:', draft.id, dateError);
             lastModifiedFormatted = 'Unknown';
           }
         }
@@ -403,19 +382,8 @@ const HostDashboard = () => {
           hasPhotos: photos.length > 0
         };
         
-        console.log('✅ Transformed draft:', draft.id, {
-          title,
-          location,
-          privacyType,
-          progress,
-          hasImage: !!mainImage,
-          lastModifiedFormatted
-        });
-        
         return transformed;
       });
-      
-      console.log('📊 HostDashboard: Transformed drafts:', transformedDrafts);
       
       // Filter out published drafts (they should appear in listings section instead)
       const unpublishedDrafts = transformedDrafts.filter(draft => !draft.published);
@@ -428,7 +396,6 @@ const HostDashboard = () => {
       
       setLoading(false);
     } catch (error) {
-      console.error('❌ Error loading drafts:', error);
       setDrafts([]);
       setLoading(false);
     }
@@ -437,8 +404,6 @@ const HostDashboard = () => {
   const loadListings = async () => {
     try {
       if (!auth.currentUser) return;
-      
-      console.log('📦 HostDashboard: Loading published listings...');
       
       // Query listings collection for this user's active listings
       const listingsRef = collection(db, 'listings');
@@ -454,7 +419,7 @@ const HostDashboard = () => {
         );
         querySnapshot = await getDocs(q);
       } catch (indexError) {
-        console.warn('⚠️ Index error (expected on first use), trying without orderBy:', indexError.message);
+        // Index error (expected on first use), trying without orderBy
         try {
           // Fallback: query without orderBy
           const q = query(
@@ -464,7 +429,6 @@ const HostDashboard = () => {
           );
           querySnapshot = await getDocs(q);
         } catch (indexError2) {
-          console.warn('⚠️ Index error for status filter, querying by ownerId only:', indexError2.message);
           // Final fallback: query by ownerId only, filter status in JavaScript
           const q = query(
             listingsRef,
@@ -482,19 +446,6 @@ const HostDashboard = () => {
         // Debug: Log photos data for this listing
         const photosData = data.photos || [];
         const firstPhoto = photosData[0];
-        console.log(`📸 HostDashboard: Listing ${doc.id} - Photos:`, {
-          photosCount: photosData.length,
-          firstPhoto: firstPhoto ? {
-            id: firstPhoto.id,
-            name: firstPhoto.name,
-            hasBase64: !!firstPhoto.base64,
-            hasUrl: !!firstPhoto.url,
-            base64Length: firstPhoto.base64 ? firstPhoto.base64.length : 0,
-            allKeys: Object.keys(firstPhoto)
-          } : 'no first photo',
-          imageField: data.image,
-          hasImageField: !!data.image
-        });
         
         return {
           id: doc.id,
@@ -538,12 +489,8 @@ const HostDashboard = () => {
         });
       }
       
-      console.log('✅ HostDashboard: Loaded listings:', listingsData.length);
-      console.log('📋 Listings data:', listingsData);
       setListings(listingsData);
     } catch (error) {
-      console.error('❌ Error loading listings:', error);
-      console.error('Error details:', error.code, error.message);
       setListings([]);
     }
   };
@@ -551,8 +498,6 @@ const HostDashboard = () => {
   const loadUnpublishedListings = async () => {
     try {
       if (!auth.currentUser) return;
-      
-      console.log('📦 HostDashboard: Loading unpublished listings...');
       
       // Query listings collection for this user's inactive listings
       const listingsRef = collection(db, 'listings');
@@ -568,7 +513,6 @@ const HostDashboard = () => {
         );
         querySnapshot = await getDocs(q);
       } catch (indexError) {
-        console.warn('⚠️ Index error for unpublished listings, trying without orderBy:', indexError.message);
         try {
           // Fallback: query without orderBy
           const q = query(
@@ -578,7 +522,6 @@ const HostDashboard = () => {
           );
           querySnapshot = await getDocs(q);
         } catch (indexError2) {
-          console.warn('⚠️ Index error for status filter, querying by ownerId only:', indexError2.message);
           // Final fallback: query by ownerId only, filter status in JavaScript
           const q = query(
             listingsRef,
@@ -636,10 +579,8 @@ const HostDashboard = () => {
         });
       }
       
-      console.log('✅ HostDashboard: Loaded unpublished listings:', unpublishedData.length);
       setUnpublishedListings(unpublishedData);
     } catch (error) {
-      console.error('❌ Error loading unpublished listings:', error);
       setUnpublishedListings([]);
     }
   };
@@ -648,8 +589,6 @@ const HostDashboard = () => {
   const loadBookings = async () => {
     try {
       if (!auth.currentUser) return;
-
-      console.log('📦 HostDashboard: Loading bookings...');
 
       const bookingsCollection = collection(db, 'bookings');
       
@@ -663,7 +602,6 @@ const HostDashboard = () => {
         );
         querySnapshot = await getDocs(q);
       } catch (indexError) {
-        console.warn('⚠️ Index error for bookings, trying without orderBy:', indexError.message);
         try {
           // Fallback: query without orderBy
           const q = query(
@@ -672,7 +610,6 @@ const HostDashboard = () => {
           );
           querySnapshot = await getDocs(q);
         } catch (error2) {
-          console.error('❌ Error loading bookings:', error2);
           setBookings([]);
           return;
         }
@@ -706,10 +643,8 @@ const HostDashboard = () => {
         });
       }
 
-      console.log('✅ HostDashboard: Loaded bookings:', bookingsData.length);
       setBookings(bookingsData);
     } catch (error) {
-      console.error('❌ Error loading bookings:', error);
       setBookings([]);
     }
   };
@@ -738,13 +673,6 @@ const HostDashboard = () => {
           const bookingAmount = bookingData.bookingAmount || 0;
           const guestFee = bookingData.guestFee || 0;
           const listingTitle = bookingData.listingTitle || 'Accommodation';
-          
-          console.log('🔍 Processing payment on booking confirmation:', {
-            bookingId,
-            paymentProvider,
-            paymentMethod,
-            totalAmount
-          });
           
           // Handle PayPal payment differently
           // Check paymentProvider first as it's the source of truth
@@ -851,8 +779,7 @@ const HostDashboard = () => {
               });
               
               toast.success('Booking confirmed. PayPal payment processed successfully.');
-              console.log('✅ Booking confirmed with PayPal payment - payment already captured');
-            } else {
+              } else {
               // PayPal payment was not authorized/captured yet
               // Mark booking as confirmed but payment as pending
               // Set 24-hour deadline for payment completion
@@ -905,12 +832,6 @@ const HostDashboard = () => {
               
               // Deduct remaining amount from guest's wallet
               // Skip auth check since host is confirming on behalf of the system
-              console.log('🔍 About to deduct from wallet:', {
-                guestId,
-                remainingAmount,
-                currentUserId: auth.currentUser?.uid,
-                skipAuthCheck: true
-              });
               await deductFromWallet(
                 guestId,
                 remainingAmount,
@@ -1007,15 +928,6 @@ const HostDashboard = () => {
             });
           }
         } catch (paymentError) {
-          console.error('❌ Error processing payment on booking confirmation:', paymentError);
-          console.error('❌ Payment error details:', {
-            message: paymentError.message,
-            stack: paymentError.stack,
-            guestId,
-            paymentProvider,
-            paymentMethod,
-            totalAmount
-          });
           toast.error(`Failed to process payment: ${paymentError.message || 'Unknown error'}. Booking confirmation cancelled.`);
           return; // Don't update status if payment fails
         }
@@ -1061,8 +973,7 @@ const HostDashboard = () => {
           );
           
           if (emailResult.success) {
-            console.log('✅ Booking confirmation email sent to guest');
-          } else if (emailResult.skipped) {
+            } else if (emailResult.skipped) {
             console.log('ℹ️ Email sending skipped (EmailJS not configured)');
           } else {
             console.warn('⚠️ Failed to send booking confirmation email (non-critical):', emailResult.error);
@@ -1084,15 +995,13 @@ const HostDashboard = () => {
           );
           
           if (emailResult.success) {
-            console.log('✅ Booking cancellation email sent to guest');
-          } else if (emailResult.skipped) {
+            } else if (emailResult.skipped) {
             console.log('ℹ️ Email sending skipped (EmailJS not configured)');
           } else {
             console.warn('⚠️ Failed to send booking cancellation email (non-critical):', emailResult.error);
           }
         }
       } catch (emailError) {
-        console.error('❌ Error sending booking status email:', emailError);
         // Don't fail the booking status update if email fails
       }
 
@@ -1113,10 +1022,8 @@ const HostDashboard = () => {
               const couponId = bookingData.couponId;
               if (couponId) {
                 await incrementCouponUsage(couponId);
-                console.log('✅ Coupon usage incremented:', couponId);
-              }
+                }
             } catch (couponError) {
-              console.error('Error incrementing coupon usage:', couponError);
               // Don't block booking update if coupon increment fails
         }
       }
@@ -1124,7 +1031,6 @@ const HostDashboard = () => {
       toast.success(`Booking ${newStatus} successfully`);
       await loadBookings(); // Reload bookings
     } catch (error) {
-      console.error('❌ Error updating booking status:', error);
       toast.error('Failed to update booking status');
     }
   };
@@ -1178,8 +1084,6 @@ const HostDashboard = () => {
     }
 
     try {
-      console.log('📝 Unpublishing listing:', listingToUnpublish.id);
-      
       // Get listing reference
       const listingRef = doc(db, 'listings', listingToUnpublish.id);
       const listingSnap = await getDoc(listingRef);
@@ -1198,13 +1102,9 @@ const HostDashboard = () => {
       let deductionResult = null;
       try {
         const { deductPointsForUnpublishedListing } = await import('@/pages/Host/services/pointsService');
-        console.log('🔍 Calling deductPointsForUnpublishedListing for listing:', listingToUnpublish.id);
         deductionResult = await deductPointsForUnpublishedListing(auth.currentUser.uid, listingToUnpublish.id);
-        console.log('📊 Deduction result:', deductionResult);
-        
         if (deductionResult.success) {
           if (deductionResult.pointsDeducted > 0 || deductionResult.walletDeducted > 0) {
-            console.log('✅ Points/wallet deducted for unpublished listing:', deductionResult);
             if (deductionResult.remainingDebt > 0) {
               toast.success(`Listing unpublished. ₱${deductionResult.totalDeducted} deducted. ₱${deductionResult.remainingDebt} will be deducted from future credits.`);
             } else {
@@ -1212,24 +1112,17 @@ const HostDashboard = () => {
             }
           } else if (deductionResult.message) {
             // Show the message from the deduction function
-            console.log('ℹ️ Deduction info:', deductionResult.message);
             toast.info(deductionResult.message || 'Listing unpublished successfully');
           } else {
-      console.log('✅ Listing unpublished successfully');
       toast.success('Listing unpublished successfully');
           }
         } else {
-          console.error('❌ Points deduction failed:', deductionResult.error);
           toast.warning(`Listing unpublished, but points deduction failed: ${deductionResult.error}`);
         }
       } catch (pointsError) {
-        console.error('❌ Error deducting points for unpublished listing:', pointsError);
-        console.error('Error stack:', pointsError.stack);
         toast.error(`Listing unpublished, but points deduction error: ${pointsError.message}`);
         // Don't fail unpublish if points deduction fails
       }
-      
-      console.log('✅ Listing unpublished successfully');
       
       // Reload listings and unpublished listings to update the UI
       await loadListings();
@@ -1239,7 +1132,6 @@ const HostDashboard = () => {
       setUnpublishModalOpen(false);
       setListingToUnpublish(null);
     } catch (error) {
-      console.error('❌ Error unpublishing listing:', error);
       alert('Failed to unpublish listing. Please try again.');
       setUnpublishModalOpen(false);
       setListingToUnpublish(null);
@@ -1256,8 +1148,6 @@ const HostDashboard = () => {
     }
 
     try {
-      console.log('📝 Republishing listing:', listing.id);
-      
       const listingRef = doc(db, 'listings', listing.id);
       await updateDoc(listingRef, {
         status: 'active',
@@ -1272,30 +1162,22 @@ const HostDashboard = () => {
         
         if (restoreResult.success) {
           if (restoreResult.restored) {
-            console.log('✅ Points restored for republished listing:', restoreResult);
             toast.success(`Listing republished. ${restoreResult.pointsRestored} points restored.`);
           } else {
-      console.log('✅ Listing republished successfully');
       toast.success('Listing republished successfully');
           }
         } else {
-          console.log('✅ Listing republished successfully');
           toast.success('Listing republished successfully');
         }
       } catch (pointsError) {
-        console.error('Error restoring points for republished listing:', pointsError);
-        console.log('✅ Listing republished successfully');
         toast.success('Listing republished successfully');
         // Don't fail republish if points restoration fails
       }
-      
-      console.log('✅ Listing republished successfully');
       
       // Reload listings and unpublished listings to update the UI
       await loadListings();
       await loadUnpublishedListings();
     } catch (error) {
-      console.error('❌ Error republishing listing:', error);
       alert('Failed to republish listing. Please try again.');
     }
   };
@@ -1316,18 +1198,14 @@ const HostDashboard = () => {
     if (!confirmDelete) return;
 
     try {
-      console.log('🗑️ Deleting unpublished listing:', listing.id);
-      
       const listingRef = doc(db, 'listings', listing.id);
       await deleteDoc(listingRef);
       
-      console.log('✅ Listing deleted successfully');
       toast.success('Listing deleted successfully');
       
       // Reload unpublished listings to update the UI
       await loadUnpublishedListings();
     } catch (error) {
-      console.error('❌ Error deleting listing:', error);
       alert('Failed to delete listing. Please try again.');
     }
   };
@@ -1340,8 +1218,6 @@ const HostDashboard = () => {
         return;
       }
 
-      console.log('📝 Preparing draft for editing listing:', listing.id);
-      
       // Get the full listing document
       const listingRef = doc(db, 'listings', listing.id);
       const listingSnap = await getDoc(listingRef);
@@ -1369,8 +1245,6 @@ const HostDashboard = () => {
         // Use existing draft
         draftId = draftsSnapshot.docs[0].id;
         const existingDraft = draftsSnapshot.docs[0].data();
-        console.log('📍 Found existing draft for this listing:', draftId);
-        
         // Ensure it's marked as unpublished so it shows in saved drafts
         const draftRef = doc(draftsCollection, draftId);
         await updateDoc(draftRef, {
@@ -1380,8 +1254,6 @@ const HostDashboard = () => {
         });
       } else {
         // Create a new draft from the listing data
-        console.log('📍 No existing draft found, creating new draft for editing');
-        
         // Structure data the same way as onboarding drafts
         // Build data object, only including fields that have values (avoid undefined)
         const draftDataObject = {
@@ -1434,8 +1306,7 @@ const HostDashboard = () => {
         
         const draftRef = await addDoc(draftsCollection, draftData);
         draftId = draftRef.id;
-        console.log('✅ Created draft for editing:', draftId);
-      }
+        }
       
       // Reload drafts to show the new/updated draft in saved drafts section
       await loadDrafts();
@@ -1449,7 +1320,6 @@ const HostDashboard = () => {
         } 
       });
     } catch (error) {
-      console.error('❌ Error preparing draft for editing:', error);
       alert('Failed to edit listing. Please try again.');
     }
   };
@@ -1460,7 +1330,6 @@ const HostDashboard = () => {
       await deleteDraft(draftId);
       await loadDrafts();
     } catch (error) {
-      console.error('Error deleting draft:', error);
       alert('Failed to delete draft.');
     }
   };
@@ -1524,7 +1393,6 @@ const HostDashboard = () => {
                 onClick={() => {
                   if (stat.clickable) {
                     if (stat.type === 'points') {
-                      console.log('Opening points history modal, current points:', hostPoints, 'pointsHistory:', pointsHistory);
                       setShowPointsHistoryModal(true);
                     } else if (stat.type === 'earnings') {
                       setShowEarningsHistoryModal(true);
@@ -1690,8 +1558,7 @@ const HostDashboard = () => {
                                         );
                                         navigate(`/host/messages?conversation=${conversationId}`);
                                       } catch (error) {
-                                        console.error('Error starting conversation:', error);
-                                      }
+                                        }
                                     }}
                                     className="btn-outline px-4 py-2 text-sm font-medium flex items-center justify-center gap-2 w-full"
                                   >
@@ -1823,8 +1690,7 @@ const HostDashboard = () => {
                                         );
                                         navigate(`/host/messages?conversation=${conversationId}`);
                                       } catch (error) {
-                                        console.error('Error starting conversation:', error);
-                                      }
+                                        }
                                     }}
                                     className="btn-outline px-4 py-2 text-sm font-medium flex items-center justify-center gap-2 w-full"
                                   >
@@ -2079,7 +1945,6 @@ const HostDashboard = () => {
                     toast.error(result.error || 'Failed to cash out points');
                   }
                 } catch (error) {
-                  console.error('Error cashing out points:', error);
                   toast.error('Failed to cash out points: ' + error.message);
                 } finally {
                   setIsProcessingCashOut(false);

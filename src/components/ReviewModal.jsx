@@ -40,7 +40,6 @@ const ReviewModal = ({ isOpen, onClose, listingId, listingTitle, bookingId, onSu
       toast.success('Review submitted successfully!');
       onClose();
     } catch (error) {
-      console.error('Error submitting review:', error);
       toast.error('Failed to submit review. Please try again.');
     } finally {
       setSubmitting(false);

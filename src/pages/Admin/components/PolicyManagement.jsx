@@ -82,46 +82,28 @@ const PolicyManagement = ({ searchFilter: externalSearchFilter = '' }) => {
       const hasTerms = allPolicies.some(p => p.type === POLICY_TYPES.TERMS_CONDITIONS);
       const hasPrivacy = allPolicies.some(p => p.type === POLICY_TYPES.PRIVACY_POLICY);
       
-      console.log('🔍 Policy check:', {
-        totalPolicies: allPolicies.length,
-        hasTerms,
-        hasPrivacy,
-        policyTypes: allPolicies.map(p => p.type)
-      });
-      
       // Auto-initialize if no policies exist or essential policies are missing
       if (allPolicies.length === 0 || !hasTerms || !hasPrivacy) {
-        console.log('⚠️ Policies missing, initializing defaults...', {
-          totalPolicies: allPolicies.length,
-          hasTerms,
-          hasPrivacy
-        });
         try {
           const result = await initializeDefaultPolicies();
-          console.log('✅ Initialization result:', result);
           if (result && result.created > 0) {
             // Reload policies after initialization
             await new Promise(resolve => setTimeout(resolve, 500));
             const updatedPolicies = await getAllPolicies();
-            console.log('📋 Reloaded policies after initialization:', updatedPolicies.length);
             setPolicies(updatedPolicies);
             toast.success(`Successfully created ${result.created} default policies`);
           } else {
             // Policies already exist, just update the state
-            console.log('ℹ️ All policies already exist, using existing policies');
             setPolicies(allPolicies);
           }
         } catch (initError) {
-          console.error('❌ Error auto-initializing policies:', initError);
           toast.error('Failed to auto-initialize policies. Please click "Initialize Default Policies" button.');
         }
       } else {
         // All policies exist, just set them
-        console.log('✅ All essential policies exist, displaying policies');
         setPolicies(allPolicies);
       }
     } catch (error) {
-      console.error('❌ Error loading policies:', error);
       toast.error('Failed to load policies');
     } finally {
       setLoading(false);
@@ -133,10 +115,7 @@ const PolicyManagement = ({ searchFilter: externalSearchFilter = '' }) => {
     
     try {
       setInitializing(true);
-      console.log('🔄 Starting policy initialization...');
       const result = await initializeDefaultPolicies();
-      console.log('✅ Initialization result:', result);
-      
       if (result && result.created > 0) {
         toast.success(`Successfully created ${result.created} default policies`);
       } else if (result && result.skipped > 0) {
@@ -157,9 +136,7 @@ const PolicyManagement = ({ searchFilter: externalSearchFilter = '' }) => {
       const finalPolicies = await getAllPolicies();
       setPolicies(finalPolicies);
       
-      console.log(`📋 Final policy count after initialization: ${finalPolicies.length}`);
-    } catch (error) {
-      console.error('❌ Error initializing policies:', error);
+      } catch (error) {
       toast.error(`Failed to initialize default policies: ${error.message || error}`);
     } finally {
       setInitializing(false);
@@ -204,7 +181,6 @@ const PolicyManagement = ({ searchFilter: externalSearchFilter = '' }) => {
       setShowEditor(false);
       await loadPolicies();
     } catch (error) {
-      console.error('Error saving policy:', error);
       toast.error('Failed to save policy');
     }
   };
@@ -217,7 +193,6 @@ const PolicyManagement = ({ searchFilter: externalSearchFilter = '' }) => {
       toast.success('Policy deleted successfully');
       await loadPolicies();
     } catch (error) {
-      console.error('Error deleting policy:', error);
       toast.error('Failed to delete policy');
     }
   };
@@ -228,7 +203,6 @@ const PolicyManagement = ({ searchFilter: externalSearchFilter = '' }) => {
       toast.success(`Policy ${!currentStatus ? 'activated' : 'deactivated'}`);
       await loadPolicies();
     } catch (error) {
-      console.error('Error toggling policy status:', error);
       toast.error('Failed to update policy status');
     }
   };
@@ -513,7 +487,6 @@ const PolicyManagement = ({ searchFilter: externalSearchFilter = '' }) => {
         toast.success('Print preview opened');
       }, 250);
     } catch (error) {
-      console.error('Error printing policy:', error);
       toast.error('Failed to open print preview');
     }
   };
@@ -567,8 +540,7 @@ const PolicyManagement = ({ searchFilter: externalSearchFilter = '' }) => {
           logoAdded = true;
         }
       } catch (err) {
-        console.log('Logo not available, using text only');
-      }
+        }
       
       // Brand name "Getaways"
       doc.setFontSize(18);
@@ -827,7 +799,6 @@ const PolicyManagement = ({ searchFilter: externalSearchFilter = '' }) => {
       
       toast.success('Policy exported as PDF successfully');
     } catch (error) {
-      console.error('Error exporting policy:', error);
       toast.error('Failed to export policy as PDF');
     }
   };
@@ -1174,7 +1145,6 @@ const PolicyManagement = ({ searchFilter: externalSearchFilter = '' }) => {
         toast.success(`Print preview opened with ${policies.length} policy document(s)`);
       }, 250);
     } catch (error) {
-      console.error('Error printing all policies:', error);
       toast.error('Failed to open print preview');
     }
   };

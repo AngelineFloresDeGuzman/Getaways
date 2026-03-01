@@ -47,7 +47,6 @@ const FAQSection = () => {
           setFaqs(defaultFaqs);
         }
       } catch (error) {
-        console.error('Error loading FAQs:', error);
         // Use default FAQs on error
         setFaqs(defaultFaqs);
       } finally {

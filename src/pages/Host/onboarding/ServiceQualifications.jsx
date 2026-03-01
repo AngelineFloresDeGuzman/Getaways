@@ -64,8 +64,7 @@ const ServiceQualifications = () => {
             if (data.serviceProfilePicture) setProfilePicture(data.serviceProfilePicture);
           }
         } catch (error) {
-          console.error("Error loading qualifications from draft:", error);
-        }
+          }
       }
     };
     loadQualifications();
@@ -80,7 +79,6 @@ const ServiceQualifications = () => {
         const { auth } = await import("@/lib/firebase");
         const currentUser = auth.currentUser;
         if (!currentUser) {
-          console.warn("⚠️ ServiceQualifications: User not authenticated, cannot create draft");
           return null;
         }
         
@@ -99,14 +97,11 @@ const ServiceQualifications = () => {
           }
         };
         draftId = await saveDraft(newDraftData, null);
-        console.log("✅ ServiceQualifications: Created new draft:", draftId);
-        
         // Update state with new draftId
         if (actions?.setDraftId) {
           actions.setDraftId(draftId);
         }
       } catch (error) {
-        console.error("❌ ServiceQualifications: Error creating draft:", error);
         throw error;
       }
     }
@@ -122,9 +117,7 @@ const ServiceQualifications = () => {
           "data.serviceProfilePicture": profilePicture,
           lastModified: new Date(),
         });
-        console.log("✅ ServiceQualifications: Draft saved successfully");
-      } catch (error) {
-        console.error("❌ ServiceQualifications: Error saving data:", error);
+        } catch (error) {
         throw error;
       }
     }
@@ -150,7 +143,6 @@ const ServiceQualifications = () => {
         },
       });
     } catch (error) {
-      console.error("❌ Error saving draft:", error);
       alert("Failed to save. Please try again.");
     }
   };
@@ -178,7 +170,6 @@ const ServiceQualifications = () => {
         },
       });
     } catch (error) {
-      console.error("❌ Error in handleNext:", error);
       alert("Failed to save progress. Please try again.");
     }
   };
@@ -239,8 +230,7 @@ const ServiceQualifications = () => {
           lastModified: new Date(),
         });
       } catch (error) {
-        console.error("Error saving qualifications:", error);
-      }
+        }
     }
   };
 

@@ -57,7 +57,6 @@ export const startConversation = async (hostId, listingId = null) => {
     toast.success('Conversation started!');
     return docRef.id;
   } catch (error) {
-    console.error('Error starting conversation:', error);
     toast.error('Failed to start conversation. Please try again.');
     throw error;
   }
@@ -121,7 +120,6 @@ export const startConversationFromHost = async (guestId, listingId = null, booki
     toast.success('Conversation started!');
     return docRef.id;
   } catch (error) {
-    console.error('Error starting conversation:', error);
     toast.error('Failed to start conversation. Please try again.');
     throw error;
   }
@@ -141,7 +139,6 @@ export const getHostIdFromListing = async (listingId) => {
     }
     return null;
   } catch (error) {
-    console.error('Error getting host ID from listing:', error);
     return null;
   }
 };

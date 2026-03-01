@@ -58,7 +58,6 @@ const SimilarListings = ({ listingId, category, title = "Similar Listings", limi
 
       setSimilarListings(formattedListings);
     } catch (error) {
-      console.error('Error loading similar listings:', error);
       setSimilarListings([]);
     } finally {
       setLoading(false);

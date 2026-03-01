@@ -38,14 +38,11 @@ const GuestSelection = () => {
   useEffect(() => {
     const initializePage = async () => {
       if (location.state?.draftId && !hasInitialized.current && actions.loadDraft && state.user) {
-        console.log('GuestSelection - Loading draft with ID:', location.state.draftId);
         try {
           await actions.loadDraft(location.state.draftId);
           hasInitialized.current = true;
-          console.log('GuestSelection - Draft loaded successfully');
-        } catch (error) {
-          console.error('GuestSelection - Error loading draft:', error);
-        }
+          } catch (error) {
+          }
       }
     };
 
@@ -64,39 +61,30 @@ const GuestSelection = () => {
           const drafts = await getUserDrafts();
           if (drafts.length > 0) {
             draftIdToUse = drafts[0].id;
-            console.log('📍 GuestSelection: Found draftId from getUserDrafts:', draftIdToUse);
             if (!state.draftId && actions.setDraftId) {
               actions.setDraftId(draftIdToUse);
             }
           }
         } catch (error) {
-          console.error('📍 GuestSelection: Error getting user drafts:', error);
-        }
+          }
       }
       
       // Load guestSelection from Firebase if we have a draftId
       if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
         try {
-          console.log('📍 GuestSelection: Loading guestSelection from Firebase with draftId:', draftIdToUse);
           const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
           const docSnap = await getDoc(draftRef);
           
           if (docSnap.exists()) {
             const draftData = docSnap.data();
-            console.log('📍 GuestSelection: Draft data exists');
-            console.log('📍 GuestSelection: draftData.data:', draftData.data);
-            console.log('📍 GuestSelection: draftData.data?.guestSelection:', draftData.data?.guestSelection);
-            
             // Check nested data.guestSelection first (where we save it), then top-level, then context
             const savedGuestSelection = draftData.data?.guestSelection || draftData.guestSelection || state.selectedGuestOption;
             
             if (savedGuestSelection) {
-              console.log('📍 GuestSelection: ✅ Found saved guestSelection:', savedGuestSelection);
               setSelectedOption(savedGuestSelection);
               
               // Also update context if it's not set there yet or is different
               if (!state.selectedGuestOption || state.selectedGuestOption !== savedGuestSelection) {
-                console.log('📍 GuestSelection: Updating context with saved guestSelection');
                 updateGuestSelectionContext(savedGuestSelection);
               }
               
@@ -105,14 +93,11 @@ const GuestSelection = () => {
               }
               return; // Exit early if we found it in Firebase
             } else {
-              console.log('📍 GuestSelection: ⚠️ No guestSelection found in Firebase draft');
-            }
+              }
           } else {
-            console.log('📍 GuestSelection: ⚠️ Draft document does not exist for draftId:', draftIdToUse);
-          }
+            }
         } catch (error) {
-          console.error('📍 GuestSelection: ❌ Error loading guestSelection from Firebase:', error);
-        }
+          }
       }
       
       // Fallback: check context state if Firebase didn't have it
@@ -130,7 +115,6 @@ const GuestSelection = () => {
   // Also watch for selectedGuestOption changes in context (as a fallback)
   useEffect(() => {
     if (state.selectedGuestOption && !hasInitialized.current) {
-      console.log('📍 GuestSelection: selectedGuestOption changed in context, updating:', state.selectedGuestOption);
       setSelectedOption(state.selectedGuestOption);
       hasInitialized.current = true;
     }
@@ -140,7 +124,6 @@ const GuestSelection = () => {
   // Set current step when component mounts or route changes
   useEffect(() => {
     if (actions.setCurrentStep && state.currentStep !== 'guestselection') {
-      console.log('📍 GuestSelection page - Setting currentStep to guestselection');
       actions.setCurrentStep('guestselection');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -156,7 +139,6 @@ const GuestSelection = () => {
 
   // Real-time context updates
   const updateGuestSelectionContext = (selection) => {
-    console.log('GuestSelection - Updating context with:', selection);
     if (actions.updateGuestSelection) {
       actions.updateGuestSelection(selection);
     }
@@ -174,7 +156,6 @@ const GuestSelection = () => {
     
     // If draftId is temp, reset it to find/create a real one
     if (draftIdToUse && draftIdToUse.startsWith('temp_')) {
-      console.log('📍 GuestSelection: Found temp ID, resetting to find/create real draft');
       draftIdToUse = null;
     }
     
@@ -187,13 +168,11 @@ const GuestSelection = () => {
         if (drafts.length > 0) {
           // Use the most recent draft
           draftIdToUse = drafts[0].id;
-          console.log('📍 GuestSelection: Using existing draft:', draftIdToUse);
           if (actions.setDraftId) {
             actions.setDraftId(draftIdToUse);
           }
         } else {
           // No drafts exist, create a new one
-          console.log('📍 GuestSelection: No existing drafts, creating new draft');
           const nextStep = targetRoute === '/pages/pricing' ? 'pricing' : 'guestselection';
           const newDraftData = {
             currentStep: nextStep,
@@ -203,13 +182,11 @@ const GuestSelection = () => {
             }
           };
           draftIdToUse = await saveDraft(newDraftData, null);
-          console.log('📍 GuestSelection: ✅ Created new draft:', draftIdToUse);
           if (actions.setDraftId) {
             actions.setDraftId(draftIdToUse);
           }
         }
       } catch (error) {
-        console.error('📍 GuestSelection: Error finding/creating draft:', error);
         throw error;
       }
     }
@@ -228,10 +205,8 @@ const GuestSelection = () => {
             currentStep: nextStep,
             lastModified: new Date()
           });
-          console.log('📍 GuestSelection: ✅ Saved guestSelection to data.guestSelection and currentStep to Firebase:', draftIdToUse, '- guestSelection:', guestSelectionData, ', currentStep:', nextStep);
-        } else {
+          } else {
           // Document doesn't exist, create it
-          console.log('📍 GuestSelection: Document not found, creating new one');
           const { saveDraft } = await import('@/pages/Host/services/draftService');
           const nextStep = targetRoute === '/pages/pricing' ? 'pricing' : 'guestselection';
           const newDraftData = {
@@ -242,32 +217,24 @@ const GuestSelection = () => {
             }
           };
           draftIdToUse = await saveDraft(newDraftData, draftIdToUse);
-          console.log('📍 GuestSelection: ✅ Created new draft with guestSelection:', draftIdToUse);
           if (actions.setDraftId) {
             actions.setDraftId(draftIdToUse);
           }
         }
         return draftIdToUse;
       } catch (error) {
-        console.error('📍 GuestSelection: ❌ Error saving to Firebase:', error);
         throw error;
       }
     } else if (state.user?.uid) {
-      console.warn('📍 GuestSelection: ⚠️ User authenticated but no valid draftId after ensureDraftAndSave');
       throw new Error('Failed to create draft for authenticated user');
     } else {
-      console.warn('📍 GuestSelection: ⚠️ User not authenticated, cannot save to Firebase');
       return null;
     }
   };
 
   // Save & Exit handler
   const handleSaveAndExitClick = async () => {
-    console.log('GuestSelection Save & Exit clicked');
-    console.log('Current guest selection:', selectedOption);
-    
     if (!auth.currentUser) {
-      console.error('GuestSelection: No authenticated user');
       alert('Please log in to save your progress');
       return;
     }
@@ -275,7 +242,6 @@ const GuestSelection = () => {
     try {
       // Set current step before saving so "Continue Editing" returns to this page
       if (actions.setCurrentStep) {
-        console.log('GuestSelection: Setting currentStep to guestselection');
         actions.setCurrentStep('guestselection');
       }
       
@@ -286,9 +252,7 @@ const GuestSelection = () => {
       let draftIdToUse;
       try {
         draftIdToUse = await ensureDraftAndSave(selectedOption, '/pages/guestselection');
-        console.log('📍 GuestSelection: ✅ Saved guestSelection to Firebase on Save & Exit');
-      } catch (saveError) {
-        console.error('📍 GuestSelection: Error saving to Firebase on Save & Exit:', saveError);
+        } catch (saveError) {
         // Continue with save & exit even if Firebase save fails
       }
       
@@ -303,7 +267,6 @@ const GuestSelection = () => {
         }
       });
     } catch (error) {
-      console.error('Error saving and exiting:', error);
       alert('Error saving progress: ' + error.message);
     }
   };
@@ -385,9 +348,7 @@ const GuestSelection = () => {
               let draftIdToUse;
               try {
                 draftIdToUse = await ensureDraftAndSave(selectedOption, '/pages/pricing');
-                console.log('📍 GuestSelection: ✅ Saved guestSelection to Firebase on Next click');
-              } catch (saveError) {
-                console.error('📍 GuestSelection: Error saving to Firebase on Next:', saveError);
+                } catch (saveError) {
                 // Continue navigation even if save fails - data is in context
               }
               
@@ -408,7 +369,6 @@ const GuestSelection = () => {
                 } 
               });
             } catch (error) {
-              console.error('Error saving guest selection:', error);
               alert('Error saving progress. Please try again.');
             }
           }

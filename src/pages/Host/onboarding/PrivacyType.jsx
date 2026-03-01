@@ -70,8 +70,7 @@ const PrivacyType = () => {
             }
           }
         } catch (error) {
-          console.error('Error restoring draftId:', error);
-        }
+          }
       }
     };
     restoreDraftId();
@@ -95,8 +94,7 @@ const PrivacyType = () => {
             }
           }
         } catch (error) {
-          console.error('Error loading draft:', error);
-        }
+          }
       };
       fetchDraft();
     }
@@ -105,7 +103,6 @@ const PrivacyType = () => {
   // Set current step for progress bar when component mounts or route changes
   useEffect(() => {
     if (actions.setCurrentStep && state.currentStep !== 'privacytype') {
-      console.log('📍 PrivacyType page - Setting currentStep to privacytype');
       actions.setCurrentStep('privacytype');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -159,7 +156,6 @@ const PrivacyType = () => {
       }
       navigate('/pages/location', { state: { draftId } });
     } catch (error) {
-      console.error('Error saving draft:', error);
       navigate('/pages/location', { state: { draftId } });
     } finally {
       setIsLoading(false);
@@ -201,8 +197,7 @@ const PrivacyType = () => {
             }
           }
         } catch (error) {
-          console.error('Error creating/finding draft:', error);
-        }
+          }
       }
       
       if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
@@ -216,8 +211,7 @@ const PrivacyType = () => {
             currentStep: 'privacytype',
             lastModified: new Date(),
           });
-          console.log('📍 PrivacyType: ✅ Saved privacyType to Firebase on Save & Exit:', selectedOption);
-        } else {
+          } else {
           // Create new draft
           const { saveDraft } = await import('@/pages/Host/services/draftService');
           const newDraftData = {
@@ -241,7 +235,6 @@ const PrivacyType = () => {
         }
       });
     } catch (error) {
-      console.error('Error saving and exiting:', error);
       alert('Error saving progress: ' + error.message);
     } finally {
       setIsLoading(false);

@@ -236,7 +236,6 @@ export const OnboardingProvider = ({ children }) => {
         
         if (tempDraftData) {
           try {
-            console.log('User authenticated, migrating localStorage data to Firebase...');
             const parsedData = JSON.parse(tempDraftData);
             
             // Remove temporary keys and save to Firebase
@@ -248,9 +247,7 @@ export const OnboardingProvider = ({ children }) => {
             
             // Clear localStorage data after successful migration
             localStorage.removeItem(tempDraftKey);
-            console.log('Successfully migrated localStorage data to Firebase');
-          } catch (error) {
-            console.error('Error migrating localStorage data to Firebase:', error);
+            } catch (error) {
             // Keep localStorage data if migration fails
           }
         }
@@ -268,12 +265,9 @@ export const OnboardingProvider = ({ children }) => {
     if (tempDraftData) {
       try {
         const parsedData = JSON.parse(tempDraftData);
-        console.log('Loading temporary draft from localStorage:', parsedData);
-        
         // Restore all fields from localStorage draft
         dispatch({ type: ACTIONS.LOAD_DRAFT, payload: parsedData });
       } catch (error) {
-        console.error('Error loading temporary draft from localStorage:', error);
         // Clear corrupted data
         localStorage.removeItem(tempDraftKey);
       }
@@ -283,7 +277,6 @@ export const OnboardingProvider = ({ children }) => {
   // Individual callbacks for functions that depend on state
   const saveDraftCallback = useCallback(async (partialData = {}) => {
     try {
-      console.log('OnboardingContext: Starting saveDraft...');
       dispatch({ type: ACTIONS.SET_LOADING, payload: true });
 
       // Only include fields relevant to the current step
@@ -402,7 +395,6 @@ export const OnboardingProvider = ({ children }) => {
       dispatch({ type: ACTIONS.SET_DRAFT_ID, payload: draftId });
       return draftId;
     } catch (error) {
-      console.error('Error saving draft:', error);
       throw error;
     } finally {
       dispatch({ type: ACTIONS.SET_LOADING, payload: false });
@@ -479,9 +471,7 @@ export const OnboardingProvider = ({ children }) => {
             autoSaveTimeout = setTimeout(async () => {
               try {
                 await saveDraftCallback(relevantFields);
-                console.log('OnboardingContext: Auto-save completed');
-              } catch (error) {
-                console.error('OnboardingContext: Auto-save failed:', error);
+                } catch (error) {
                 // Don't throw error for auto-save failures
               }
             }, 3000); // 3-second debounce
@@ -493,9 +483,7 @@ export const OnboardingProvider = ({ children }) => {
         autoSaveTimeout = setTimeout(async () => {
           try {
             await saveDraftCallback(relevantFields);
-            console.log('OnboardingContext: Auto-save completed');
-          } catch (error) {
-            console.error('OnboardingContext: Auto-save failed:', error);
+            } catch (error) {
             // Don't throw error for auto-save failures
           }
         }, 3000); // 3-second debounce
@@ -529,12 +517,8 @@ export const OnboardingProvider = ({ children }) => {
 
   const saveAndExitCallback = useCallback(async () => {
     try {
-      console.log('OnboardingContext: Starting saveAndExit...');
       const draftId = await saveDraftCallback();
-      console.log('OnboardingContext: saveDraft completed, draftId:', draftId);
-      
       // Navigate to listings tab
-      console.log('OnboardingContext: Navigating to listings tab...');
       navigate('/host/listings', { 
         state: { 
           message: 'Draft saved successfully!',
@@ -542,10 +526,8 @@ export const OnboardingProvider = ({ children }) => {
         }
       });
       
-      console.log('OnboardingContext: saveAndExit completed successfully');
       return draftId;
     } catch (error) {
-      console.error('Error saving and exiting:', error);
       throw error;
     }
   }, [saveDraftCallback, navigate]);
@@ -615,8 +597,7 @@ export const OnboardingProvider = ({ children }) => {
             dispatch({ type: ACTIONS.SET_CURRENT_STEP, payload: updates[key] });
             break;
           default:
-            console.warn(`UpdateState: Unknown key '${key}' - add case to handle this property`);
-        }
+            }
       });
     },
 
@@ -709,7 +690,7 @@ export const OnboardingProvider = ({ children }) => {
       try {
         dispatch({ type: ACTIONS.SET_LOADING, payload: true });
         
-        console.log('Loading draft with ID:', draftId); // Debug log
+        // Debug log
         const draftData = await loadDraft(draftId);
         if (draftData) {
           // Extract nested data fields and map to state properties
@@ -720,14 +701,12 @@ export const OnboardingProvider = ({ children }) => {
           // This is used to navigate to the correct page when continuing a draft
           if (draftData.currentStep) {
             mappedData.currentStep = draftData.currentStep;
-            console.log('📍 OnboardingContext: Loaded currentStep from Firebase:', draftData.currentStep);
-          }
+            }
           
           // Extract propertyStructure from nested data
           if (data.propertyStructure) {
             mappedData.propertyStructure = data.propertyStructure;
-            console.log('📍 OnboardingContext: Loaded propertyStructure from Firebase:', data.propertyStructure);
-          }
+            }
           
           // Extract propertyBasics from nested data
           // PropertyBasics structure varies based on privacyType, so handle missing fields gracefully
@@ -761,14 +740,12 @@ export const OnboardingProvider = ({ children }) => {
           // Extract title from nested data
           if (data.title) {
             mappedData.title = data.title;
-            console.log('📍 OnboardingContext: Loaded title from Firebase:', data.title);
-          }
+            }
           
           // Extract descriptionHighlights from nested data
           if (data.descriptionHighlights) {
             mappedData.descriptionHighlights = data.descriptionHighlights;
-            console.log('📍 OnboardingContext: Loaded descriptionHighlights from Firebase:', data.descriptionHighlights);
-          }
+            }
           
           // Extract amenities from nested data
           // Amenities are stored as object with favorites, standout, safety subcategories
@@ -797,8 +774,7 @@ export const OnboardingProvider = ({ children }) => {
               // Convert object to array
               mappedData.safetyAmenities = Object.keys(data.safetyDetails).filter(key => data.safetyDetails[key]);
             }
-            console.log('📍 OnboardingContext: Loaded safetyDetails from Firebase:', mappedData.safetyAmenities);
-          }
+            }
           
           // Extract pricing from nested data
           if (data.pricing) {
@@ -810,12 +786,7 @@ export const OnboardingProvider = ({ children }) => {
               // Also set weekendPricingEnabled if weekendPrice exists and is > 0
               mappedData.weekendPricingEnabled = data.pricing.weekendPrice > 0;
             }
-            console.log('📍 OnboardingContext: Loaded pricing from Firebase:', {
-              weekdayPrice: mappedData.weekdayPrice,
-              weekendPrice: mappedData.weekendPrice,
-              weekendPricingEnabled: mappedData.weekendPricingEnabled
-            });
-          }
+            }
           
           // Extract finalDetails from nested data
           if (data.finalDetails) {
@@ -828,28 +799,24 @@ export const OnboardingProvider = ({ children }) => {
             if (data.finalDetails.cancellationPolicy) {
               mappedData.cancellationPolicy = data.finalDetails.cancellationPolicy;
             }
-            console.log('📍 OnboardingContext: Loaded finalDetails from Firebase:', data.finalDetails);
-          }
+            }
           
           // Extract photos from nested data
           if (data.photos) {
             mappedData.photos = data.photos;
-            console.log('📍 OnboardingContext: Loaded photos from Firebase:', data.photos.length, 'photos');
-          }
+            }
           
           // Extract description from nested data
           if (data.description) {
             mappedData.description = data.description;
-            console.log('📍 OnboardingContext: Loaded description from Firebase:', data.description.length, 'characters');
-          }
+            }
           
           // Extract bookingSettings from nested data
           if (data.bookingSettings) {
             mappedData.advanceNotice = data.bookingSettings.advanceNotice || mappedData.advanceNotice;
             mappedData.preparationTime = data.bookingSettings.preparationTime || mappedData.preparationTime;
             mappedData.availabilityWindow = data.bookingSettings.availabilityWindow || mappedData.availabilityWindow;
-            console.log('📍 OnboardingContext: Loaded bookingSettings from Firebase:', data.bookingSettings);
-          }
+            }
           
           // Extract guestSelection from nested data
           if (data.guestSelection) {
@@ -861,8 +828,7 @@ export const OnboardingProvider = ({ children }) => {
               mappedData.instantBook = data.guestSelection.instantBook !== undefined ? data.guestSelection.instantBook : mappedData.instantBook;
               mappedData.guestRequirements = data.guestSelection.guestRequirements || mappedData.guestRequirements;
             }
-            console.log('📍 OnboardingContext: Loaded guestSelection from Firebase:', data.guestSelection);
-          }
+            }
           
           // Extract discounts from nested data
           if (data.discounts) {
@@ -870,48 +836,32 @@ export const OnboardingProvider = ({ children }) => {
               ...mappedData.discounts,
               ...data.discounts
             };
-            console.log('📍 OnboardingContext: Loaded discounts from Firebase:', data.discounts);
-          }
+            }
           
           // Extract highlights (makeItStandOut) from nested data
           if (data.highlights) {
             mappedData.highlights = data.highlights;
-            console.log('📍 OnboardingContext: Loaded highlights from Firebase:', data.highlights.length, 'highlights');
-          }
+            }
           
           // Extract category from top-level or nested data
           if (draftData.category) {
             mappedData.category = draftData.category;
-            console.log('📍 OnboardingContext: Loaded category from Firebase:', draftData.category);
-          }
+            }
           
           // Extract propertyType from top-level or nested data
           if (draftData.propertyType) {
             mappedData.propertyType = draftData.propertyType;
-            console.log('📍 OnboardingContext: Loaded propertyType from Firebase:', draftData.propertyType);
-          } else if (data.propertyType) {
+            } else if (data.propertyType) {
             mappedData.propertyType = data.propertyType;
-            console.log('📍 OnboardingContext: Loaded propertyType from nested data:', data.propertyType);
-          }
+            }
           
           // Load the mapped draft data AND set the draftId
           dispatch({ type: ACTIONS.LOAD_DRAFT, payload: mappedData });
           dispatch({ type: ACTIONS.SET_DRAFT_ID, payload: draftId });
-          console.log('📍 OnboardingContext: Draft loaded and draftId set to:', draftId);
-          console.log('📍 OnboardingContext: Loaded data summary:', {
-            category: mappedData.category,
-            propertyType: mappedData.propertyType,
-            photosCount: mappedData.photos?.length || 0,
-            hasDescription: !!mappedData.description,
-            hasTitle: !!mappedData.title,
-            hasPricing: !!mappedData.weekdayPrice,
-            hasLocation: !!mappedData.locationData?.city
-          });
-        }
+          }
         
         return draftData;
       } catch (error) {
-        console.error('Error loading draft:', error);
         throw error;
       } finally {
         dispatch({ type: ACTIONS.SET_LOADING, payload: false });

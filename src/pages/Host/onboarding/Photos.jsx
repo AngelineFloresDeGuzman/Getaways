@@ -21,7 +21,6 @@ const Photos = () => {
   const [propertyStructure, setPropertyStructure] = useState(() => {
     // Initialize from context if available
     if (state.propertyStructure) {
-      console.log('📍 Photos: Initializing propertyStructure from context:', state.propertyStructure);
       return state.propertyStructure.toLowerCase();
     }
     return null;
@@ -31,12 +30,6 @@ const Photos = () => {
   // Try multiple times: on mount, when draftId becomes available, and when navigating
   useEffect(() => {
     const loadPropertyStructure = async () => {
-      console.log('📍 Photos: loadPropertyStructure effect triggered');
-      console.log('📍 Photos: state.propertyStructure:', state.propertyStructure);
-      console.log('📍 Photos: propertyStructure state:', propertyStructure);
-      console.log('📍 Photos: state?.draftId:', state?.draftId);
-      console.log('📍 Photos: location.state?.draftId:', location.state?.draftId);
-      
       let draftIdToUse = state?.draftId || location.state?.draftId;
       
       // If no draftId yet, try to get it from user's drafts
@@ -46,15 +39,13 @@ const Photos = () => {
           const drafts = await getUserDrafts();
           if (drafts.length > 0) {
             draftIdToUse = drafts[0].id;
-            console.log('📍 Photos: Found draftId from getUserDrafts:', draftIdToUse);
             // Also update context draftId if it's not set
             if (!state.draftId && actions.setDraftId) {
               actions.setDraftId(draftIdToUse);
             }
           }
         } catch (error) {
-          console.error('📍 Photos: Error getting user drafts:', error);
-        }
+          }
       }
       
       console.log('📍 Photos: draftIdToUse (final):', draftIdToUse);
@@ -62,50 +53,34 @@ const Photos = () => {
       // ALWAYS try loading from Firebase if we have a draftId (most reliable)
       if (draftIdToUse && !draftIdToUse.startsWith('temp_')) {
         try {
-          console.log('📍 Photos: Loading propertyStructure from Firebase with draftId:', draftIdToUse);
           const draftRef = doc(db, 'onboardingDrafts', draftIdToUse);
           const docSnap = await getDoc(draftRef);
           
           if (docSnap.exists()) {
             const draftData = docSnap.data();
-            console.log('📍 Photos: Draft data exists');
-            console.log('📍 Photos: draftData.data:', draftData.data);
-            console.log('📍 Photos: draftData.data?.propertyStructure:', draftData.data?.propertyStructure);
-            
             // Check nested data first (where PropertyStructure saves it), then top-level
             const structure = draftData.data?.propertyStructure || draftData.propertyStructure;
-            console.log('📍 Photos: Found structure in Firebase:', structure);
-            
             if (structure) {
               const structureLower = structure.toLowerCase();
-              console.log('📍 Photos: ✅ Setting propertyStructure to:', structureLower);
               setPropertyStructure(structureLower);
               
               // Also update context if it's not set there yet or is different
               if (!state.propertyStructure || state.propertyStructure.toLowerCase() !== structureLower) {
-                console.log('📍 Photos: Updating context with propertyStructure:', structure);
                 if (actions.updatePropertyStructure) {
                   actions.updatePropertyStructure(structure);
                 }
               }
               return; // Exit early if we found it in Firebase
             } else {
-              console.log('📍 Photos: ⚠️ No propertyStructure found in Firebase draft');
               console.log('📍 Photos: Available keys in data:', draftData.data ? Object.keys(draftData.data) : 'no data object');
               console.log('📍 Photos: Full draftData keys:', Object.keys(draftData));
             }
           } else {
-            console.log('📍 Photos: ⚠️ Draft document does not exist for draftId:', draftIdToUse);
-          }
+            }
         } catch (error) {
-          console.error('📍 Photos: ❌ Error loading propertyStructure from Firebase:', error);
-          console.error('📍 Photos: Error details:', error.message, error.stack);
-        }
+          }
       } else {
-        console.log('📍 Photos: ⚠️ No valid draftId available - draftIdToUse:', draftIdToUse);
-        console.log('📍 Photos: User authenticated:', !!state.user);
-        console.log('📍 Photos: User UID:', state.user?.uid);
-      }
+        }
       
       // Fallback: check context state if Firebase didn't have it
       if (state.propertyStructure && !propertyStructure) {
@@ -122,25 +97,17 @@ const Photos = () => {
   // Compute property type reactively - ONLY use propertyStructure (not propertyType)
   // propertyStructure comes from PropertyStructure page and is what should be displayed
   const propertyType = useMemo(() => {
-    console.log('📍 Photos useMemo: RECOMPUTING propertyType');
-    console.log('📍 Photos useMemo: propertyStructure state:', propertyStructure);
-    console.log('📍 Photos useMemo: state.propertyStructure:', state.propertyStructure);
-    
     // Use local state first (most up-to-date)
     if (propertyStructure) {
-      console.log('📍 Photos useMemo: ✅ Using propertyStructure state:', propertyStructure);
       return propertyStructure;
     }
     
     // Fallback to context
     if (state.propertyStructure) {
       const structure = state.propertyStructure.toLowerCase();
-      console.log('📍 Photos useMemo: ✅ Using propertyStructure from context:', structure);
       return structure;
     }
     
-    console.log('📍 Photos useMemo: ⚠️ Using default "house" - propertyStructure not found!');
-    console.log('📍 Photos useMemo: Debug info - propertyStructure:', propertyStructure, 'state.propertyStructure:', state.propertyStructure);
     return 'house'; // Default fallback
   }, [
     propertyStructure, 
@@ -150,11 +117,6 @@ const Photos = () => {
   ]);
   
   // Debug: Log the location state and property type
-  console.log('📍 Photos RENDER - location.state:', location.state);
-  console.log('📍 Photos RENDER - propertyType:', propertyType);
-  console.log('📍 Photos RENDER - propertyStructure state:', propertyStructure);
-  console.log('📍 Photos RENDER - propertyStructure from context:', state.propertyStructure);
-  
   // Initialize with photos from state, location state, or empty array
   const getInitialPhotos = () => {
     // First check if photos come from navigation state
@@ -186,22 +148,16 @@ const Photos = () => {
     const loadDraftData = async () => {
       // Only load draft if user is authenticated and we have a draftId
       if (location.state?.draftId && !draftLoaded.current && actions.loadDraft && state.user) {
-        console.log('📍 Photos - Loading draft with ID:', location.state.draftId);
         try {
           await actions.loadDraft(location.state.draftId);
           draftLoaded.current = true;
-          console.log('📍 Photos - Draft loaded successfully');
-          console.log('📍 Photos - After draft load, state.propertyStructure:', state.propertyStructure);
-          
           // After draft loads, propertyStructure should be in context, so set it
           if (state.propertyStructure) {
             const structure = state.propertyStructure.toLowerCase();
-            console.log('📍 Photos - Setting propertyStructure after draft load:', structure);
             setPropertyStructure(structure);
           }
         } catch (error) {
-          console.error('📍 Photos - Error loading draft:', error);
-        }
+          }
       }
     };
 
@@ -215,7 +171,6 @@ const Photos = () => {
       const structure = state.propertyStructure.toLowerCase();
       // Only update if it's different or not set yet
       if (!propertyStructure || propertyStructure !== structure) {
-        console.log('📍 Photos - propertyStructure changed in context, updating:', structure);
         setPropertyStructure(structure);
       }
     }
@@ -225,7 +180,6 @@ const Photos = () => {
   // Set current step when component mounts or route changes
   useEffect(() => {
     if (actions.setCurrentStep && state.currentStep !== 'photos') {
-      console.log('📍 Photos page - Setting currentStep to photos');
       actions.setCurrentStep('photos');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -248,15 +202,13 @@ const Photos = () => {
       // Always update if count differs or if we don't have photos
       // This ensures photos show when navigating back
       if (uploadedPhotos.length !== displayPhotos.length || uploadedPhotos.length === 0) {
-        console.log('📍 Photos: Syncing photos from context on navigation back:', displayPhotos.length);
-      setUploadedPhotos(displayPhotos);
+        setUploadedPhotos(displayPhotos);
       } else {
         // Even if count matches, verify each photo ID matches
         const idsMatch = uploadedPhotos.every((photo, index) => 
           displayPhotos[index] && photo.id === displayPhotos[index].id
         );
         if (!idsMatch) {
-          console.log('📍 Photos: Photo IDs changed, updating photos');
           setUploadedPhotos(displayPhotos);
         }
       }
@@ -289,7 +241,6 @@ const Photos = () => {
               };
             }).filter(photo => !!photo.base64);
             
-            console.log('📍 Photos: Loaded photos from subcollection:', loadedPhotos.length);
             setUploadedPhotos(loadedPhotos);
             
             // Also update context
@@ -306,7 +257,6 @@ const Photos = () => {
               const photosFromDraft = draftData.data?.photos || [];
               
               if (photosFromDraft.length > 0) {
-                console.log('📍 Photos: Found old photos in main document, migrating to subcollection...');
                 // Migrate old photos to subcollection
                 for (const photo of photosFromDraft) {
                   if (photo.base64) {
@@ -324,7 +274,6 @@ const Photos = () => {
                   "data.hasPhotos": true,
                   lastModified: new Date(),
                 });
-                console.log("✅ Photos: Migrated old photos to subcollection");
                 // Reload from subcollection
                 const newPhotosSnap = await getDocs(photosQuery);
                 const migratedPhotos = newPhotosSnap.docs.map(docSnap => {
@@ -345,8 +294,7 @@ const Photos = () => {
             }
           }
         } catch (error) {
-          console.error('📍 Photos: Error loading photos from Firebase draft:', error);
-        }
+          }
       }
     };
     
@@ -382,8 +330,7 @@ const Photos = () => {
         );
         actions.updatePhotos(photosWithBase64);
       } catch (error) {
-        console.error('Error converting photos to base64:', error);
-      }
+        }
     } else if (actions.updatePhotos && newPhotos.length === 0) {
       actions.updatePhotos([]);
     }
@@ -426,7 +373,6 @@ const Photos = () => {
         reader.readAsDataURL(blob);
       });
     } catch (error) {
-      console.error('Error converting blob URL to base64:', error);
       throw error;
     }
   };
@@ -459,7 +405,6 @@ const Photos = () => {
                 base64: base64 // Store base64 for Firestore
               };
             } catch (error) {
-              console.error('Error converting blob URL to base64:', error);
               return photo; // Return as-is if conversion fails
             }
           }
@@ -495,7 +440,6 @@ const Photos = () => {
       await actions.setCurrentStep('photos');
       }
     } catch (error) {
-      console.error('Error confirming photos:', error);
       alert('Error processing photos. Please try again.');
     }
   };
@@ -520,7 +464,6 @@ const Photos = () => {
         const data = draftSnap.data().data || {};
         // Check if photos exist in main document
         if ((data.photos && data.photos.length > 0)) {
-          console.log("🧹 Photos: Cleaning up photos from main document...");
           // Use a batch to ensure atomic update
           const batch = writeBatch(db);
           batch.update(draftRef, {
@@ -529,8 +472,7 @@ const Photos = () => {
             lastModified: new Date(),
           });
           await batch.commit();
-          console.log("✅ Photos: Cleaned up photos from main document");
-        }
+          }
       }
     } catch (error) {
       console.warn("⚠️ Photos: Could not clean up photos from main document (non-critical):", error.message);
@@ -566,13 +508,11 @@ const Photos = () => {
       // Delete photos that are no longer in the list
       const photosToDelete = existingPhotos.filter(p => !photosToKeepIds.has(p.id));
       if (photosToDelete.length > 0) {
-        console.log(`🗑️ Photos: Deleting ${photosToDelete.length} removed photos from subcollection`);
         const deletePromises = photosToDelete.map(photoToDelete => 
           deleteDoc(doc(db, "onboardingDrafts", draftIdToUse, "photos", photoToDelete.id))
         );
         await Promise.all(deletePromises);
-        console.log(`✅ Photos: Deleted ${photosToDelete.length} photos from subcollection`);
-      }
+        }
       
       // Save new or updated photos
       const savePromises = photosToSave.map(async (photo, index) => {
@@ -592,14 +532,12 @@ const Photos = () => {
               url: photo.base64,
               updatedAt: new Date(),
             });
-            console.log("✅ Photos: Updated existing photo in subcollection:", photo.firestoreId);
             return { index, firestoreId: photo.firestoreId };
           }
         }
         
         // Ensure base64 exists before saving new photo
         if (!photo.base64) {
-          console.warn("⚠️ Photos: Photo missing base64 data, skipping:", photo.name);
           return { index, firestoreId: null };
         }
         
@@ -611,7 +549,6 @@ const Photos = () => {
           createdAt: new Date(),
         });
         
-        console.log("✅ Photos: Saved new photo to Firestore subcollection:", docRef.id);
         return { index, firestoreId: docRef.id };
       });
       
@@ -629,7 +566,6 @@ const Photos = () => {
       });
       console.log("✅ Photos: Cleaned up photos from main document (photos stored in subcollection only)");
     } catch (error) {
-      console.error("❌ Photos: Error saving photos to subcollection:", error);
       throw error;
     }
   };
@@ -649,7 +585,6 @@ const Photos = () => {
           }))
         );
       } catch (error) {
-        console.error('📍 Photos: Error converting photos to base64:', error);
         // Fallback to summary if conversion fails
         photosToSave = photosData.map(photo => ({
           id: photo.id,
@@ -661,7 +596,6 @@ const Photos = () => {
     
     // If draftId is temp, reset it to find/create a real one
     if (draftIdToUse && draftIdToUse.startsWith('temp_')) {
-      console.log('📍 Photos: Found temp ID, resetting to find/create real draft');
       draftIdToUse = null;
     }
     
@@ -674,13 +608,11 @@ const Photos = () => {
         if (drafts.length > 0) {
           // Use the most recent draft
           draftIdToUse = drafts[0].id;
-          console.log('📍 Photos: Using existing draft:', draftIdToUse);
           if (actions.setDraftId) {
             actions.setDraftId(draftIdToUse);
           }
         } else {
           // No drafts exist, create a new one
-          console.log('📍 Photos: No existing drafts, creating new draft');
           // IMPORTANT: For save & exit, always save 'photos' as currentStep when targetRoute is '/pages/photos'
           let nextStep;
           if (targetRoute === '/pages/photos') {
@@ -697,13 +629,11 @@ const Photos = () => {
             }
           };
           draftIdToUse = await saveDraft(newDraftData, null);
-          console.log('📍 Photos: ✅ Created new draft:', draftIdToUse);
           if (actions.setDraftId) {
             actions.setDraftId(draftIdToUse);
           }
         }
       } catch (error) {
-        console.error('📍 Photos: Error finding/creating draft:', error);
         throw error;
       }
     }
@@ -742,7 +672,6 @@ const Photos = () => {
           } catch (updateError) {
             // If error is due to document size, try to clean up photos first
             if (updateError.message?.includes('exceeds the maximum allowed size')) {
-              console.warn('⚠️ Photos: Document too large, attempting cleanup...');
               await cleanupPhotosFromMainDocument(draftIdToUse);
               // Retry update without photos
               await updateDoc(draftRef, {
@@ -751,14 +680,12 @@ const Photos = () => {
                 currentStep: nextStep,
                 lastModified: new Date()
               });
-              console.log('✅ Photos: Successfully updated after cleanup');
-            } else {
+              } else {
               throw updateError;
             }
           }
         } else {
           // Document doesn't exist, create it
-          console.log('📍 Photos: Document not found, creating new one');
           const { saveDraft } = await import('@/pages/Host/services/draftService');
           // IMPORTANT: For save & exit, always save 'photos' as currentStep when targetRoute is '/pages/photos'
           let newCurrentStep;
@@ -776,7 +703,6 @@ const Photos = () => {
             }
           };
           draftIdToUse = await saveDraft(newDraftData, draftIdToUse);
-          console.log('📍 Photos: ✅ Created new draft:', draftIdToUse);
           if (actions.setDraftId) {
             actions.setDraftId(draftIdToUse);
           }
@@ -787,10 +713,8 @@ const Photos = () => {
         }
         return draftIdToUse;
       } catch (error) {
-        console.error('📍 Photos: ❌ Error saving to Firebase:', error);
         // If error is due to document size, try to clean up and retry
         if (error.message?.includes('exceeds the maximum allowed size')) {
-          console.warn('⚠️ Photos: Document too large, attempting cleanup and retry...');
           try {
             await cleanupPhotosFromMainDocument(draftIdToUse);
             // Save photos to subcollection (handles both adding new and removing old photos)
@@ -811,20 +735,16 @@ const Photos = () => {
               currentStep: nextStep,
               lastModified: new Date()
             });
-            console.log('✅ Photos: Successfully saved after cleanup');
             return draftIdToUse;
           } catch (retryError) {
-            console.error('❌ Photos: Error on retry after cleanup:', retryError);
             throw retryError;
           }
         }
         throw error;
       }
     } else if (state.user?.uid) {
-      console.warn('📍 Photos: ⚠️ User authenticated but no valid draftId after ensureDraftAndSave');
       throw new Error('Failed to create draft for authenticated user');
     } else {
-      console.warn('📍 Photos: ⚠️ User not authenticated, cannot save to Firebase');
       return null;
     }
   };
@@ -841,9 +761,7 @@ const Photos = () => {
       let draftIdToUse;
       try {
         draftIdToUse = await ensureDraftAndSave(uploadedPhotos, route);
-        console.log('📍 Photos: ✅ Saved photos to Firebase on Next click');
-      } catch (saveError) {
-        console.error('📍 Photos: Error saving to Firebase on Next:', saveError);
+        } catch (saveError) {
         // Continue navigation even if save fails - data is in context
       }
       
@@ -864,8 +782,6 @@ const Photos = () => {
         updateSessionStorageBeforeNav('photos', nextStep);
       }
       
-      console.log('Photos saved successfully:', uploadedPhotos.length);
-      
       // Navigate to the specified route
       navigate(route, {
         state: {
@@ -876,7 +792,6 @@ const Photos = () => {
         }
       });
     } catch (error) {
-      console.error('Error saving photos:', error);
       alert('Error saving progress. Please try again.');
     }
   };
@@ -935,9 +850,7 @@ const Photos = () => {
       try {
         const photoRef = doc(db, "onboardingDrafts", draftId, "photos", photoToRemove.firestoreId);
         await deleteDoc(photoRef);
-        console.log("✅ Photos: Deleted photo from Firestore subcollection:", photoToRemove.firestoreId);
-      } catch (error) {
-        console.error("❌ Photos: Error deleting photo from Firestore:", error);
+        } catch (error) {
         // Continue with local removal even if Firestore delete fails
       }
     }
@@ -1049,13 +962,9 @@ const Photos = () => {
 
   // Save & Exit handler
   const handleSaveAndExitClick = async () => {
-    console.log('Photos Save & Exit clicked');
-    console.log('Current uploadedPhotos:', uploadedPhotos);
-    
     try {
       // Set current step before saving so "Continue Editing" returns to this page
       if (actions.setCurrentStep) {
-        console.log('Photos: Setting currentStep to photos');
         actions.setCurrentStep('photos');
       }
       
@@ -1068,9 +977,7 @@ const Photos = () => {
       let draftIdToUse;
       try {
         draftIdToUse = await ensureDraftAndSave(uploadedPhotos, '/pages/photos');
-        console.log('📍 Photos: ✅ Saved photos to Firebase on Save & Exit');
-      } catch (saveError) {
-        console.error('📍 Photos: Error saving to Firebase on Save & Exit:', saveError);
+        } catch (saveError) {
         // Continue with save & exit even if Firebase save fails
         }
         
@@ -1091,7 +998,6 @@ const Photos = () => {
         });
       
     } catch (error) {
-      console.error('Error in Photos save:', error);
       alert('Failed to save progress: ' + error.message);
     }
   };
@@ -1174,7 +1080,6 @@ const Photos = () => {
                                 >
                                   <button
                                     onClick={() => {
-                                      console.log('Edit photo clicked for cover photo');
                                       setOpenMenuIndex(null);
                                     }}
                                     className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50"
@@ -1261,7 +1166,6 @@ const Photos = () => {
                                   >
                                     <button
                                       onClick={() => {
-                                        console.log('Edit photo clicked for index:', 1);
                                         setOpenMenuIndex(null);
                                       }}
                                       className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50"
@@ -1356,7 +1260,6 @@ const Photos = () => {
                                     >
                                       <button
                                         onClick={() => {
-                                          console.log('Edit photo clicked for index:', actualIndex);
                                           setOpenMenuIndex(null);
                                         }}
                                         className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50"
@@ -1452,7 +1355,6 @@ const Photos = () => {
                                     >
                                       <button
                                         onClick={() => {
-                                          console.log('Edit photo clicked for index:', actualIndex);
                                           setOpenMenuIndex(null);
                                         }}
                                         className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50"

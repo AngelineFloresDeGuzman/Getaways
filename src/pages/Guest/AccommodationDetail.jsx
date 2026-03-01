@@ -66,7 +66,6 @@ const AccommodationDetail = () => {
 
   // Debug: Track when unavailableDates state changes
   useEffect(() => {
-    console.log('📊 unavailableDates state changed:', unavailableDates.length, 'dates');
     if (unavailableDates.length > 0) {
       console.log('📊 Current unavailable dates:', unavailableDates.map(d => {
         if (d instanceof Date) {
@@ -83,9 +82,7 @@ const AccommodationDetail = () => {
 
     const loadUnavailableDates = async () => {
       try {
-        console.log('📅 Loading unavailable dates for listing:', id);
         const dates = await getUnavailableDates(id);
-        console.log('📅 Loaded unavailable dates:', dates.length, 'dates');
         if (dates.length > 0) {
           console.log('📅 Unavailable dates:', dates.map(d => {
             if (d instanceof Date) {
@@ -94,12 +91,9 @@ const AccommodationDetail = () => {
             return String(d);
           }));
         } else {
-          console.log('⚠️ No unavailable dates found - calendar will show all dates as available');
-        }
+          }
         setUnavailableDates(dates);
-        console.log('✅ unavailableDates state updated with', dates.length, 'dates');
-      } catch (error) {
-        console.error('❌ Error loading unavailable dates:', error);
+        } catch (error) {
         setUnavailableDates([]);
       }
     };
@@ -124,7 +118,6 @@ const AccommodationDetail = () => {
       unsubscribe = onSnapshot(
         bookingsQuery,
         (snapshot) => {
-          console.log('📅 Bookings snapshot update - docs:', snapshot.docs.length);
           // Log all booking statuses for debugging
                 snapshot.docs.forEach(doc => {
                   const booking = doc.data();
@@ -134,30 +127,23 @@ const AccommodationDetail = () => {
                 });
           });
           // When bookings change, reload unavailable dates (will include both confirmed and pending)
-          console.log('📅 Bookings changed, reloading unavailable dates...');
-                loadUnavailableDates();
+          loadUnavailableDates();
               },
         (error) => {
-          console.error('❌ Error in bookings snapshot:', error);
           // Fallback: periodic refresh if real-time listener fails
-          console.warn('⚠️ Real-time listener failed, using periodic refresh');
-                fallbackInterval = setInterval(() => {
-                  console.log('📅 Periodic refresh of unavailable dates...');
+          fallbackInterval = setInterval(() => {
                   loadUnavailableDates();
                 }, 10000); // Refresh every 10 seconds
         }
       );
     } catch (error) {
-      console.error('❌ Error setting up bookings listener:', error);
       // Fallback to periodic refresh if setup fails
       fallbackInterval = setInterval(() => {
-        console.log('📅 Periodic refresh of unavailable dates...');
         loadUnavailableDates();
       }, 10000); // Refresh every 10 seconds
     }
 
     return () => {
-      console.log('🧹 Cleaning up bookings listener');
       if (unsubscribe) {
         unsubscribe();
       }
@@ -237,7 +223,6 @@ const AccommodationDetail = () => {
         recalculatePrice();
       }
     } catch (error) {
-      console.error('Error validating coupon:', error);
       setCouponError('Failed to validate coupon. Please try again.');
       setCouponApplied(null);
       recalculatePrice();
@@ -268,13 +253,10 @@ const AccommodationDetail = () => {
 
       try {
         setLoading(true);
-        console.log('📦 AccommodationDetail: Fetching accommodation with ID:', id);
-        
         const docRef = doc(db, 'listings', id);
         const docSnap = await getDoc(docRef);
         
         if (!docSnap.exists()) {
-          console.error('❌ Accommodation not found:', id);
           setError('Accommodation not found');
           setLoading(false);
           return;
@@ -414,7 +396,6 @@ const AccommodationDetail = () => {
           category: data.category
         };
         
-        console.log('✅ AccommodationDetail: Loaded accommodation:', accommodationData.title);
         setAccommodation(accommodationData);
         
         // Load reviews for this listing
@@ -433,8 +414,7 @@ const AccommodationDetail = () => {
             }));
           }
         } catch (error) {
-          console.error('Error loading reviews:', error);
-        } finally {
+          } finally {
           setReviewsLoading(false);
         }
         
@@ -474,7 +454,6 @@ const AccommodationDetail = () => {
               });
             }
           } catch (hostError) {
-            console.warn('Could not load host profile:', hostError);
             // Set fallback
             setHostProfile({
               name: accommodationData.ownerEmail?.split('@')[0] || 'Host',
@@ -484,7 +463,6 @@ const AccommodationDetail = () => {
           }
         }
       } catch (err) {
-        console.error('❌ Error fetching accommodation:', err);
         setError('Failed to load accommodation');
       } finally {
         setLoading(false);
@@ -1208,7 +1186,6 @@ const AccommodationDetail = () => {
                             
                             return dateStr === unavailableStr;
                           } catch (error) {
-                            console.warn('Error comparing unavailable date:', error);
                             return false;
                           }
                         });
@@ -1410,8 +1387,7 @@ const AccommodationDetail = () => {
                           const conversationId = await startConversation(hostId, accommodation.id);
                           navigate(`/messages?conversation=${conversationId}`);
                         } catch (error) {
-                          console.error('Error contacting host:', error);
-                        }
+                          }
                       }}
                       className="text-sm text-primary hover:underline font-medium"
                     >

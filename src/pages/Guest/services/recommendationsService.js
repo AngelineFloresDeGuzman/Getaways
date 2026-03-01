@@ -45,7 +45,6 @@ const getUserBookingHistory = async (userId) => {
           }
           return null;
         } catch (error) {
-          console.error('Error loading listing for recommendation:', error);
           return null;
         }
       })
@@ -53,7 +52,6 @@ const getUserBookingHistory = async (userId) => {
 
     return bookingsWithListings.filter(Boolean);
   } catch (error) {
-    console.error('Error getting user booking history:', error);
     return [];
   }
 };
@@ -230,8 +228,7 @@ export const getRecommendations = async (userId, limitCount = 12, categoryFilter
           }
         });
       } catch (error) {
-        console.warn('Error querying by location:', error);
-      }
+        }
     }
 
     // Strategy 2: Similar category with price range match
@@ -264,8 +261,7 @@ export const getRecommendations = async (userId, limitCount = 12, categoryFilter
           }
         });
       } catch (error) {
-        console.warn('Error querying by price range:', error);
-      }
+        }
     }
 
     // Strategy 3: Similar amenities
@@ -310,8 +306,7 @@ export const getRecommendations = async (userId, limitCount = 12, categoryFilter
           }
         });
       } catch (error) {
-        console.warn('Error querying by amenities:', error);
-      }
+        }
     }
 
     // Strategy 4: Fill remaining slots with high-rated listings in same category
@@ -341,15 +336,13 @@ export const getRecommendations = async (userId, limitCount = 12, categoryFilter
           }
         });
       } catch (error) {
-        console.warn('Error querying high-rated listings:', error);
-      }
+        }
     }
 
     // Shuffle and limit results
     const shuffled = recommendations.sort(() => Math.random() - 0.5);
     return shuffled.slice(0, limitCount);
   } catch (error) {
-    console.error('Error getting recommendations:', error);
     return [];
   }
 };
@@ -430,7 +423,6 @@ export const getPopularRecommendations = async (limitCount = 12, category = null
 
     return listings.slice(0, limitCount);
   } catch (error) {
-    console.error('Error getting popular recommendations:', error);
     return [];
   }
 };
@@ -496,12 +488,10 @@ export const getSimilarListings = async (listingId, limitCount = 6) => {
       // Sort by similarity score
       recommendations.sort((a, b) => (b.similarityScore || 0) - (a.similarityScore || 0));
     } catch (error) {
-      console.warn('Error getting similar listings:', error);
-    }
+      }
 
     return recommendations.slice(0, limitCount);
   } catch (error) {
-    console.error('Error getting similar listings:', error);
     return [];
   }
 };

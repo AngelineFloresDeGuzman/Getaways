@@ -53,8 +53,7 @@ const ExperienceYearsOfExperience = () => {
           }
         }
       } catch (error) {
-        console.error('Error loading draft:', error);
-      }
+        }
     };
 
     loadData();
@@ -106,7 +105,6 @@ const ExperienceYearsOfExperience = () => {
           actions.setDraftId(draftId);
         }
       } catch (error) {
-        console.error('Error creating/finding draft:', error);
         return;
       }
     }
@@ -122,8 +120,7 @@ const ExperienceYearsOfExperience = () => {
           lastModified: new Date(),
         });
       } catch (error) {
-        console.error('Error saving draft:', error);
-      }
+        }
     }
   };
 
@@ -141,7 +138,6 @@ const ExperienceYearsOfExperience = () => {
         }
       });
     } catch (error) {
-      console.error('Error in handleNext:', error);
       // Navigate even on error
       navigate('/pages/experience-qualifications', {
         state: {
@@ -181,7 +177,6 @@ const ExperienceYearsOfExperience = () => {
         }
       });
     } catch (error) {
-      console.error('Error saving and exiting:', error);
       navigate('/host/listings');
     } finally {
       setIsLoading(false);

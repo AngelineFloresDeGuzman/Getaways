@@ -41,8 +41,7 @@ const OfferingPriceFixed = () => {
               }
             }
           } catch (error) {
-            console.error("Error loading fixed price:", error);
-          }
+            }
         }
       }
       // When creating a new offering, start with empty value
@@ -107,11 +106,9 @@ const OfferingPriceFixed = () => {
             "data.serviceOfferings": offerings,
             lastModified: new Date(),
           });
-          console.log("✅ Saved offering to Firebase");
-        }
+          }
       } catch (error) {
-        console.error("Error saving offering to Firebase:", error);
-      }
+        }
     }
   };
 

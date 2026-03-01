@@ -60,8 +60,7 @@ const ExperienceQualifications = () => {
           }
         }
       } catch (error) {
-        console.error("Error loading qualifications data:", error);
-      }
+        }
     };
     loadData();
   }, [draftId, location.state?.experienceCategory]);
@@ -83,7 +82,6 @@ const ExperienceQualifications = () => {
         const { auth } = await import("@/lib/firebase");
         const currentUser = auth.currentUser;
         if (!currentUser) {
-          console.warn("⚠️ ExperienceQualifications: User not authenticated, cannot create draft");
           return null;
         }
         
@@ -97,8 +95,6 @@ const ExperienceQualifications = () => {
         
         if (experienceDraft) {
           currentDraftId = experienceDraft.id;
-          console.log("✅ ExperienceQualifications: Found existing experience draft:", currentDraftId);
-          
           // Update state with found draftId
           if (actions?.setDraftId) {
             actions.setDraftId(currentDraftId);
@@ -116,15 +112,12 @@ const ExperienceQualifications = () => {
             }
           };
           currentDraftId = await saveDraft(newDraftData, null);
-          console.log("✅ ExperienceQualifications: Created new draft:", currentDraftId);
-          
           // Update state with new draftId
           if (actions?.setDraftId) {
             actions.setDraftId(currentDraftId);
           }
         }
       } catch (error) {
-        console.error("❌ ExperienceQualifications: Error creating/finding draft:", error);
         throw error;
       }
     }
@@ -141,9 +134,7 @@ const ExperienceQualifications = () => {
           "data.experienceCategory": mainCategory || location.state?.experienceCategory || "art-and-design",
           lastModified: new Date(),
         });
-        console.log("✅ ExperienceQualifications: Saved qualifications data to draft:", currentDraftId);
-      } catch (error) {
-        console.error("❌ ExperienceQualifications: Error saving qualifications data:", error);
+        } catch (error) {
         throw error;
       }
     }
@@ -187,7 +178,6 @@ const ExperienceQualifications = () => {
         },
       });
     } catch (error) {
-      console.error("Error in handleNext:", error);
       alert("Failed to save progress. Please try again.");
     } finally {
       setIsLoading(false);
@@ -216,7 +206,6 @@ const ExperienceQualifications = () => {
         },
       });
     } catch (error) {
-      console.error("❌ Error saving and exiting:", error);
       alert("Failed to save. Please try again.");
     }
   };

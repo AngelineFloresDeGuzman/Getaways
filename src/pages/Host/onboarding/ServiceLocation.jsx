@@ -203,8 +203,7 @@ const ServiceLocation = () => {
               setMainCategory(draftSnap.data().data.serviceCategory);
             }
           } catch (error) {
-            console.error("Error loading service category from draft:", error);
-          }
+            }
         }
       }
     };
@@ -223,8 +222,7 @@ const ServiceLocation = () => {
             setCity(draftSnap.data().data.serviceCity);
           }
         } catch (error) {
-          console.error("Error loading service city from draft:", error);
-        }
+          }
       }
     };
     loadCity();
@@ -239,7 +237,6 @@ const ServiceLocation = () => {
         const { auth } = await import("@/lib/firebase");
         const currentUser = auth.currentUser;
         if (!currentUser) {
-          console.warn("⚠️ ServiceLocation: User not authenticated, cannot create draft");
           return null;
         }
         
@@ -253,14 +250,11 @@ const ServiceLocation = () => {
           }
         };
         draftId = await saveDraft(newDraftData, null);
-        console.log("✅ ServiceLocation: Created new draft:", draftId);
-        
         // Update state with new draftId
         if (actions?.setDraftId) {
           actions.setDraftId(draftId);
         }
       } catch (error) {
-        console.error("❌ ServiceLocation: Error creating draft:", error);
         throw error;
       }
     }
@@ -274,9 +268,7 @@ const ServiceLocation = () => {
           "data.serviceCategory": mainCategory,
           lastModified: new Date(),
         });
-        console.log("✅ ServiceLocation: Draft saved successfully");
-      } catch (error) {
-        console.error("❌ ServiceLocation: Error saving data:", error);
+        } catch (error) {
         throw error;
       }
     }
@@ -302,7 +294,6 @@ const ServiceLocation = () => {
         },
       });
     } catch (error) {
-      console.error("❌ Error saving draft:", error);
       alert("Failed to save. Please try again.");
     }
   };
@@ -328,7 +319,6 @@ const ServiceLocation = () => {
         },
       });
     } catch (error) {
-      console.error("❌ Error in handleNext:", error);
       alert("Failed to save progress. Please try again.");
     }
   };
@@ -375,8 +365,7 @@ const ServiceLocation = () => {
       if (proxyError.name === 'AbortError') {
         throw proxyError;
       }
-      console.log('Vite proxy failed, trying alternatives...', proxyError.message);
-    }
+      }
     
     try {
       const response = await fetch(nominatimUrl, {
@@ -396,8 +385,7 @@ const ServiceLocation = () => {
       if (directError.name === 'AbortError') {
         throw directError;
       }
-      console.log('Direct request failed, trying public proxies...', directError.message);
-    }
+      }
     
     const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(nominatimUrl)}`;
     let timeoutId = null;
@@ -432,10 +420,8 @@ const ServiceLocation = () => {
       }
     } catch (error) {
       if (error.name === 'AbortError') {
-        console.log('Proxy timed out');
-      } else {
-        console.log('Proxy failed:', error.message);
-      }
+        } else {
+        }
       throw error;
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
@@ -486,7 +472,6 @@ const ServiceLocation = () => {
           if (error.name === 'AbortError') {
             return;
           }
-          console.error('Error fetching city suggestions:', error);
           results = [];
         }
         
@@ -511,7 +496,6 @@ const ServiceLocation = () => {
         if (error.name === 'AbortError') {
           return;
         }
-        console.error('Error fetching city suggestions:', error);
         setCitySuggestions([]);
         setIsSearching(false);
       }
@@ -565,12 +549,10 @@ const ServiceLocation = () => {
               setShowModal(false);
             }
           } catch (error) {
-            console.error("Error getting location:", error);
             alert("Unable to get your current location. Please enter a city manually.");
           }
         },
         (error) => {
-          console.error("Geolocation error:", error);
           alert("Unable to access your location. Please enter a city manually.");
         }
       );
